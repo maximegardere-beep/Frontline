@@ -30,9 +30,10 @@ mais `dist/frontline.html` si.
 | Zoomer | molette | pincer, ou boutons + / − |
 | Vue d'ensemble, grille | boutons à droite de la carte (`G` pour la grille) | idem |
 | Mode directives | drapeau à droite de la carte (`D`) | idem |
+| Son | haut-parleur à droite de la carte (`M`) ; coupé, le choix est mémorisé | idem |
 | Panneaux Unité / Troupes / Journal | colonne de droite | onglets en bas ; toucher l'onglet actif replie le tiroir |
 
-Raccourcis clavier : `Tab` unité suivante, `E` retrancher, `B` barrage, `H` annuler, `D` mode directives, `Entrée` exécuter.
+Raccourcis clavier : `Tab` unité suivante, `E` retrancher, `B` barrage, `H` annuler, `D` mode directives, `M` son, `Entrée` exécuter.
 
 ## Rendu : terrain continu sur grille
 
@@ -55,6 +56,14 @@ Le rendu en tire une image continue :
   puis fument pendant deux tours. Elles restent jusqu'à la fin de la bataille.
 
 La grille reste affichée en filigrane (bouton ⬡ pour la renforcer ou la masquer).
+
+## Son
+
+Tout est synthétisé à la volée (Web Audio), sans aucun fichier : départs de coups, sifflement des obus,
+explosions et crépitement des épaves, calés sur la chronologie des effets visuels et placés en stéréo
+selon leur position à l'écran (plus faibles hors champ) ; moteurs et chenilles des blindés, pas de
+l'infanterie pendant les mouvements ; vent et canonnade lointaine en fond ; déclics d'interface,
+transmission radio à l'exécution et cloche de fin de tour. Les tirs d'un ennemi invisible s'entendent étouffés.
 
 ## Déroulement
 
@@ -137,6 +146,7 @@ dernier mouvement observé : c'est la base pour anticiper et placer ses barrages
 | `src/ai.js` | IA adverse (ne voit que ce que voient ses unités) ; sert aussi d'état-major en mode directives |
 | `src/campaign.js` | Enchaînement des batailles, expérience, renforts |
 | `src/fx.js` | Effets de combat (tirs, explosions, fumée) et traces durables (cratères, ornières, épaves) |
+| `src/audio.js` | Sons synthétisés (Web Audio) : combat, mouvements, fond sonore, interface |
 | `src/render.js` | Rendu Canvas : terrain continu, caméra (zoom, déplacement), pions, directives |
 | `src/main.js` | Interface, gestes tactiles, animation |
 

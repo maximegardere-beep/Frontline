@@ -7,6 +7,7 @@ import { generateArmy, unitStats, resetIds } from '../src/units.js';
 import { createBattle, executeTurn, onMap } from '../src/game.js';
 import { planSide, assignDirectives } from '../src/ai.js';
 import { buildCombatFx } from '../src/fx.js';
+import { sound } from '../src/audio.js';
 import { moveCost } from '../src/terrain.js';
 import { fireOdds } from '../src/combat.js';
 import { newCampaign, battleSetup, concludeBattle, campaignOver } from '../src/campaign.js';
@@ -182,4 +183,23 @@ test('les effets de combat sont reproductibles et finissent', () => {
   assert.ok(a.items.some((i) => i.k === 'blast' && i.kill), 'explosion finale');
   const hiddenTracers = a.items.filter((i) => i.k === 'tracer' && Math.abs(i.by) < 15 && i.bx < 70);
   assert.ok(hiddenTracers.every((i) => i.ax > 10), 'le tir d\'un tireur caché ne part pas de sa vraie position');
+});
+
+test('la chronologie sonore suit les effets de combat', () => {
+  const fires = [
+    { a: { x: 0, y: 0 }, b: { x: 200, y: 0 }, type: 'artillery', indirect: true, hidden: false, dice: 5, hits: 2, damage: 3, empty: false, kill: true },
+    { a: { x: 0, y: 0 }, b: { x: 50, y: 0 }, type: 'infantry', indirect: false, hidden: true, dice: 4, hits: 0, damage: 0, empty: false, kill: false },
+  ];
+  const { sounds, duration } = buildCombatFx(fires, 'snd');
+  assert.ok(sounds.every((x, i) => i === 0 || x.t >= sounds[i - 1].t), 'triée dans le temps');
+  assert.ok(sounds.every((x) => x.t >= 0 && x.t <= duration));
+  for (const k of ['cannon', 'whistle', 'blast', 'rifle']) assert.ok(sounds.some((x) => x.k === k), k);
+  assert.ok(sounds.some((x) => x.k === 'blast' && x.kill), 'destruction');
+  assert.ok(sounds.filter((x) => x.k === 'rifle').every((x) => x.far), 'tireur caché entendu de loin');
+  // Sans Web Audio (Node), le module son ne fait rien et ne plante pas.
+  sound.unlock();
+  sound.combat(sounds);
+  sound.movement({ tanks: [{ x: 0, y: 0 }], foot: [] }, 1);
+  sound.ambient(true);
+  sound.ui('bell');
 });

@@ -4,6 +4,7 @@ import { Renderer, HEX, splineAt } from './render.js';
 import { createBattle, executeTurn, onMap, active, unitAt, canDeployAt, updateVisibility, HOLD_TO_WIN } from './game.js';
 import { planSide, DIRECTIVES } from './ai.js';
 import { buildCombatFx } from './fx.js';
+import { sound } from './audio.js';
 import { createRng } from './rng.js';
 import { reachable, pathFrom, hexKey, pathCost } from './path.js';
 import { unitStats, UNIT_TYPES, LEVELS, SIDES, other, hpState, resetIds, XP_FOR_LEVEL } from './units.js';
@@ -62,8 +63,14 @@ function showDossier(html, bind) {
   $('overlay').hidden = false;
   $('dossier').scrollTop = 0;
   bind?.();
+  syncAmbient();
 }
-function hideDossier() { $('overlay').hidden = true; }
+function hideDossier() { $('overlay').hidden = true; syncAmbient(); }
+
+// Fond sonore (vent, canonnade lointaine) seulement sur le champ de bataille, pas derrière les menus.
+function syncAmbient() {
+  sound.ambient(!!ui.inGame && $('overlay').hidden && ui.state?.phase !== 'over');
+}
 
 const FACTION_TEXT = {
   DE: 'Moins nombreux, mieux entraînés. Blindés plus meurtriers, reconnaissance plus rapide, davantage de vétérans.',
@@ -243,7 +250,7 @@ function select(u, { focus = false } = {}) {
   ui.selectedId = u?.id ?? null;
   ui.mode = 'move';
   ui.preview = null;
-  if (u) ui.tab = 'unit';
+  if (u) { ui.tab = 'unit'; sound.ui('select'); }
   if (u && focus) ui.renderer.focus(u);
   refresh();
 }
@@ -263,6 +270,7 @@ function onMapClick(ev) {
     if (sel && canDeployAt(s, player(), h)) {
       sel.col = h.col;
       sel.row = h.row;
+      sound.ui('order');
       updateVisibility(s);
       refresh();
     }
@@ -358,6 +366,7 @@ function staffPlan() {
 
 // Un ordre donné à la main suspend la directive de cette unité jusqu'à la fin du tour.
 function takeOver(u) {
+  sound.ui('order');
   if (ui.command) ui.manual.add(u.id);
 }
 
@@ -434,6 +443,7 @@ async function endPhase() {
   const hpStart = Object.fromEntries(s.units.map((u) => [u.id, u.hp]));
   s.phase = 'execute';
   refresh();
+  sound.ui('go');
   const res = executeTurn(s);
   const visEnd = s.visibility[me].units;
   ui.animVisible = new Set([...visStart, ...visEnd]);
@@ -459,6 +469,15 @@ async function endPhase() {
   const tickMs = reduceMotion ? 60 : 330;
   const trails = {};
   if (steps > 0) {
+    // Moteurs et pas des unités visibles qui se déplacent, situés au milieu de leur trajet.
+    const moving = { tanks: [], foot: [] };
+    for (const id of ids) {
+      const pts = tracks[id].pts;
+      const u = s.units.find((x) => x.id === id);
+      if (!(u.side === me || ui.animVisible.has(id)) || pts.every((p) => p.x === pts[0].x && p.y === pts[0].y)) continue;
+      (u.type === 'tank' ? moving.tanks : moving.foot).push(pts[pts.length >> 1]);
+    }
+    sound.movement(moving, (tickMs * steps) / 1000);
     await tween(tickMs * steps, (k) => {
       const u = k * steps;
       const pos = {};
@@ -507,6 +526,7 @@ async function endPhase() {
     const seed = `fx:${s.seed}:${s.turn}`;
     const fx = buildCombatFx(fires, seed);
     const speed = reduceMotion ? 3 : 1;
+    sound.combat(fx.sounds, speed);
     await tween((fx.duration / speed) * 1000, (k) => {
       const T = k * fx.duration;
       ui.fx = { fx, T };
@@ -531,6 +551,7 @@ async function endPhase() {
   staffPlan();
   refresh();
   ambient();
+  if (!s.result) sound.ui('bell');
   if (s.result) {
     await wait(reduceMotion ? 100 : 900);
     showDebrief();
@@ -603,6 +624,7 @@ function refresh() {
   renderUnitCard();
   renderArmy();
   renderLog();
+  syncAmbient();
 }
 
 function renderObjective() {
@@ -817,8 +839,27 @@ function bindMapInput() {
   new ResizeObserver(() => { if (ui.state) { r.resize(); draw(); } }).observe($('map').parentElement);
 }
 
+// Panoramique et volume d'un son selon sa place à l'écran : plus faible hors champ.
+function locateSound(x, y) {
+  const r = ui.renderer, c = r.cam;
+  const sx = (x - c.x) * c.s, sy = (y - c.y) * c.s;
+  const off = Math.max(0, -sx, sx - r.vw, -sy, sy - r.vh) / Math.max(r.vw, r.vh, 1);
+  return { pan: Math.max(-0.8, Math.min(0.8, (sx / (r.vw || 1)) * 1.6 - 0.8)), gain: 1 / (1 + 2.5 * off) };
+}
+
+function setMuted(m) {
+  sound.setMuted(m);
+  $('sound-toggle').setAttribute('aria-pressed', String(!m));
+  $('sound-toggle').setAttribute('aria-label', m ? 'Activer le son' : 'Couper le son');
+}
+
 function start() {
   bindMapInput();
+  sound.locate = locateSound;
+  // Le navigateur (iOS surtout) n'ouvre le son qu'à la suite d'un geste.
+  for (const ev of ['pointerdown', 'keydown']) window.addEventListener(ev, () => sound.unlock(), { capture: true });
+  setMuted(sound.muted);
+  $('sound-toggle').addEventListener('click', () => setMuted(!sound.muted));
   // Toucher l'onglet actif replie le tiroir (plus de place pour la carte sur téléphone).
   document.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', () => {
     const side = document.querySelector('.side');
@@ -840,6 +881,7 @@ function start() {
     else if (e.key === 'b' || e.key === 'B') setOrder('barrage');
     else if (e.key === 'h' || e.key === 'H') setOrder('hold');
     else if (e.key === 'g' || e.key === 'G') $('grid-toggle').click();
+    else if (e.key === 'm' || e.key === 'M') setMuted(!sound.muted);
   });
   // Partie de démonstration en fond derrière le menu.
   resetIds();

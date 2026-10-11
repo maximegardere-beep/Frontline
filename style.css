@@ -139,6 +139,7 @@ kbd {
 }
 .tool svg { width: 20px; height: 20px; }
 .tool[aria-pressed="false"] { color: var(--muted); }
+#sound-toggle[aria-pressed="true"] .snd-off, #sound-toggle[aria-pressed="false"] .snd-on { display: none; }
 /* Mode directives : barre flottante en haut de la carte. */
 .directive-bar {
   position: absolute;

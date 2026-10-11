@@ -1,5 +1,6 @@
 // Effets de combat : tirs, obus, explosions, fumée ; puis traces durables (cratères, brûlures, ornières, épaves).
 // Tout est calculé à l'avance à partir d'une graine : une image ne dépend que du temps écoulé.
+// La chronologie sonore (sounds) suit les mêmes instants : départs des coups, sifflements, impacts.
 
 import { createRng } from './rng.js';
 
@@ -35,6 +36,8 @@ function makeBlast(rng, x, y, t0, size, { kill = false } = {}) {
 export function buildCombatFx(fires, seed) {
   const rng = createRng(seed);
   const items = [];
+  const sounds = [];
+  const snd = (t, k, p, extra) => sounds.push({ t, k, x: p.x, y: p.y, ...extra });
   const jit = (p, r) => ({ x: p.x + (rng.next() - 0.5) * 2 * r, y: p.y + (rng.next() - 0.5) * 2 * r });
   fires.forEach((f, i) => {
     const t0 = (i % 7) * 0.17 + rng.next() * 0.12;
@@ -56,9 +59,12 @@ export function buildCombatFx(fires, seed) {
         const from = f.hidden ? { x: b.x + (dx / len) * 90, y: b.y - 150 } : a;
         const to = jit(b, f.empty ? 22 : 14);
         const flight = f.hidden ? 0.35 : 0.5 + Math.min(0.25, len / 900);
+        snd(tt, 'cannon', f.hidden ? b : a, { heavy: true, far: f.hidden });
+        snd(tt, 'whistle', to, { dur: flight });
         items.push({ k: 'shell', ax: from.x, ay: from.y, bx: to.x, by: to.y, t0: tt, life: flight, arc: f.hidden ? 0 : 50 + len * 0.18 });
         const hit = j < Math.max(1, f.hits);
         items.push(makeBlast(rng, to.x, to.y, tt + flight, hit && !f.empty ? 20 : 16));
+        snd(tt + flight, 'blast', to, { size: hit && !f.empty ? 20 : 16 });
         if (j === 0) impact = tt + flight;
         lastImpact = tt + flight;
       }
@@ -73,7 +79,8 @@ export function buildCombatFx(fires, seed) {
         const hit = j < f.hits;
         const to = jit(b, hit ? 7 : 18);
         items.push({ k: 'tracer', ax: src.x, ay: src.y, bx: to.x, by: to.y, t0: tt, life: 0.12, heavy: true });
-        if (hit) items.push(makeBlast(rng, to.x, to.y, tt + 0.12, 13));
+        snd(tt, 'cannon', src, { far: f.hidden, heavy: f.type === 'artillery' });
+        if (hit) { items.push(makeBlast(rng, to.x, to.y, tt + 0.12, 13)); snd(tt + 0.12, 'blast', to, { size: 13 }); }
         else items.push({ k: 'dust', ...to, t0: tt + 0.12, life: 1, r: 12 });
         if (j === 0) impact = tt + 0.12;
         lastImpact = tt + 0.12;
@@ -84,6 +91,7 @@ export function buildCombatFx(fires, seed) {
       for (let j = 0; j < n; j++) {
         const tt = t0 + j * 0.075 + rng.next() * 0.04;
         if (!f.hidden) items.push({ k: 'flash', ...jit(a, 6), t0: tt, life: 0.07, r: 7 });
+        snd(tt, 'rifle', src, { far: f.hidden });
         const to = jit(b, 10);
         items.push({ k: 'tracer', ax: src.x, ay: src.y, bx: to.x, by: to.y, t0: tt, life: 0.16 });
         items.push({ k: 'spark', ...to, t0: tt + 0.16, life: 0.4, hit: j < f.hits });
@@ -95,12 +103,14 @@ export function buildCombatFx(fires, seed) {
     if (f.kill) {
       const tk = lastImpact + 0.15;
       items.push(makeBlast(rng, b.x, b.y, tk, 30, { kill: true }));
+      snd(tk, 'blast', b, { size: 30, kill: true });
       items.push({ k: 'fire', ...b, t0: tk + 0.1, life: 1.6 });
     }
     if (!f.empty) items.push({ k: 'text', ...b, t0: impact, life: 1.1, txt: f.damage ? `−${f.damage}` : 'raté', hit: f.damage > 0 });
   });
   const duration = items.reduce((m, it) => Math.max(m, it.t0 + it.life), 0);
-  return { items, duration };
+  sounds.sort((x, y) => x.t - y.t);
+  return { items, duration, sounds };
 }
 
 // Secousse de la carte : brève, seulement pour les grosses explosions.
