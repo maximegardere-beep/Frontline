@@ -1,0 +1,112 @@
+// IA de l'état-major adverse. Elle ne voit que ce que voient ses unités (brouillard + mémoire)
+// et anticipe les mouvements ennemis à partir des dernières observations.
+
+import { hexDistance } from './hex.js';
+import { tileAt, terrainDefense } from './terrain.js';
+import { unitStats, other, UNIT_TYPES } from './units.js';
+import { reachable, pathFrom, hexKey, keyHex } from './path.js';
+import { active, onMap, predictPosition, retreatCol } from './game.js';
+
+const VALUE = { infantry: 2, recon: 1, artillery: 3, tank: 4 };
+
+export function planSide(state, side) {
+  const { map, rng } = state;
+  const foe = other(side);
+  const mine = state.units.filter((u) => u.side === side && active(u));
+  const known = Object.entries(state.memory[side])
+    .map(([id, m]) => ({ id, ...m, pred: predictPosition(state, m), age: state.turn - m.turn }))
+    .filter((k) => k.age <= 4);
+
+  // Rapport de force estimé : les ennemis jamais vus comptent pour une infanterie moyenne.
+  const myPower = mine.reduce((s, u) => s + UNIT_TYPES[u.type].cost * (u.hp / unitStats(u).maxHp), 0);
+  const foeAlive = state.units.filter((u) => u.side === foe && active(u)).length; // effectif connu par l'ordre de bataille
+  const seenPower = known.reduce((s, k) => s + UNIT_TYPES[k.type].cost * ({ intacte: 1, entamée: 0.6, affaiblie: 0.35, décimée: 0.15 }[k.hpState] ?? 1), 0);
+  const foePower = seenPower + Math.max(0, foeAlive - known.length) * 2;
+  const ratio = myPower / Math.max(1, foePower);
+  const stance = ratio > 1.25 ? 'attack' : ratio < 0.75 ? 'defend' : 'balanced';
+
+  const obj = state.objective;
+  const enemyEdge = retreatCol(state, foe);
+  const ownEdge = retreatCol(state, side);
+  const reserved = new Set();
+  const enemyKeys = new Set(known.filter((k) => k.age === 0).map((k) => hexKey(map, k)));
+  const knownDanger = (h) => known.reduce((s, k) => s + (hexDistance(h, k.pred) <= 2 ? VALUE[k.type] : 0), 0);
+
+  // Garnison : l'unité d'infanterie la plus proche de l'objectif s'y installe.
+  let garrison = null;
+  if (obj) {
+    const inf = mine.filter((u) => u.type === 'infantry' || u.type === 'tank');
+    inf.sort((a, b) => hexDistance(a, obj) - hexDistance(b, obj));
+    garrison = inf[0] ?? null;
+  }
+
+  const order = ['recon', 'tank', 'infantry', 'artillery'];
+  for (const u of [...mine].sort((a, b) => order.indexOf(a.type) - order.indexOf(b.type))) {
+    const s = unitStats(u);
+    u.orders = { path: [], entrench: false, fireAt: null };
+    const hpRatio = u.hp / s.maxHp;
+
+    // Artillerie : barrage sur la position anticipée de la cible la plus intéressante.
+    if (u.type === 'artillery') {
+      let best = null, bestV = 0;
+      for (const k of known) {
+        const d = hexDistance(u, k.pred);
+        if (d < s.minRange || d > s.range) continue;
+        const near = mine.some((m) => m !== u && hexDistance(m, k.pred) <= 1);
+        const v = VALUE[k.type] * (k.age === 0 ? 1.5 : 1) + (near ? 1 : 0) + rng.next() * 0.5;
+        if (v > bestV) { bestV = v; best = k; }
+      }
+      if (best) {
+        u.orders.fireAt = { col: best.pred.col, row: best.pred.row };
+        u.orders.entrench = true;
+        reserved.add(hexKey(map, u));
+        continue;
+      }
+    }
+
+    let goal;
+    let aggressive = false;
+    if (hpRatio < 0.35) goal = { col: ownEdge, row: u.row };
+    else if (u === garrison) goal = obj;
+    else {
+      const targets = known.filter((k) => k.status !== 'routed' || u.type === 'tank');
+      targets.sort((a, b) => hexDistance(u, a.pred) - hexDistance(u, b.pred));
+      const tgt = targets[0];
+      if (tgt && (u.type === 'tank' || u.type === 'infantry') && stance !== 'defend') {
+        goal = tgt.pred;
+        aggressive = true;
+      } else if (obj && stance !== 'defend') goal = obj;
+      else if (tgt) goal = tgt.pred;
+      else goal = { col: stance === 'defend' ? Math.round((ownEdge * 2 + enemyEdge) / 3) : enemyEdge, row: u.row };
+    }
+
+    const blocked = new Set([...enemyKeys, ...reserved]);
+    blocked.delete(hexKey(map, u));
+    const reach = reachable(map, u, { blocked });
+    const wGoal = { attack: 1, balanced: 0.65, defend: 0.3 }[stance] * (u.type === 'recon' && state.turn <= 3 ? 1.4 : 1);
+    let best = null, bestScore = -Infinity;
+    for (const [k] of reach) {
+      const h = keyHex(map, k);
+      const t = tileAt(map, h.col, h.row);
+      if (t.terrain === 'marsh' && u.type === 'tank') continue;
+      let score = -hexDistance(h, goal) * wGoal + terrainDefense(t) * 0.9 + t.elev * 0.25 + rng.next() * 0.3;
+      const danger = knownDanger(h);
+      if (u.type === 'artillery' || u.type === 'recon') score -= danger * 0.8;
+      else if (!aggressive) score -= danger * 0.25;
+      if (aggressive) {
+        const inRange = known.some((e) => { const d = hexDistance(h, e.pred); return d >= 1 && d <= s.range; });
+        if (inRange) score += 1.5 * (ratio > 1 ? 1.3 : 0.8);
+      }
+      if (u.type === 'artillery') {
+        const covers = known.some((e) => { const d = hexDistance(h, e.pred); return d >= s.minRange && d <= s.range; });
+        if (covers) score += 2;
+      }
+      if (k === hexKey(map, u)) score += 0.4 + u.entrench * 0.6 + (stance === 'defend' ? 1 : 0);
+      if (obj && u === garrison && h.col === obj.col && h.row === obj.row) score += 5;
+      if (score > bestScore) { bestScore = score; best = h; }
+    }
+    reserved.add(hexKey(map, best));
+    if (best.col === u.col && best.row === u.row) u.orders.entrench = true;
+    else u.orders.path = pathFrom(map, reach, best);
+  }
+}

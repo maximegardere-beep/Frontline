@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Frontline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Stencil+Display:wght@600;800&family=IBM+Plex+Mono:wght@500;700&family=IBM+Plex+Sans+Condensed:ital,wght@0,400;0,600;1,400&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<!--APP-->
+<div class="app">
+  <header class="bar">
+    <div class="brand">
+      <span class="brand-name">Frontline</span>
+      <span class="brand-sub">Front de l'Est · 1943</span>
+    </div>
+    <div class="status">
+      <span id="battle-name" class="battle-name"></span>
+      <span id="turn" class="turn"></span>
+      <span id="phase" class="phase"></span>
+      <span id="objective" class="objective" hidden></span>
+    </div>
+    <div class="bar-actions">
+      <button class="btn btn-ghost btn-icon" id="btn-help" aria-label="Règles">?</button>
+      <button class="btn btn-ghost" id="btn-menu">Menu</button>
+      <button class="btn btn-primary" id="btn-go">Exécuter le tour</button>
+    </div>
+  </header>
+  <main class="desk">
+    <section class="board" aria-label="Carte du champ de bataille">
+      <div class="board-scroll"><canvas id="map"></canvas></div>
+      <p class="hint" id="hint"></p>
+    </section>
+    <aside class="side">
+      <section class="panel" id="unit-card" aria-live="polite"></section>
+      <section class="panel">
+        <h2 class="panel-title">Ordre de bataille</h2>
+        <div id="army"></div>
+      </section>
+      <section class="panel panel-log">
+        <h2 class="panel-title">Journal des opérations</h2>
+        <ul class="log" id="log"></ul>
+      </section>
+    </aside>
+  </main>
+  <div class="overlay" id="overlay" hidden>
+    <article class="dossier" id="dossier"></article>
+  </div>
+</div>
+<!--/APP-->
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "name": "frontline",
+  "version": "0.1.0",
+  "description": "Mini-jeu de stratégie au tour par tour sur le front de l'Est (1943), champ de bataille procédural.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test tests/*.test.js"
+  }
+}
