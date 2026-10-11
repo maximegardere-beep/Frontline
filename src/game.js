@@ -70,10 +70,10 @@ export function autoDeploy(state, side) {
   const cols = deployZone(state, side);
   const front = side === 'DE' ? cols[2] : cols[0];
   const back = side === 'DE' ? cols[0] : cols[2];
-  const prefCol = { recon: front, tank: front, infantry: cols[1], artillery: back };
+  const prefCol = { recon: front, tank: front, infantry: cols[1], at: cols[1], artillery: back };
   const units = state.units.filter((u) => u.side === side);
   for (const u of units) { u.col = -10; u.row = -10; }
-  const order = ['recon', 'tank', 'infantry', 'artillery'];
+  const order = ['recon', 'tank', 'infantry', 'at', 'artillery'];
   units.sort((a, b) => order.indexOf(a.type) - order.indexOf(b.type));
   units.forEach((u, i) => {
     const wantRow = ((i + 0.5) / units.length) * map.H;
@@ -109,7 +109,9 @@ export function computeVisibility(state, side) {
     if (e.side === side || !onMap(e)) continue;
     if (!hexes.has(e.row * map.W + e.col)) continue;
     const t = tileAt(map, e.col, e.row);
-    const near = own.some((u) => hexDistance(u, e) <= 2);
+    // Un antichar embusqué en couvert ne se repère qu'au contact, tant qu'il n'a pas tiré.
+    const spot = e.type === 'at' ? 1 : 2;
+    const near = own.some((u) => hexDistance(u, e) <= spot);
     if (!TERRAIN[t.terrain].conceal || near || e.revealed) units.add(e.id);
   }
   return { hexes, units };
@@ -298,8 +300,10 @@ export function executeTurn(state) {
       if (u.type === 'artillery') return u.movedHexes === 0 && d >= s.minRange && d <= s.range;
       return d <= s.range && hasLOS(map, u, e);
     });
-    if (!cands.length) continue;
-    cands.sort((a, b) => hexDistance(u, a) - hexDistance(u, b) || a.hp / unitStats(a).maxHp - b.hp / unitStats(b).maxHp);
+    if (!cands.length || (u.type === 'at' && u.movedHexes > 0)) continue;
+    // L'antichar tire en priorité sur les blindés ; sinon, la cible la plus proche puis la plus entamée.
+    const prio = (e) => (u.type === 'at' && unitStats(e).armored ? -10 : 0) + hexDistance(u, e);
+    cands.sort((a, b) => prio(a) - prio(b) || a.hp / unitStats(a).maxHp - b.hp / unitStats(b).maxHp);
     const target = cands[0];
     const indirect = u.type === 'artillery' && hexDistance(u, target) > 1;
     shots.push({ u, target, indirect, observed: true });
@@ -411,7 +415,7 @@ function updateObjective(state) {
   if (!o) return;
   const occ = unitAt(state, o);
   // Seules l'infanterie et les blindés tiennent une position ; une position disputée ne compte pas.
-  if (!occ || occ.status !== 'ok' || occ.type === 'recon' || occ.type === 'artillery') return;
+  if (!occ || occ.status !== 'ok' || occ.type === 'recon' || occ.type === 'artillery' || occ.type === 'at') return;
   o.contested = enemiesAdjacent(state, occ).some(active);
   if (occ.side === o.owner) { if (!o.contested) o.hold++; }
   else {

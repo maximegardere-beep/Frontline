@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { hexDistance, neighborCoords, pixelToHex, hexToPixel, hexLine } from '../src/hex.js';
 import { generateMap } from '../src/mapgen.js';
 import { createRng } from '../src/rng.js';
-import { generateArmy, unitStats, resetIds } from '../src/units.js';
-import { createBattle, executeTurn, onMap } from '../src/game.js';
+import { generateArmy, unitStats, resetIds, makeUnit } from '../src/units.js';
+import { createBattle, executeTurn, onMap, computeVisibility } from '../src/game.js';
 import { planSide, assignDirectives } from '../src/ai.js';
 import { buildCombatFx } from '../src/fx.js';
 import { sound } from '../src/audio.js';
@@ -90,6 +90,29 @@ test('une unité clouée ne bouge pas au tour suivant', () => {
     }
   }
   assert.ok(checked > 5, `assez de cas de clouage (${checked})`);
+});
+
+test('antichar : perce les blindés, embusqué en couvert', () => {
+  resetIds();
+  const rng = createRng(9);
+  const state = createBattle({ seed: 'at', playerSide: 'DE', armies: { DE: [makeUnit('DE', 'at', 1, rng), makeUnit('DE', 'infantry', 1, rng)], SU: [makeUnit('SU', 'tank', 1, rng), makeUnit('SU', 'infantry', 1, rng)] } });
+  const [gun, inf] = state.units.filter((u) => u.side === 'DE');
+  const [tank, rifles] = state.units.filter((u) => u.side === 'SU');
+  assert.equal(fireOdds(state.map, gun, tank).dice, fireOdds(state.map, gun, rifles).dice + 2);
+  assert.ok(fireOdds(state.map, inf, tank).threshold > fireOdds(state.map, gun, tank).threshold, 'l\'infanterie peine contre les chars');
+  // En forêt, repéré seulement au contact.
+  const forest = state.map.tiles.find((t) => t.terrain === 'forest' && t.col > 3 && t.col < state.map.W - 4);
+  Object.assign(gun, { col: forest.col, row: forest.row, revealed: false });
+  const spotter = state.units.find((u) => u.side === 'SU' && u.type === 'infantry');
+  const free = state.map.tiles.find((t) => hexDistance(t, gun) === 2 && t.terrain !== 'forest' && t.terrain !== 'village' && !(t.river && !t.road));
+  Object.assign(spotter, { col: free.col, row: free.row });
+  Object.assign(tank, { col: -10, row: -10, status: 'destroyed' });
+  Object.assign(inf, { col: -10, row: -10, status: 'destroyed' });
+  const vis = computeVisibility(state, 'SU');
+  if (vis.hexes.has(gun.row * state.map.W + gun.col)) assert.ok(!vis.units.has(gun.id), 'antichar invisible à 2 hex');
+  const adj = state.map.tiles.find((t) => hexDistance(t, gun) === 1 && !(t.river && !t.road));
+  Object.assign(spotter, { col: adj.col, row: adj.row });
+  assert.ok(computeVisibility(state, 'SU').units.has(gun.id), 'repéré au contact');
 });
 
 function simulate(seed, kind) {

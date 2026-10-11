@@ -69,7 +69,7 @@ transmission radio à l'exécution et cloche de fin de tour. Les tirs d'un ennem
 
 1. **Choix du camp** : Wehrmacht (moins nombreuse, mieux entraînée, blindés redoutables) ou Armée rouge
    (plus d'unités, fusiliers plus résistants, artillerie plus lourde).
-2. **Armée aléatoire** : infanterie, reconnaissance, artillerie, blindés, chacun avec un niveau
+2. **Armée aléatoire** : infanterie, reconnaissance, artillerie, blindés, antichars, chacun avec un niveau
    (Recrue, Vétéran, Élite). Le rapport de renseignement du briefing dépend de votre reconnaissance.
 3. **Déploiement** dans les trois colonnes de votre bord de carte : c'est le premier plan de bataille.
 4. **Tour de jeu** :
@@ -111,16 +111,27 @@ Il touche sur **4+**, modifié par :
 | Artillerie contre blindés | +1 |
 | Barrage sur une cible que personne n'observe | +1 |
 | Tireur élite | −1 |
+| Tireur cloué | +1 |
 
 Seuil borné entre 2+ et 6+. Un 6 inflige 2 dégâts (sauf armes légères contre blindés).
-Une unité qui tombe sous 35 % de ses PV, ou en perd 40 % d'un coup, teste son moral :
-d6 + niveau (+1 retranchée, +1 en forêt ou village) ≥ 5 pour tenir. Un 1 échoue toujours. En cas d'échec
-elle part en déroute vers sa zone de repli et quitte la carte en l'atteignant.
+
+**Antichar** : canon tracté qui lance 2 dés de plus contre les blindés, mais ne tire pas s'il a bougé dans le tour.
+Embusqué en forêt ou au village, il n'est repéré qu'au contact tant qu'il n'a pas ouvert le feu : un char qui passe
+à 2 hexagones encaisse le premier tir sans pouvoir riposter.
+
+**Clouage** : une unité qui encaisse 2 touches dans le tour (3 si retranchée) ou un barrage est clouée ; au tour
+suivant elle ne bouge pas et tire à −1 (losange jaune sur le pion). Un blindé n'est immobilisé que par un 6
+d'une arme qui perce.
+
+**Moral** : une unité qui tombe sous 35 % de ses PV, en perd 40 % d'un coup, ou voit une unité voisine anéantie,
+teste son moral : d6 + niveau ≥ 5 pour tenir, avec +1 retranchée, +1 en forêt ou village, +1 si un voisin est
+retranché, −1 isolée (aucun allié à 2 hexagones), −1 prise en tenaille (tirs directs venus de côtés opposés).
+Un 1 échoue toujours. En cas d'échec elle part en déroute vers sa zone de repli et quitte la carte en l'atteignant.
 
 ### Conditions de victoire
 
 - Toutes les unités adverses détruites ou en déroute.
-- Sur les cartes « prise de position » : tenir l'objectif ★ 4 tours (infanterie ou blindés,
+- Sur les cartes « prise de position » : tenir l'objectif ★ 4 tours (infanterie ou blindés seulement,
   sans ennemi au contact).
 - Au bout de 12 tours : le détenteur de l'objectif, sinon le camp proportionnellement le moins éprouvé.
 

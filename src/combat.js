@@ -34,6 +34,7 @@ export function fireOdds(map, attacker, target, { indirect = false, observed = t
   const threshold = Math.max(2, Math.min(6, 4 + mods.reduce((s, m) => s + m.v, 0)));
   let dice = Math.max(1, Math.round((sa.attack * attacker.hp) / sa.maxHp));
   if (attacker.type === 'artillery' && dist <= 1) dice = Math.max(1, Math.ceil(dice / 2)); // autodéfense
+  if (st.armored) dice += sa.antitank; // canon antichar : obus perforants
   const crits = !(st.armored && (attacker.type === 'infantry' || attacker.type === 'recon'));
   return { threshold, dice, mods, crits };
 }

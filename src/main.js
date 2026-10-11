@@ -126,6 +126,7 @@ function rulesHtml() {
         <li><b>Plan.</b> Sélectionnez une unité, puis cliquez un hexagone éclairé pour tracer son mouvement. <kbd>E</kbd> : se retrancher (seulement sans bouger). <kbd>B</kbd> : barrage d'artillerie sur un hexagone, même invisible. L'adversaire planifie en même temps que vous.</li>
         <li><b>Exécution.</b> Tous les mouvements sont simultanés. Une unité qui arrive au contact d'un ennemi s'arrête. Puis chacun tire : dés d6, touche sur 4+ modifié par le couvert, le relief, le retranchement, le mouvement et le blindage. Un 6 inflige 2 dégâts.</li>
         <li><b>Directives.</b> Le drapeau à droite de la carte (<kbd>D</kbd>) active le mode directives : placez jusqu'à ${MAX_DIRECTIVES} intentions (attaquer, défendre, se replier) et l'état-major répartit vos unités et rédige leurs ordres à chaque tour. Un ordre donné à la main prime pour le tour. « Contrôle direct » rend la main en gardant le plan en cours.</li>
+        <li><b>Antichar.</b> Canon tracté : +2 dés contre les blindés, mais il ne tire pas s'il a bougé dans le tour. Embusqué en forêt ou au village, l'ennemi ne le repère qu'au contact tant qu'il n'a pas ouvert le feu : les chars qui passent à 2 hexagones ne peuvent pas riposter au premier tir.</li>
         <li><b>Clouage.</b> Une unité qui encaisse 2 touches dans le tour (3 si retranchée) ou un barrage d'artillerie est clouée : au tour suivant elle ne bouge pas et tire à −1. Les blindés ne sont immobilisés que par un 6 d'une arme qui perce. Le marqueur jaune sur le pion le signale.</li>
         <li><b>Moral.</b> Une unité très éprouvée, ou qui voit une unité voisine anéantie, teste son moral (d6 + niveau ≥ 5) : +1 retranchée, +1 à couvert, +1 si un voisin est retranché, −1 isolée (aucun allié à 2 hex), −1 prise en tenaille (feu venu de côtés opposés). En cas d'échec elle se débande et fuit vers sa zone de repli.</li>
         <li><b>Victoire.</b> Détruire ou mettre en déroute toutes les unités ennemies ; ou, sur les cartes à objectif, tenir la position étoilée ${HOLD_TO_WIN} tours sans ennemi au contact. Après 12 tours, le détenteur de l'objectif ou le camp le moins éprouvé l'emporte.</li>
@@ -703,7 +704,7 @@ function renderUnitCard() {
       ${statRow('PV', `${u.hp}/${st.maxHp}`)}
       ${statRow('Mouvement', st.move)}
       ${statRow('Portée', st.minRange > 1 ? `${st.minRange}–${st.range}` : st.range)}
-      ${statRow('Attaque', `${st.attack}d6`)}
+      ${statRow('Attaque', st.antitank ? `${st.attack}d6 <small>+${st.antitank} chars</small>` : `${st.attack}d6`)}
       ${statRow('Vision', st.vision)}
       ${statRow('Retranch.', `${u.entrench}/${st.entrenchMax}`)}
       ${statRow('Expérience', u.level < 3 ? `${u.xp}/${XP_FOR_LEVEL[u.level + 1]}` : `${u.xp}`)}

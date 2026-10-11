@@ -55,6 +55,10 @@ Campagne (5 batailles)
 | Reconnaissance | 6 | 7 | 1 | 2d6 | 5 | 1 | 1 |
 | Artillerie | 7 | 3 | 2–4 | 5d6 | 2 | 1 | 3 |
 | Blindés | 12 | 6 | 2 | 5d6 | 3 | 1 | 4 |
+| Antichar | 6 | 3 | 2 | 5d6 (+2 contre blindés) | 3 | 2 | 3 |
+
+L'antichar ne tire pas s'il a bougé dans le tour ; en couvert, il ne se repère qu'au contact tant qu'il n'a pas tiré.
+Il ne tient pas l'objectif (comme l'artillerie et la reconnaissance).
 
 Chaque niveau au-delà de Recrue : +1 PV et +1 dé. Vétéran ou mieux : +1 retranchement max
 (et +1 vision pour la reconnaissance). Élite : +1 mouvement, +1 portée (artillerie, blindés), touche à −1.

@@ -68,7 +68,7 @@ export function buildCombatFx(fires, seed) {
         if (j === 0) impact = tt + flight;
         lastImpact = tt + flight;
       }
-    } else if (f.type === 'tank' || f.type === 'artillery') {
+    } else if (f.type === 'tank' || f.type === 'artillery' || f.type === 'at') {
       const n = f.dice > 5 ? 2 : 1;
       for (let j = 0; j < n; j++) {
         const tt = t0 + j * 0.32;
@@ -388,7 +388,7 @@ export function drawWreck(ctx, w, time, age) {
       ctx.lineTo(tx + Math.cos(ta) * 15, Math.sin(ta) * 15);
       ctx.stroke();
     }
-  } else if (w.type === 'artillery') {
+  } else if (w.type === 'artillery' || w.type === 'at') {
     ctx.fillStyle = '#1e1a15';
     for (const y of [-6, 6]) { ctx.fillRect(-4, y - 1.5, 8, 3); }
     ctx.strokeStyle = '#2c2721';
@@ -411,7 +411,7 @@ export function drawWreck(ctx, w, time, age) {
   }
   ctx.restore();
   if (age <= 1) {
-    const big = w.type === 'tank' || w.type === 'recon' || w.type === 'artillery';
+    const big = w.type === 'tank' || w.type === 'recon' || w.type === 'artillery' || w.type === 'at';
     if (age === 0 && big) drawFire(ctx, { x: 0, y: 0, life: 1 }, 0.2, time);
     for (let i = 0; i < 6; i++) {
       const ph = (time * 0.22 + i / 6) % 1;

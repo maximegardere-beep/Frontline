@@ -985,6 +985,10 @@ export class Renderer {
     } else if (type === 'artillery') {
       ctx.arc(cx, cy, Math.min(w, h) * 0.2, 0, Math.PI * 2);
       ctx.fill();
+    } else if (type === 'at') {
+      // Symbole OTAN de l'antichar : chevron renversé d'un coin inférieur à l'autre.
+      ctx.moveTo(l, t + h); ctx.lineTo(cx, t); ctx.lineTo(l + w, t + h);
+      ctx.stroke();
     }
   }
 

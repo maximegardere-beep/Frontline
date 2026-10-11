@@ -286,6 +286,7 @@ kbd {
 .chip-artillery { background: #5b2f26; }
 .chip-recon { background: #2f4a4d; }
 .chip-infantry { background: #3d4a2c; }
+.chip-at { background: #4a3a52; }
 
 .panel-log { flex: 1; }
 .log {

@@ -12,6 +12,8 @@ export const UNIT_TYPES = {
   recon: { label: 'Reconnaissance', hp: 6, move: 7, range: 1, attack: 2, vision: 5, entrench: 1, cost: 1 },
   artillery: { label: 'Artillerie', hp: 7, move: 3, range: 4, minRange: 2, attack: 5, vision: 2, entrench: 1, cost: 3 },
   tank: { label: 'Blindés', hp: 12, move: 6, range: 2, attack: 5, vision: 3, entrench: 1, cost: 4, armored: true },
+  // Canon antichar tracté : +2 dés contre les blindés, ne tire pas s'il a bougé, se cache en couvert.
+  at: { label: 'Antichar', hp: 6, move: 3, range: 2, attack: 5, vision: 3, entrench: 2, cost: 3, antitank: 2 },
 };
 
 export const LEVELS = ['', 'Recrue', 'Vétéran', 'Élite'];
@@ -37,6 +39,7 @@ export function unitStats(u) {
     entrenchMax: t.entrench + (L >= 2 ? 1 : 0),
     hitBonus: L >= 3 ? 1 : 0,
     armored: !!t.armored,
+    antitank: t.antitank ?? 0,
   };
 }
 
@@ -46,12 +49,14 @@ const NAMES = {
     recon: (n) => `Aufkl.-Abt. ${n}`,
     artillery: (n) => `Batterie ${n}/AR`,
     tank: (n) => `Panzer-Kp. ${n}`,
+    at: (n) => `Pak-Zug ${n}/PzJg.`,
   },
   SU: {
     infantry: (n) => `${n}e bat. de fusiliers`,
     recon: (n) => `${n}e cie d'éclaireurs`,
     artillery: (n) => `${n}e batterie`,
     tank: (n) => `${n}e cie de chars`,
+    at: (n) => `${n}e batterie antichar`,
   },
 };
 
@@ -77,8 +82,8 @@ export function makeUnit(side, type, level, rng) {
 }
 
 const WEIGHTS = {
-  DE: { infantry: 3, tank: 3, artillery: 2, recon: 1 },
-  SU: { infantry: 4, tank: 2, artillery: 3, recon: 1 },
+  DE: { infantry: 3, tank: 3, artillery: 2, recon: 1, at: 1.5 },
+  SU: { infantry: 4, tank: 2, artillery: 3, recon: 1, at: 1 },
 };
 const LEVEL_ODDS = { DE: { 1: 5, 2: 4, 3: 1 }, SU: { 1: 7, 2: 3, 3: 0.6 } };
 

@@ -2,12 +2,12 @@
 // et anticipe les mouvements ennemis à partir des dernières observations.
 
 import { hexDistance } from './hex.js';
-import { tileAt, terrainDefense } from './terrain.js';
+import { tileAt, terrainDefense, TERRAIN } from './terrain.js';
 import { unitStats, other, UNIT_TYPES } from './units.js';
 import { reachable, pathFrom, hexKey, keyHex } from './path.js';
 import { active, onMap, predictPosition, retreatCol } from './game.js';
 
-const VALUE = { infantry: 2, recon: 1, artillery: 3, tank: 4 };
+const VALUE = { infantry: 2, recon: 1, artillery: 3, tank: 4, at: 3 };
 
 export const DIRECTIVES = {
   attack: { label: 'Attaquer', verb: 'attaquer' },
@@ -73,7 +73,7 @@ export function planSide(state, side, { directives = null, fixed = null, rng = s
     garrison = inf[0] ?? null;
   }
 
-  const order = ['recon', 'tank', 'infantry', 'artillery'];
+  const order = ['recon', 'tank', 'infantry', 'at', 'artillery'];
   for (const u of [...mine].sort((a, b) => order.indexOf(a.type) - order.indexOf(b.type))) {
     const s = unitStats(u);
     u.orders = { path: [], entrench: false, fireAt: null };
@@ -111,7 +111,7 @@ export function planSide(state, side, { directives = null, fixed = null, rng = s
     let goal;
     let aggressive = false;
     let wGoal = { attack: 1, balanced: 0.65, defend: 0.3 }[stance] * (u.type === 'recon' && state.turn <= 3 ? 1.4 : 1);
-    let dangerW = u.type === 'artillery' || u.type === 'recon' ? 0.8 : 0.25;
+    let dangerW = u.type === 'artillery' || u.type === 'recon' ? 0.8 : u.type === 'at' ? 0.5 : 0.25;
     let holdBonus = stance === 'defend' ? 1 : 0;
     if (hpRatio < 0.35 && dir?.kind !== 'defend') goal = { col: ownEdge, row: u.row };
     else if (dir) {
@@ -142,9 +142,11 @@ export function planSide(state, side, { directives = null, fixed = null, rng = s
       const targets = known.filter((k) => k.status !== 'routed' || u.type === 'tank');
       targets.sort((a, b) => hexDistance(u, a.pred) - hexDistance(u, b.pred));
       const tgt = targets[0];
-      if (tgt && (u.type === 'tank' || u.type === 'infantry') && stance !== 'defend') {
+      const armor = u.type === 'at' && targets.find((k) => k.type === 'tank');
+      if (armor) { goal = armor.pred; wGoal = Math.max(wGoal, 0.8); }
+      else if (tgt && (u.type === 'tank' || u.type === 'infantry' || u.type === 'at') && stance !== 'defend') {
         goal = tgt.pred;
-        aggressive = true;
+        aggressive = u.type !== 'at'; // l'antichar suit le mouvement sans se jeter au contact
       } else if (obj && stance !== 'defend') goal = obj;
       else if (tgt) goal = tgt.pred;
       else goal = { col: stance === 'defend' ? Math.round((ownEdge * 2 + enemyEdge) / 3) : enemyEdge, row: u.row };
@@ -168,6 +170,12 @@ export function planSide(state, side, { directives = null, fixed = null, rng = s
       if (u.type === 'artillery') {
         const covers = known.some((e) => { const d = hexDistance(h, e.pred); return d >= s.minRange && d <= s.range; });
         if (covers) score += 2;
+      }
+      // Antichar : un couvert d'où il bat les blindés connus ; bouger l'empêche de tirer ce tour-ci.
+      if (u.type === 'at') {
+        const inRange = known.filter((e) => e.status !== 'routed' && hexDistance(h, e.pred) >= 1 && hexDistance(h, e.pred) <= s.range);
+        if (TERRAIN[t.terrain].conceal) score += 0.7;
+        if (inRange.length) score += 1.5 + (inRange.some((e) => e.type === 'tank') ? 1.5 : 0) + (k === hexKey(map, u) ? 1.5 : 0);
       }
       if (dir?.kind === 'defend' && hexDistance(h, dir) <= 2) score += 0.6;
       if (k === hexKey(map, u)) score += 0.4 + u.entrench * 0.6 + holdBonus;
