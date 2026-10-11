@@ -8,6 +8,10 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Stencil+Display:wght@600;800&family=IBM+Plex+Mono:wght@500;700&family=IBM+Plex+Sans+Condensed:ital,wght@0,400;0,600;1,400&display=swap">
 <link rel="stylesheet" href="style.css">
+<meta name="theme-color" content="#2c3124">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>:root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }</style>
 </head>
 <body>
 <!--APP-->
@@ -26,24 +30,39 @@
     <div class="bar-actions">
       <button class="btn btn-ghost btn-icon" id="btn-help" aria-label="Règles">?</button>
       <button class="btn btn-ghost" id="btn-menu">Menu</button>
-      <button class="btn btn-primary" id="btn-go">Exécuter le tour</button>
     </div>
   </header>
   <main class="desk">
     <section class="board" aria-label="Carte du champ de bataille">
-      <div class="board-scroll"><canvas id="map"></canvas></div>
-      <p class="hint" id="hint"></p>
+      <canvas id="map"></canvas>
+      <div class="map-tools">
+        <button class="tool" id="zoom-in" aria-label="Zoomer">+</button>
+        <button class="tool" id="zoom-out" aria-label="Dézoomer">−</button>
+        <button class="tool" id="zoom-fit" aria-label="Voir toute la carte"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 8V3h5M12 3h5v5M17 12v5h-5M8 17H3v-5" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
+        <button class="tool" id="grid-toggle" aria-label="Afficher la grille" aria-pressed="true"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2l6.5 3.75v7.5L10 17l-6.5-3.75v-7.5z" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
+      </div>
+      <p class="hint" id="hint" hidden></p>
     </section>
     <aside class="side">
-      <section class="panel" id="unit-card" aria-live="polite"></section>
-      <section class="panel">
-        <h2 class="panel-title">Ordre de bataille</h2>
-        <div id="army"></div>
-      </section>
-      <section class="panel panel-log">
-        <h2 class="panel-title">Journal des opérations</h2>
-        <ul class="log" id="log"></ul>
-      </section>
+      <nav class="tabs" role="tablist" aria-label="Panneaux">
+        <button class="tab" role="tab" data-tab="unit">Unité</button>
+        <button class="tab" role="tab" data-tab="army">Troupes</button>
+        <button class="tab" role="tab" data-tab="log">Journal</button>
+      </nav>
+      <div class="panels">
+        <section class="panel" id="unit-card" data-panel="unit" aria-live="polite"></section>
+        <section class="panel" data-panel="army">
+          <h2 class="panel-title">Ordre de bataille</h2>
+          <div id="army"></div>
+        </section>
+        <section class="panel panel-log" data-panel="log">
+          <h2 class="panel-title">Journal des opérations</h2>
+          <ul class="log" id="log"></ul>
+        </section>
+      </div>
+      <div class="dock">
+        <button class="btn btn-primary btn-go" id="btn-go">Exécuter le tour</button>
+      </div>
     </aside>
   </main>
   <div class="overlay" id="overlay" hidden>

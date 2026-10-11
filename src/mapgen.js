@@ -5,7 +5,7 @@ import { neighborCoords, hexDistance } from './hex.js';
 import { tileAt, roadEdgeKey, TERRAIN } from './terrain.js';
 import { placeName } from './names.js';
 
-function makeNoise(rng) {
+export function makeNoise(rng) {
   const N = 64;
   const grid = Float32Array.from({ length: N * N }, () => rng.next());
   const at = (x, y) => grid[((y % N) + N) % N * N + (((x % N) + N) % N)];
@@ -119,6 +119,7 @@ function roadPath(map, a, b) {
 }
 
 function layRoad(map, path) {
+  if (path.length > 1) map.roads.push(path);
   for (let i = 0; i < path.length; i++) {
     tileAt(map, path[i].col, path[i].row).road = true;
     if (i > 0) map.roadEdges.add(roadEdgeKey(map, path[i - 1], path[i]));
@@ -131,7 +132,7 @@ export function generateMap(seed, opts = {}) {
   const rng = createRng(`map:${seed}`);
   const heightNoise = makeNoise(rng);
   const moistNoise = makeNoise(rng);
-  const map = { seed, W, H, tiles: [], roadEdges: new Set(), rivers: [], villages: [], objective: null };
+  const map = { seed, W, H, tiles: [], roadEdges: new Set(), roads: [], rivers: [], villages: [], objective: null };
 
   const hs = [], ms = [];
   for (let row = 0; row < H; row++) {

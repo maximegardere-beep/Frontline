@@ -21,6 +21,34 @@ node tools/bundle.mjs   # génère dist/frontline.html, un fichier unique jouabl
 Les modules ES nécessitent un serveur HTTP : ouvrir `index.html` directement depuis le disque ne fonctionne pas,
 mais `dist/frontline.html` si.
 
+## Commandes
+
+| | Souris | Tactile (iPhone, iPad) |
+|---|---|---|
+| Sélectionner une unité, choisir sa destination | clic | toucher |
+| Déplacer la carte | glisser | glisser à un doigt |
+| Zoomer | molette | pincer, ou boutons + / − |
+| Vue d'ensemble, grille | boutons à droite de la carte (`G` pour la grille) | idem |
+| Panneaux Unité / Troupes / Journal | colonne de droite | onglets en bas ; toucher l'onglet actif replie le tiroir |
+
+Raccourcis clavier : `Tab` unité suivante, `E` retrancher, `B` barrage, `H` annuler, `Entrée` exécuter.
+
+## Rendu : terrain continu sur grille
+
+Les règles reposent entièrement sur la grille hexagonale (une altitude, un couvert, un coût par case).
+Le rendu en tire une image continue :
+
+- **relief** : les altitudes des hexagones sont lissées par un noyau gaussien, plus un micro-relief de bruit.
+  On en déduit les teintes hypsométriques, l'ombrage depuis le nord-ouest et des courbes de niveau
+  (« marching squares »). Les courbes maîtresses coïncident avec les seuils d'altitude de la grille ;
+- **couverts** : forêts en couronnes d'arbres fusionnées, champs en parcelles irrégulières, marais en nappes ;
+- **routes et rivières** : splines passant par les centres des cases, avec méandres pour l'eau ;
+- **brouillard, zone de mouvement, portée d'artillerie** : masques adoucis au contour lissé ;
+- **mouvements** : chaque unité glisse à vitesse constante le long d'une spline, avec traînée et légère
+  inclinaison, au lieu de sauter de case en case.
+
+La grille reste affichée en filigrane (bouton ⬡ pour la renforcer ou la masquer).
+
 ## Déroulement
 
 1. **Choix du camp** : Wehrmacht (moins nombreuse, mieux entraînée, blindés redoutables) ou Armée rouge
@@ -86,8 +114,8 @@ dernier mouvement observé : c'est la base pour anticiper et placer ses barrages
 | `src/game.js` | État de bataille, brouillard, exécution simultanée, victoire |
 | `src/ai.js` | IA adverse (ne voit que ce que voient ses unités) |
 | `src/campaign.js` | Enchaînement des batailles, expérience, renforts |
-| `src/render.js` | Rendu Canvas de la carte et des pions |
-| `src/main.js` | Interface et animation |
+| `src/render.js` | Rendu Canvas : terrain continu, caméra (zoom, déplacement), pions, effets |
+| `src/main.js` | Interface, gestes tactiles, animation |
 
 Le moteur (`rng` → `campaign`) ne dépend pas du navigateur : il est testé sous Node et peut servir
 de base à un portage (Godot, Unity…) ou à un mode multijoueur. Voir `DESIGN.md` pour les pistes.

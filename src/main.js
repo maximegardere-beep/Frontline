@@ -1,6 +1,6 @@
 // Contrôleur : menus, phases de déploiement / planification, animation de l'exécution, campagne.
 
-import { Renderer, HEX } from './render.js';
+import { Renderer, HEX, splineAt } from './render.js';
 import { createBattle, executeTurn, onMap, active, unitAt, canDeployAt, updateVisibility, HOLD_TO_WIN } from './game.js';
 import { planSide } from './ai.js';
 import { reachable, pathFrom, hexKey, pathCost } from './path.js';
@@ -11,6 +11,7 @@ import { newCampaign, battleSetup, concludeBattle, campaignOver, campaignVerdict
 
 const $ = (id) => document.getElementById(id);
 const SAVE_KEY = 'frontline.campaign.v1';
+const touchUI = window.matchMedia?.('(hover: none)').matches;
 const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 const ui = {
@@ -25,6 +26,8 @@ const ui = {
   animVisible: null,
   fx: null,
   busy: false,
+  tab: 'unit',
+  preview: null,
 };
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -129,12 +132,9 @@ function showBriefing() {
   ui.state = createBattle({ seed: ui.setup.seed, playerSide: c.playerSide, armies: ui.setup.armies, kind: ui.setup.kind });
   ui.reopenReport = null;
   ui.renderer.setMap(ui.state.map);
+  ui.renderer.initialView(c.playerSide);
   ui.selectedId = null;
   const s = ui.state;
-  requestAnimationFrame(() => {
-    const sc = document.querySelector('.board-scroll');
-    sc.scrollLeft = c.playerSide === 'SU' ? sc.scrollWidth : 0;
-  });
   const goals = [
     'Détruire ou mettre en déroute toutes les unités ennemies.',
     s.objective ? `Tenir ${esc(tileAt(s.map, s.objective.col, s.objective.row).name ?? 'la cote')} (★) pendant ${HOLD_TO_WIN} tours, sans ennemi au contact.` : null,
@@ -206,16 +206,29 @@ function selected() {
   return ui.state?.units.find((u) => u.id === ui.selectedId) ?? null;
 }
 
+// Mémoïsé : la carte est redessinée à chaque image pendant un glissement.
 function playerReach(u) {
+  const s = ui.state;
+  const key = `${u.id}:${u.col},${u.row}:${s.turn}:${s.phase}:${s.visibility[player()].units.size}`;
+  if (ui.reachMemo?.key === key) return ui.reachMemo.reach;
+  const reach = computeReach(u);
+  ui.reachMemo = { key, reach, keys: new Set(reach.keys()) };
+  return reach;
+}
+
+function computeReach(u) {
   const s = ui.state;
   const vis = s.visibility[player()];
   const blocked = new Set(s.units.filter((e) => e.side !== u.side && onMap(e) && vis.units.has(e.id)).map((e) => hexKey(s.map, e)));
   return reachable(s.map, u, { blocked });
 }
 
-function select(u) {
+function select(u, { focus = false } = {}) {
   ui.selectedId = u?.id ?? null;
   ui.mode = 'move';
+  ui.preview = null;
+  if (u) ui.tab = 'unit';
+  if (u && focus) ui.renderer.focus(u);
   refresh();
 }
 
@@ -224,6 +237,7 @@ function onMapClick(ev) {
   if (!s || ui.busy || !$('overlay').hidden) return;
   const h = ui.renderer.hexAt(ev.clientX, ev.clientY);
   if (!h) return;
+  showTileInfo(h);
   const here = unitAt(s, h);
   const sel = selected();
 
@@ -260,21 +274,35 @@ function onMapClick(ev) {
       sel.orders.path = pathFrom(s.map, reach, h);
       sel.orders.entrench = false;
       sel.orders.fireAt = null;
+      ui.preview = null;
       return refresh();
     }
   }
-  if (here && here.side !== player()) { ui.selectedId = here.id; return refresh(); }
+  if (here && here.side !== player()) { ui.selectedId = here.id; ui.tab = 'unit'; return refresh(); }
   select(null);
 }
 
-function onMapMove(ev) {
-  if (!ui.state) return;
+function showTileInfo(h) {
+  const t = h && tileAt(ui.state.map, h.col, h.row);
+  const d = t && terrainDefense(t);
+  $('hint').textContent = t ? `${describeTile(t)}${d ? ` · défense ${d > 0 ? '+' : ''}${d}` : ''}` : '';
+  $('hint').hidden = !t;
+}
+
+// Survol à la souris : surlignage et aperçu du trajet que prendrait l'unité sélectionnée.
+function onMapHover(ev) {
+  if (!ui.state || ui.busy) return;
   const h = ui.renderer.hexAt(ev.clientX, ev.clientY);
   if (sameHex(h, ui.hover)) return;
   ui.hover = h;
-  draw();
-  const t = h && tileAt(ui.state.map, h.col, h.row);
-  $('hint').textContent = t ? `${describeTile(t)}${terrainDefense(t) ? ` · défense ${terrainDefense(t) > 0 ? '+' : ''}${terrainDefense(t)}` : ''}` : '';
+  showTileInfo(h);
+  ui.preview = null;
+  const sel = selected();
+  if (h && sel && sel.side === player() && sel.status === 'ok' && ui.state.phase === 'plan' && ui.mode === 'move' && !sameHex(h, sel)) {
+    const reach = playerReach(sel);
+    if (reach.has(hexKey(ui.state.map, h))) ui.preview = { unit: sel, path: pathFrom(ui.state.map, reach, h) };
+  }
+  scheduleDraw();
 }
 
 function setOrder(kind) {
@@ -295,7 +323,7 @@ function cycleUnit() {
   const mine = ui.state.units.filter((u) => u.side === player() && active(u));
   if (!mine.length) return;
   const i = mine.findIndex((u) => u.id === ui.selectedId);
-  select(mine[(i + 1) % mine.length]);
+  select(mine[(i + 1) % mine.length], { focus: true });
 }
 
 // ---------- Exécution animée ----------
@@ -340,25 +368,45 @@ async function endPhase() {
     const a = s.units.find((u) => u.id === f.attacker);
     if (a.side !== me) ui.animVisible.add(a.id);
   }
-  const px = (snap) => Object.fromEntries(Object.entries(snap).map(([id, p]) => [id, { ...hexToPixel(p.col, p.row, HEX), status: p.status }]));
-  const frames = res.ticks.map(px);
-  const tickMs = reduceMotion ? 60 : 260;
-  for (let i = 1; i < frames.length; i++) {
-    const A = frames[i - 1], B = frames[i];
-    await tween(tickMs, (k) => {
-      const e = k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
+  // Mouvement continu : chaque unité glisse à vitesse constante le long d'une spline passant par ses positions successives.
+  const ids = Object.keys(res.ticks[0]);
+  const tracks = {};
+  for (const id of ids) {
+    const pts = [];
+    let last = null;
+    res.ticks.forEach((snap) => {
+      const p = snap[id] ?? last;
+      pts.push(hexToPixel(p.col, p.row, HEX));
+      last = p;
+    });
+    tracks[id] = { pts, status: res.ticks[0][id].status, end: res.ticks[res.ticks.length - 1][id] };
+  }
+  const steps = res.ticks.length - 1;
+  const tickMs = reduceMotion ? 60 : 330;
+  const trails = {};
+  if (steps > 0) {
+    await tween(tickMs * steps, (k) => {
+      const u = k * steps;
       const pos = {};
-      for (const id of Object.keys(A)) {
-        const b = B[id] ?? A[id];
-        pos[id] = { x: A[id].x + (b.x - A[id].x) * e, y: A[id].y + (b.y - A[id].y) * e, status: A[id].status };
+      for (const id of ids) {
+        const tr = tracks[id];
+        const p = splineAt(tr.pts, u);
+        const q = splineAt(tr.pts, Math.min(steps, u + 0.08));
+        const vx = q.x - p.x, vy = q.y - p.y, sp = Math.hypot(vx, vy);
+        pos[id] = { x: p.x, y: p.y, status: tr.status, heading: sp > 0.3 ? vx / sp : 0 };
+        if (sp > 0.3) (trails[id] ??= []).push({ x: p.x, y: p.y });
+        if (trails[id]?.length > 26) trails[id].shift();
       }
-      ui.anim = { pos, hp: hpStart };
+      ui.anim = { pos, hp: hpStart, trails };
       draw();
     });
   }
+  const last = Object.fromEntries(ids.filter((id) => tracks[id].end).map((id) => {
+    const p = tracks[id].pts[tracks[id].pts.length - 1];
+    return [id, { x: p.x, y: p.y, status: tracks[id].end.status }];
+  }));
   // Combat : tirs simultanés.
   if (res.fires.length) {
-    const last = frames[frames.length - 1];
     const fx = res.fires.map((f, i) => {
       const hiddenShooter = !ui.animVisible.has(f.attacker) && !f.attacker.startsWith(me);
       return { ...f, from: hiddenShooter ? f.to : f.from, delay: (i % 6) * 0.05 };
@@ -383,6 +431,13 @@ async function endPhase() {
 
 // ---------- Affichage ----------
 
+let drawQueued = false;
+function scheduleDraw() {
+  if (drawQueued) return;
+  drawQueued = true;
+  requestAnimationFrame(() => { drawQueued = false; draw(); });
+}
+
 function draw() {
   const s = ui.state;
   if (!s) return;
@@ -393,8 +448,10 @@ function draw() {
     side: player(),
     selectedId: ui.selectedId,
     reach: !ui.anim && mine && s.phase === 'plan' && ui.mode === 'move' ? playerReach(sel) : null,
+    reachKeys: ui.reachMemo?.keys,
     rangeOf: !ui.anim && mine && sel.type === 'artillery' && (ui.mode === 'barrage' || sel.orders.fireAt) ? sel : null,
     hover: ui.anim ? null : ui.hover,
+    preview: ui.anim ? null : ui.preview,
     anim: ui.anim,
     animVisible: ui.animVisible,
     fx: ui.fx,
@@ -414,6 +471,8 @@ function refresh() {
   const go = $('btn-go');
   go.textContent = s.phase === 'deploy' ? 'Terminer le déploiement' : s.phase === 'execute' ? 'Exécution…' : s.phase === 'over' ? 'Rapport de bataille' : 'Exécuter le tour';
   go.disabled = ui.busy || s.phase === 'execute' || (s.phase === 'over' && !ui.reopenReport);
+  document.querySelectorAll('[data-tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === ui.tab)));
+  document.querySelectorAll('[data-panel]').forEach((p) => p.classList.toggle('active', p.dataset.panel === ui.tab));
   renderObjective();
   renderUnitCard();
   renderArmy();
@@ -450,8 +509,10 @@ function renderUnitCard() {
   const el = $('unit-card');
   if (!u) {
     el.innerHTML = s.phase === 'deploy'
-      ? '<p class="muted">Sélectionnez une unité, puis un hexagone libre de la zone de déploiement (pointillés rouges).</p>'
-      : '<p class="muted">Sélectionnez une unité sur la carte ou dans la liste. <kbd>Tab</kbd> passe à la suivante, <kbd>Entrée</kbd> exécute le tour.</p>';
+      ? `<p class="muted">${touchUI ? 'Touchez' : 'Sélectionnez'} une unité, puis un emplacement libre dans la zone de déploiement (pointillés rouges).</p>`
+      : touchUI
+        ? '<p class="muted">Touchez une unité, puis sa destination dans la zone claire. Glissez pour déplacer la carte, pincez pour zoomer.</p>'
+        : '<p class="muted">Sélectionnez une unité, puis sa destination dans la zone claire. <kbd>Tab</kbd> passe à l\'unité suivante, <kbd>Entrée</kbd> exécute le tour, molette pour zoomer.</p>';
     return;
   }
   if (u.side !== player()) {
@@ -507,7 +568,7 @@ function renderArmy() {
       </button></li>`;
     }).join('')}</ul>
     <p class="muted small">Ennemis en vue : ${seen}</p>`;
-  $('army').querySelectorAll('[data-id]').forEach((b) => b.addEventListener('click', () => select(s.units.find((u) => u.id === b.dataset.id))));
+  $('army').querySelectorAll('[data-id]').forEach((b) => b.addEventListener('click', () => select(s.units.find((u) => u.id === b.dataset.id), { focus: true })));
 }
 
 // Le journal ne révèle pas ce que le brouillard cache : les mouvements et travaux ennemis restent secrets.
@@ -528,11 +589,82 @@ function renderLog() {
 
 // ---------- Démarrage ----------
 
-function start() {
+// Carte : un doigt déplace, deux doigts zooment, un appui bref sélectionne ; molette pour zoomer à la souris.
+function bindMapInput() {
   const canvas = $('map');
-  canvas.addEventListener('click', onMapClick);
-  canvas.addEventListener('mousemove', onMapMove);
-  canvas.addEventListener('mouseleave', () => { ui.hover = null; $('hint').textContent = ''; draw(); });
+  const r = ui.renderer;
+  const pts = new Map();
+  let gesture = null;
+
+  canvas.addEventListener('pointerdown', (e) => {
+    canvas.setPointerCapture(e.pointerId);
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pts.size === 1) gesture = { x0: e.clientX, y0: e.clientY, t0: performance.now(), moved: false, pinch: false };
+    else if (gesture) gesture.pinch = true;
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    const prev = pts.get(e.pointerId);
+    if (!prev) {
+      if (e.pointerType === 'mouse') onMapHover(e);
+      return;
+    }
+    if (pts.size === 1) {
+      if (!gesture.moved && Math.hypot(e.clientX - gesture.x0, e.clientY - gesture.y0) > 8) gesture.moved = true;
+      if (gesture.moved) r.pan(e.clientX - prev.x, e.clientY - prev.y);
+    } else if (pts.size === 2) {
+      const [a, b] = [...pts.values()];
+      const other = a === prev ? b : a;
+      const d0 = Math.hypot(prev.x - other.x, prev.y - other.y);
+      const d1 = Math.hypot(e.clientX - other.x, e.clientY - other.y);
+      const m = r.local((e.clientX + other.x) / 2, (e.clientY + other.y) / 2);
+      if (d0 > 0) r.zoomAt(d1 / d0, m.x, m.y);
+      r.pan((e.clientX - prev.x) / 2, (e.clientY - prev.y) / 2);
+    }
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    scheduleDraw();
+  });
+  const end = (e) => {
+    if (!pts.has(e.pointerId)) return;
+    pts.delete(e.pointerId);
+    if (pts.size === 0 && gesture && !gesture.moved && !gesture.pinch && e.type === 'pointerup' && performance.now() - gesture.t0 < 600) onMapClick(e);
+    if (pts.size === 0) gesture = null;
+  };
+  canvas.addEventListener('pointerup', end);
+  canvas.addEventListener('pointercancel', end);
+  canvas.addEventListener('pointerleave', (e) => {
+    if (e.pointerType === 'mouse' && !pts.size) { ui.hover = null; ui.preview = null; scheduleDraw(); }
+  });
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const m = r.local(e.clientX, e.clientY);
+    r.zoomAt(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)), m.x, m.y);
+    scheduleDraw();
+  }, { passive: false });
+  // Safari iOS : empêche le zoom de page natif sur la carte.
+  canvas.addEventListener('gesturestart', (e) => e.preventDefault());
+
+  const zoomCenter = (f) => { r.zoomAt(f, r.vw / 2, r.vh / 2); scheduleDraw(); };
+  $('zoom-in').addEventListener('click', () => zoomCenter(1.35));
+  $('zoom-out').addEventListener('click', () => zoomCenter(1 / 1.35));
+  $('zoom-fit').addEventListener('click', () => { r.fitAll(); scheduleDraw(); });
+  $('grid-toggle').addEventListener('click', () => {
+    r.gridAlpha = r.gridAlpha === 0 ? 0.12 : r.gridAlpha < 0.2 ? 0.3 : 0;
+    $('grid-toggle').setAttribute('aria-pressed', String(r.gridAlpha > 0));
+    scheduleDraw();
+  });
+  new ResizeObserver(() => { if (ui.state) { r.resize(); draw(); } }).observe($('map').parentElement);
+}
+
+function start() {
+  bindMapInput();
+  // Toucher l'onglet actif replie le tiroir (plus de place pour la carte sur téléphone).
+  document.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', () => {
+    const side = document.querySelector('.side');
+    if (ui.tab === b.dataset.tab) side.classList.toggle('collapsed');
+    else side.classList.remove('collapsed');
+    ui.tab = b.dataset.tab;
+    refresh();
+  }));
   $('btn-go').addEventListener('click', endPhase);
   $('btn-help').addEventListener('click', () => showDossier(`<p class="eyebrow">Manuel de campagne</p><h1 class="title-l">Règles</h1>${rulesHtml().replace('<details class="rules">', '<details class="rules" open>')}<div class="row-end"><button class="btn btn-primary" id="close-help">Reprendre</button></div>`, () => $('close-help').addEventListener('click', hideDossier)));
   $('btn-menu').addEventListener('click', showMenu);
@@ -544,6 +676,7 @@ function start() {
     else if (e.key === 'e' || e.key === 'E') setOrder('entrench');
     else if (e.key === 'b' || e.key === 'B') setOrder('barrage');
     else if (e.key === 'h' || e.key === 'H') setOrder('hold');
+    else if (e.key === 'g' || e.key === 'G') $('grid-toggle').click();
   });
   // Partie de démonstration en fond derrière le menu.
   resetIds();
@@ -551,6 +684,7 @@ function start() {
   ui.setup = battleSetup(ui.campaign);
   ui.state = createBattle({ seed: ui.setup.seed, playerSide: 'DE', armies: ui.setup.armies, kind: 'assaut' });
   ui.renderer.setMap(ui.state.map);
+  ui.renderer.fitAll();
   refresh();
   showMenu();
 }

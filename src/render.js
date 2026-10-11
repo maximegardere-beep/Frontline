@@ -1,35 +1,73 @@
-// Rendu Canvas : carte topographique (pré-calculée), brouillard, ordres, unités (pions OTAN), effets de combat.
+// Rendu Canvas. La grille hexagonale reste la vérité du jeu ; le rendu en tire un terrain continu :
+// relief lissé (champ gaussien sur les altitudes des hexagones), courbes de niveau, forêts organiques,
+// routes et rivières courbes, brouillard et zones à bords doux, mouvements le long de splines.
 
-import { hexToPixel, pixelToHex, hexCorner, edgeCorners, neighborCoords, SQRT3, hexDistance, toCube, fromCube } from './hex.js';
-import { tileAt, roadEdgeKey } from './terrain.js';
+import { hexToPixel, pixelToHex, hexCorner, neighborCoords, SQRT3, hexDistance, toCube, fromCube } from './hex.js';
+import { tileAt } from './terrain.js';
 import { createRng } from './rng.js';
+import { makeNoise } from './mapgen.js';
 import { unitStats } from './units.js';
 import { onMap, retreatCol, deployZone } from './game.js';
 
 export const HEX = 30;
 
+const ELEV_STOPS = [[187, 199, 150], [219, 213, 163], [209, 182, 127], [166, 133, 90]];
+
 const C = {
-  elev: ['#c8cf9f', '#dcd5a3', '#d0b985', '#b9996a'],
-  contour: 'rgba(110, 72, 34, 0.75)',
-  grid: 'rgba(80, 70, 40, 0.16)',
-  forest: '#86a062',
-  tree: '#3d5a2a',
-  marsh: '#4f7d97',
-  farmA: '#e6d27f',
-  farmB: '#cbb75e',
-  river: '#3f7cab',
-  riverHi: '#8fbfe0',
-  roadLo: '#5b351d',
-  roadHi: '#e8b45a',
+  desk: '#1b1f16',
+  paper: '#e5dbbd',
+  contour: 'rgba(112, 72, 34, 0.85)',
+  contourMinor: 'rgba(112, 72, 34, 0.32)',
+  grid: 'rgba(60, 50, 25, ',
+  canopy: '#7e9a58',
+  canopyShadow: 'rgba(40, 55, 25, 0.45)',
+  tree: '#3e5a2b',
+  marsh: 'rgba(96, 140, 140, 0.33)',
+  reed: '#4f7d88',
+  farmA: '#e8d47f',
+  farmB: '#cdb95f',
+  hedge: 'rgba(70, 90, 40, 0.55)',
+  river: '#4a80ab',
+  riverBank: 'rgba(70, 100, 110, 0.45)',
+  riverHi: '#9cc6e4',
+  roadLo: '#6b4426',
+  roadHi: '#e7bb68',
   house: '#6b4a32',
   roof: '#9b3b26',
   label: '#2d2414',
   halo: 'rgba(244, 236, 210, 0.85)',
-  fog: 'rgba(38, 40, 26, 0.34)',
   pencil: '#b3261e',
-  DE: { fill: '#9aa6ad', edge: '#2c3439', zone: 'rgba(70, 90, 110, 0.18)' },
-  SU: { fill: '#b45a43', edge: '#3d150c', zone: 'rgba(150, 50, 30, 0.16)' },
+  DE: { fill: '#9aa6ad', edge: '#2c3439', zone: [70, 90, 110] },
+  SU: { fill: '#b45a43', edge: '#3d150c', zone: [150, 50, 30] },
 };
+
+// ---------- Outils géométriques ----------
+
+// Chemin lissé (Catmull-Rom converti en Bézier) passant par tous les points.
+function splineTo(ctx, pts, move = true) {
+  if (!pts.length) return;
+  if (move) ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] ?? pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] ?? p2;
+    ctx.bezierCurveTo(p1.x + (p2.x - p0.x) / 6, p1.y + (p2.y - p0.y) / 6, p2.x - (p3.x - p1.x) / 6, p2.y - (p3.y - p1.y) / 6, p2.x, p2.y);
+  }
+}
+
+// Point sur la même spline, u ∈ [0, n-1].
+export function splineAt(pts, u) {
+  const n = pts.length;
+  if (n === 1) return pts[0];
+  const i = Math.max(0, Math.min(n - 2, Math.floor(u)));
+  const t = Math.max(0, Math.min(1, u - i));
+  const p0 = pts[i - 1] ?? pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] ?? p2;
+  const c1 = { x: p1.x + (p2.x - p0.x) / 6, y: p1.y + (p2.y - p0.y) / 6 };
+  const c2 = { x: p2.x - (p3.x - p1.x) / 6, y: p2.y - (p3.y - p1.y) / 6 };
+  const m = 1 - t;
+  return {
+    x: m * m * m * p1.x + 3 * m * m * t * c1.x + 3 * m * t * t * c2.x + t * t * t * p2.x,
+    y: m * m * m * p1.y + 3 * m * m * t * c1.y + 3 * m * t * t * c2.y + t * t * t * p2.y,
+  };
+}
 
 function hexPath(ctx, cx, cy, s) {
   ctx.beginPath();
@@ -40,159 +78,387 @@ function hexPath(ctx, cx, cy, s) {
   ctx.closePath();
 }
 
+// Contour fermé irrégulier (parcelles, marais).
+function blobPath(ctx, cx, cy, r, rng, points = 9) {
+  const pts = [];
+  for (let i = 0; i < points; i++) {
+    const a = (i / points) * Math.PI * 2;
+    const rr = r * (0.82 + rng.next() * 0.3);
+    pts.push({ x: cx + Math.cos(a) * rr, y: cy + Math.sin(a) * rr });
+  }
+  ctx.beginPath();
+  const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+  const start = mid(pts[points - 1], pts[0]);
+  ctx.moveTo(start.x, start.y);
+  for (let i = 0; i < points; i++) {
+    const m = mid(pts[i], pts[(i + 1) % points]);
+    ctx.quadraticCurveTo(pts[i].x, pts[i].y, m.x, m.y);
+  }
+  ctx.closePath();
+}
+
+// ---------- Champs continus ----------
+
+// Échantillonne un champ continu : chaque point mélange les valeurs des hexagones voisins (noyau gaussien).
+function sampleField(map, worldW, worldH, step, sigma, valueOf, extra = null) {
+  const w = Math.ceil(worldW / step) + 1, h = Math.ceil(worldH / step) + 1;
+  const data = new Float32Array(w * h);
+  const vals = map.tiles.map(valueOf);
+  const centers = map.tiles.map((t) => hexToPixel(t.col, t.row, HEX));
+  const k = 1 / (sigma * sigma);
+  for (let j = 0; j < h; j++) {
+    for (let i = 0; i < w; i++) {
+      const x = i * step, y = j * step;
+      const hc = pixelToHex(x, y, HEX);
+      hc.col = Math.max(0, Math.min(map.W - 1, hc.col));
+      hc.row = Math.max(0, Math.min(map.H - 1, hc.row));
+      let sw = 0, sv = 0;
+      for (const c of [hc, ...neighborCoords(hc.col, hc.row)]) {
+        if (c.col < 0 || c.row < 0 || c.col >= map.W || c.row >= map.H) continue;
+        const idx = c.row * map.W + c.col;
+        const dx = x - centers[idx].x, dy = y - centers[idx].y;
+        const wt = Math.exp(-(dx * dx + dy * dy) * k);
+        sw += wt;
+        sv += wt * vals[idx];
+      }
+      data[j * w + i] = (sw > 0 ? sv / sw : 0) + (extra ? extra(x, y) : 0);
+    }
+  }
+  return { w, h, step, data };
+}
+
+// Courbes de niveau par « marching squares » : segments [x1, y1, x2, y2] en coordonnées monde.
+function contourSegments(f, level) {
+  const { w, h, step, data } = f;
+  const out = [];
+  for (let j = 0; j < h - 1; j++) {
+    for (let i = 0; i < w - 1; i++) {
+      const a = data[j * w + i], b = data[j * w + i + 1], c = data[(j + 1) * w + i + 1], d = data[(j + 1) * w + i];
+      const code = (a > level ? 8 : 0) | (b > level ? 4 : 0) | (c > level ? 2 : 0) | (d > level ? 1 : 0);
+      if (code === 0 || code === 15) continue;
+      const T = () => [i + (level - a) / (b - a), j];
+      const R = () => [i + 1, j + (level - b) / (c - b)];
+      const B = () => [i + (level - d) / (c - d), j + 1];
+      const L = () => [i, j + (level - a) / (d - a)];
+      const segs = {
+        1: [[L, B]], 2: [[B, R]], 3: [[L, R]], 4: [[T, R]], 5: [[T, R], [L, B]], 6: [[T, B]], 7: [[L, T]],
+        8: [[L, T]], 9: [[T, B]], 10: [[L, T], [B, R]], 11: [[T, R]], 12: [[L, R]], 13: [[B, R]], 14: [[L, B]],
+      }[code];
+      for (const [p, q] of segs) {
+        const P = p(), Q = q();
+        out.push(P[0] * step, P[1] * step, Q[0] * step, Q[1] * step);
+      }
+    }
+  }
+  return out;
+}
+
+function strokeSegments(ctx, segs) {
+  ctx.beginPath();
+  for (let i = 0; i < segs.length; i += 4) {
+    ctx.moveTo(segs[i], segs[i + 1]);
+    ctx.lineTo(segs[i + 2], segs[i + 3]);
+  }
+  ctx.stroke();
+}
+
+// Masque doux (brouillard, zones) : canvas basse résolution + contour lissé à mi-hauteur.
+function softMask(map, worldW, worldH, keys, rgb, maxAlpha, { invert = false, step = 6 } = {}) {
+  const f = sampleField(map, worldW, worldH, step, HEX * 0.55, (t) => (keys.has(t.row * map.W + t.col) !== invert ? 1 : 0));
+  const cv = document.createElement('canvas');
+  cv.width = f.w;
+  cv.height = f.h;
+  const ctx = cv.getContext('2d');
+  const img = ctx.createImageData(f.w, f.h);
+  for (let i = 0; i < f.data.length; i++) {
+    const v = f.data[i];
+    const s = v <= 0.15 ? 0 : v >= 0.85 ? 1 : ((v - 0.15) / 0.7) ** 2 * (3 - 2 * ((v - 0.15) / 0.7));
+    img.data[i * 4] = rgb[0];
+    img.data[i * 4 + 1] = rgb[1];
+    img.data[i * 4 + 2] = rgb[2];
+    img.data[i * 4 + 3] = Math.round(s * maxAlpha * 255);
+  }
+  ctx.putImageData(img, 0, 0);
+  return { canvas: cv, f, outline: contourSegments(f, 0.5) };
+}
+
+// ---------- Renderer ----------
+
 export class Renderer {
   constructor(canvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.map = null;
     this.layer = null;
+    this.cam = { x: 0, y: 0, s: 1 };
+    this.vw = 1;
+    this.vh = 1;
+    this.gridAlpha = 0.12;
+    this.cache = {};
   }
 
   setMap(map) {
     this.map = map;
-    this.width = Math.ceil((map.W + 0.5) * HEX * SQRT3);
-    this.height = Math.ceil((map.H - 1) * 1.5 * HEX + 2 * HEX);
-    this.dpr = Math.min(2, window.devicePixelRatio || 1);
-    this.canvas.width = this.width * this.dpr;
-    this.canvas.height = this.height * this.dpr;
-    this.canvas.style.aspectRatio = `${this.width} / ${this.height}`;
+    this.worldW = Math.ceil((map.W + 0.5) * HEX * SQRT3);
+    this.worldH = Math.ceil((map.H - 1) * 1.5 * HEX + 2 * HEX);
+    this.cache = {};
     this.buildTerrain();
+    this.buildGrid();
+    this.resize();
+  }
+
+  // ---------- Caméra ----------
+
+  resize() {
+    const r = this.canvas.parentElement.getBoundingClientRect();
+    this.dpr = Math.min(3, window.devicePixelRatio || 1);
+    this.vw = Math.max(1, r.width);
+    this.vh = Math.max(1, r.height);
+    this.canvas.width = Math.round(this.vw * this.dpr);
+    this.canvas.height = Math.round(this.vh * this.dpr);
+    this.canvas.style.width = `${this.vw}px`;
+    this.canvas.style.height = `${this.vh}px`;
+    this.clampCam();
+  }
+
+  fitScale() { return Math.min(this.vw / this.worldW, this.vh / this.worldH); }
+
+  fitAll() {
+    this.cam.s = this.fitScale();
+    this.cam.x = (this.worldW - this.vw / this.cam.s) / 2;
+    this.cam.y = (this.worldH - this.vh / this.cam.s) / 2;
+    this.clampCam();
+  }
+
+  // Vue initiale : sur petit écran, on zoome assez pour que les hexagones restent faciles à toucher.
+  initialView(side) {
+    if (this.vw >= 760) return this.fitAll();
+    this.cam.s = Math.max(this.fitScale(), Math.min(1, this.vh / this.worldH), 0.78);
+    const ownX = side === 'DE' ? 0 : this.worldW;
+    this.cam.x = ownX - this.vw / this.cam.s / 2;
+    this.cam.y = (this.worldH - this.vh / this.cam.s) / 2;
+    this.clampCam();
+  }
+
+  focus(h) {
+    const p = this.center(h);
+    const sx = (p.x - this.cam.x) * this.cam.s, sy = (p.y - this.cam.y) * this.cam.s;
+    const m = 50;
+    if (sx > m && sx < this.vw - m && sy > m && sy < this.vh - m) return false;
+    this.cam.x = p.x - this.vw / this.cam.s / 2;
+    this.cam.y = p.y - this.vh / this.cam.s / 2;
+    this.clampCam();
+    return true;
+  }
+
+  clampCam() {
+    if (!this.worldW) return;
+    const minS = this.fitScale() * 0.92, maxS = 3;
+    this.cam.s = Math.max(minS, Math.min(maxS, this.cam.s));
+    const vwW = this.vw / this.cam.s, vhW = this.vh / this.cam.s;
+    const pad = 14;
+    this.cam.x = vwW >= this.worldW ? (this.worldW - vwW) / 2 : Math.max(-pad, Math.min(this.worldW - vwW + pad, this.cam.x));
+    this.cam.y = vhW >= this.worldH ? (this.worldH - vhW) / 2 : Math.max(-pad, Math.min(this.worldH - vhW + pad, this.cam.y));
+  }
+
+  pan(dx, dy) {
+    this.cam.x -= dx / this.cam.s;
+    this.cam.y -= dy / this.cam.s;
+    this.clampCam();
+  }
+
+  zoomAt(factor, sx, sy) {
+    const wx = this.cam.x + sx / this.cam.s, wy = this.cam.y + sy / this.cam.s;
+    this.cam.s *= factor;
+    this.clampCam();
+    this.cam.x = wx - sx / this.cam.s;
+    this.cam.y = wy - sy / this.cam.s;
+    this.clampCam();
+  }
+
+  local(clientX, clientY) {
+    const r = this.canvas.getBoundingClientRect();
+    return { x: clientX - r.left, y: clientY - r.top };
+  }
+
+  hexAt(clientX, clientY) {
+    const l = this.local(clientX, clientY);
+    const h = pixelToHex(this.cam.x + l.x / this.cam.s, this.cam.y + l.y / this.cam.s, HEX);
+    return tileAt(this.map, h.col, h.row) ? h : null;
   }
 
   center(h) { return hexToPixel(h.col, h.row, HEX); }
 
-  hexAt(clientX, clientY) {
-    const r = this.canvas.getBoundingClientRect();
-    const x = ((clientX - r.left) / r.width) * this.width;
-    const y = ((clientY - r.top) / r.height) * this.height;
-    const h = pixelToHex(x, y, HEX);
-    return tileAt(this.map, h.col, h.row) ? h : null;
-  }
+  // ---------- Terrain pré-calculé ----------
 
   buildTerrain() {
     const map = this.map;
-    const off = document.createElement('canvas');
-    off.width = this.canvas.width;
-    off.height = this.canvas.height;
-    const ctx = off.getContext('2d');
-    ctx.scale(this.dpr, this.dpr);
-    ctx.fillStyle = C.elev[1];
-    ctx.fillRect(0, 0, this.width, this.height);
+    const { worldW, worldH } = this;
+    const rng = createRng(`render:${map.seed}`);
+    const detail = makeNoise(rng);
 
-    // Teintes hypsométriques + ombrage (lumière venant du nord-ouest).
+    // Résolution de la couche : assez fine pour zoomer, sans dépasser les limites mémoire d'iOS.
+    const scale = Math.min(3, Math.sqrt(9e6 / (worldW * worldH)));
+    this.layerScale = scale;
+    const off = document.createElement('canvas');
+    off.width = Math.ceil(worldW * scale);
+    off.height = Math.ceil(worldH * scale);
+    const ctx = off.getContext('2d');
+    ctx.scale(scale, scale);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    // 1. Relief continu : altitudes lissées + micro-relief, teintes hypsométriques et ombrage nord-ouest.
+    const height = sampleField(map, worldW, worldH, 3, HEX * 0.62, (t) => t.elev,
+      (x, y) => (detail(x / 70, y / 70, 3) - 0.5) * 0.5);
+    this.height = height;
+    const hc = document.createElement('canvas');
+    hc.width = height.w;
+    hc.height = height.h;
+    const hctx = hc.getContext('2d');
+    const img = hctx.createImageData(height.w, height.h);
+    const { w, h, data } = height;
+    for (let j = 0; j < h; j++) {
+      for (let i = 0; i < w; i++) {
+        const idx = j * w + i;
+        const v = Math.max(0, Math.min(2.999, data[idx]));
+        const k = Math.floor(v), f = v - k;
+        const a = ELEV_STOPS[k], b = ELEV_STOPS[k + 1];
+        const gx = data[j * w + Math.min(w - 1, i + 1)] - data[j * w + Math.max(0, i - 1)];
+        const gy = data[Math.min(h - 1, j + 1) * w + i] - data[Math.max(0, j - 1) * w + i];
+        const shade = 1 + Math.max(-0.22, Math.min(0.22, (gx + gy) * 1.4));
+        for (let c = 0; c < 3; c++) img.data[idx * 4 + c] = Math.min(255, (a[c] + (b[c] - a[c]) * f) * shade);
+        img.data[idx * 4 + 3] = 255;
+      }
+    }
+    hctx.putImageData(img, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(hc, 0, 0, w * 3, h * 3);
+
+    // 2. Marais : nappes irrégulières et roseaux.
     for (const t of map.tiles) {
-      const { x, y } = this.center(t);
-      hexPath(ctx, x, y, HEX + 0.6);
-      ctx.fillStyle = C.elev[t.elev];
-      ctx.fill();
-      const nw = neighborCoords(t.col, t.row)[2], se = neighborCoords(t.col, t.row)[5];
-      const a = tileAt(map, nw.col, nw.row)?.elev ?? t.elev, b = tileAt(map, se.col, se.row)?.elev ?? t.elev;
-      const slope = b - a;
-      if (slope) {
-        ctx.fillStyle = slope > 0 ? `rgba(255,250,225,${0.1 * Math.min(2, slope)})` : `rgba(60,40,10,${0.08 * Math.min(2, -slope)})`;
+      if (t.terrain !== 'marsh') continue;
+      const p = this.center(t);
+      const r = createRng(t.row * 1000 + t.col + 3);
+      ctx.fillStyle = C.marsh;
+      for (let n = 0; n < 3; n++) {
+        blobPath(ctx, p.x + (r.next() - 0.5) * 18, p.y + (r.next() - 0.5) * 14, HEX * (0.45 + r.next() * 0.25), r);
         ctx.fill();
+      }
+      ctx.strokeStyle = C.reed;
+      ctx.lineWidth = 1;
+      for (let n = 0; n < 8; n++) {
+        const mx = p.x + (r.next() - 0.5) * HEX * 1.3, my = p.y + (r.next() - 0.5) * HEX * 1.2;
+        ctx.beginPath();
+        ctx.moveTo(mx - 4, my); ctx.lineTo(mx + 4, my);
+        ctx.moveTo(mx - 1.5, my); ctx.lineTo(mx - 3, my - 5);
+        ctx.moveTo(mx + 1, my); ctx.lineTo(mx + 2, my - 6);
+        ctx.stroke();
       }
     }
 
-    // Couverture du sol.
+    // 3. Champs : parcelles irrégulières rayées, orientées au hasard, bordées de haies.
     for (const t of map.tiles) {
-      const { x, y } = this.center(t);
-      const r = createRng(t.row * 1000 + t.col + 7);
-      if (t.terrain === 'farm') {
+      if (t.terrain !== 'farm') continue;
+      const p = this.center(t);
+      const r = createRng(t.row * 1000 + t.col + 11);
+      for (let n = 0; n < 2; n++) {
+        const cx = p.x + (r.next() - 0.5) * 16, cy = p.y + (r.next() - 0.5) * 12;
         ctx.save();
-        hexPath(ctx, x, y, HEX - 2);
+        blobPath(ctx, cx, cy, HEX * (0.5 + r.next() * 0.2), r, 7);
         ctx.clip();
-        ctx.translate(x, y);
+        ctx.translate(cx, cy);
         ctx.rotate(r.next() * Math.PI);
-        for (let i = -4; i < 4; i++) {
-          ctx.fillStyle = i % 2 ? C.farmA : C.farmB;
-          ctx.globalAlpha = 0.75;
-          ctx.fillRect(-HEX, i * 8, HEX * 2, 8);
+        for (let s = -6; s < 6; s++) {
+          ctx.fillStyle = s % 2 ? C.farmA : C.farmB;
+          ctx.globalAlpha = 0.8;
+          ctx.fillRect(-HEX * 1.2, s * 5, HEX * 2.4, 5);
         }
         ctx.restore();
-      } else if (t.terrain === 'forest') {
-        hexPath(ctx, x, y, HEX + 0.5);
-        ctx.fillStyle = C.forest;
-        ctx.globalAlpha = 0.8;
-        ctx.fill();
-        ctx.globalAlpha = 1;
-        for (let i = 0; i < 9; i++) {
-          const a = r.next() * Math.PI * 2, d = Math.sqrt(r.next()) * HEX * 0.72;
-          const tx = x + Math.cos(a) * d, ty = y + Math.sin(a) * d;
-          ctx.beginPath();
-          ctx.arc(tx, ty, 3.2 + r.next() * 2.2, 0, Math.PI * 2);
-          ctx.fillStyle = C.tree;
-          ctx.fill();
-          ctx.beginPath();
-          ctx.arc(tx - 1, ty - 1, 1.3, 0, Math.PI * 2);
-          ctx.fillStyle = 'rgba(200,220,150,0.45)';
-          ctx.fill();
-        }
-      } else if (t.terrain === 'marsh') {
-        ctx.strokeStyle = C.marsh;
+        ctx.strokeStyle = C.hedge;
         ctx.lineWidth = 1.2;
-        for (let i = 0; i < 7; i++) {
-          const mx = x + (r.next() - 0.5) * HEX * 1.2, my = y + (r.next() - 0.5) * HEX * 1.1;
-          ctx.beginPath();
-          ctx.moveTo(mx - 5, my);
-          ctx.lineTo(mx + 5, my);
-          ctx.moveTo(mx - 2, my - 1);
-          ctx.lineTo(mx - 3, my - 5);
-          ctx.moveTo(mx + 1, my - 1);
-          ctx.lineTo(mx + 2, my - 5);
-          ctx.stroke();
-        }
+        ctx.stroke();
       }
     }
 
-    // Courbes de niveau : arêtes entre hexagones d'altitudes différentes.
-    ctx.lineCap = 'round';
-    for (const t of map.tiles) {
-      const { x, y } = this.center(t);
-      neighborCoords(t.col, t.row).forEach((n, d) => {
-        const nt = tileAt(map, n.col, n.row);
-        if (!nt || nt.elev >= t.elev) return;
-        const [i, j] = edgeCorners(d);
-        const p = hexCorner(x, y, HEX, i), q = hexCorner(x, y, HEX, j);
-        ctx.strokeStyle = C.contour;
-        ctx.lineWidth = t.elev - nt.elev > 1 ? 2.4 : 1.4;
-        ctx.beginPath();
-        ctx.moveTo(p.x, p.y);
-        ctx.lineTo(q.x, q.y);
-        ctx.stroke();
-      });
+    // 4. Forêts : union de couronnes qui déborde légèrement et relie les hexagones boisés voisins.
+    const forest = map.tiles.filter((t) => t.terrain === 'forest');
+    const canopy = new Path2D();
+    const crowns = [];
+    for (const t of forest) {
+      const p = this.center(t);
+      const r = createRng(t.row * 1000 + t.col + 7);
+      for (let n = 0; n < 7; n++) {
+        const a = r.next() * Math.PI * 2, d = Math.sqrt(r.next()) * HEX * 0.42;
+        const cr = 10 + r.next() * 6;
+        canopy.moveTo(p.x + Math.cos(a) * d + cr, p.y + Math.sin(a) * d);
+        canopy.arc(p.x + Math.cos(a) * d, p.y + Math.sin(a) * d, cr, 0, Math.PI * 2);
+      }
+      for (const n of neighborCoords(t.col, t.row)) {
+        if (tileAt(map, n.col, n.row)?.terrain !== 'forest') continue;
+        const q = this.center(n);
+        canopy.moveTo((p.x + q.x) / 2 + 15, (p.y + q.y) / 2);
+        canopy.arc((p.x + q.x) / 2, (p.y + q.y) / 2, 15, 0, Math.PI * 2);
+      }
+      for (let n = 0; n < 16; n++) {
+        const a = r.next() * Math.PI * 2, d = Math.sqrt(r.next()) * HEX * 0.72;
+        crowns.push({ x: p.x + Math.cos(a) * d, y: p.y + Math.sin(a) * d, r: 2 + r.next() * 2.2 });
+      }
+    }
+    ctx.save();
+    ctx.translate(1.5, 2.5);
+    ctx.fillStyle = C.canopyShadow;
+    ctx.fill(canopy);
+    ctx.restore();
+    ctx.fillStyle = C.canopy;
+    ctx.fill(canopy);
+    for (const c of crowns) {
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
+      ctx.fillStyle = C.tree;
+      ctx.globalAlpha = 0.75;
+      ctx.fill();
+      ctx.globalAlpha = 1;
     }
 
-    // Rivières : courbe lissée passant par les centres.
+    // 5. Courbes de niveau continues : maîtresses aux seuils de la grille, intermédiaires tous les quarts.
+    ctx.strokeStyle = C.contourMinor;
+    ctx.lineWidth = 0.7;
+    for (const lv of [0.25, 0.75, 1, 1.25, 1.75, 2, 2.25, 2.75, 3]) strokeSegments(ctx, contourSegments(height, lv));
+    ctx.strokeStyle = C.contour;
+    ctx.lineWidth = 1.3;
+    for (const lv of [0.5, 1.5, 2.5]) strokeSegments(ctx, contourSegments(height, lv));
+
+    // 6. Rivières : méandres le long du tracé de la grille.
     for (const path of map.rivers) {
-      const pts = path.map((h) => this.center(h));
+      const pts = path.map((hx, i) => {
+        const c = this.center(hx);
+        if (i === 0 || i === path.length - 1) return c;
+        const prev = this.center(path[i - 1]), next = this.center(path[i + 1]);
+        const dx = next.x - prev.x, dy = next.y - prev.y, len = Math.hypot(dx, dy) || 1;
+        const off = (rng.next() - 0.5) * HEX * 0.5;
+        return { x: c.x - (dy / len) * off, y: c.y + (dx / len) * off };
+      });
       const first = pts[0], last = pts[pts.length - 1];
-      pts.unshift({ x: first.x, y: first.y < this.height / 2 ? 0 : this.height });
-      pts.push({ x: last.x, y: last.y < this.height / 2 ? 0 : this.height });
-      for (const [w, c] of [[9, C.river], [3, C.riverHi]]) {
-        ctx.strokeStyle = c;
-        ctx.lineWidth = w;
+      pts.unshift({ x: first.x, y: first.y < worldH / 2 ? -10 : worldH + 10 });
+      pts.push({ x: last.x, y: last.y < worldH / 2 ? -10 : worldH + 10 });
+      for (const [lw, col] of [[13, C.riverBank], [7.5, C.river], [2.2, C.riverHi]]) {
+        ctx.strokeStyle = col;
+        ctx.lineWidth = lw;
         ctx.beginPath();
-        ctx.moveTo(pts[0].x, pts[0].y);
-        for (let i = 1; i < pts.length - 1; i++) {
-          const mx = (pts[i].x + pts[i + 1].x) / 2, my = (pts[i].y + pts[i + 1].y) / 2;
-          ctx.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
-        }
-        ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+        splineTo(ctx, pts);
         ctx.stroke();
       }
     }
 
-    // Routes.
-    const edges = [...map.roadEdges].map((k) => k.split('|').map(Number));
-    for (const [w, c] of [[5, C.roadLo], [2.2, C.roadHi]]) {
-      ctx.strokeStyle = c;
-      ctx.lineWidth = w;
-      for (const [i, j] of edges) {
-        const a = this.center(map.tiles[i]), b = this.center(map.tiles[j]);
+    // 7. Routes : courbes douces suivant les chemins de la grille.
+    for (const [lw, col] of [[5.2, C.roadLo], [2.6, C.roadHi]]) {
+      ctx.strokeStyle = col;
+      ctx.lineWidth = lw;
+      for (const path of map.roads) {
         ctx.beginPath();
-        ctx.moveTo(a.x, a.y);
-        ctx.lineTo(b.x, b.y);
+        splineTo(ctx, path.map((hx) => this.center(hx)));
         ctx.stroke();
       }
     }
@@ -200,146 +466,190 @@ export class Renderer {
       if (!(t.river && t.road)) continue;
       const { x, y } = this.center(t);
       ctx.fillStyle = '#3a2a1c';
-      ctx.fillRect(x - 7, y - 5, 14, 10);
+      ctx.fillRect(x - 8, y - 5, 16, 10);
       ctx.fillStyle = C.roadHi;
-      ctx.fillRect(x - 6, y - 2, 12, 4);
+      ctx.fillRect(x - 7, y - 2, 14, 4);
     }
 
-    // Villages.
+    // 8. Villages : maisons groupées et église.
     for (const t of map.villages) {
       const { x, y } = this.center(t);
       const r = createRng(t.col * 31 + t.row * 977);
-      for (let i = 0; i < 7; i++) {
-        const hx = x + (r.next() - 0.5) * HEX * 1.15, hy = y + (r.next() - 0.5) * HEX * 0.95;
+      for (let i = 0; i < 9; i++) {
+        const a = r.next() * Math.PI * 2, d = 5 + r.next() * HEX * 0.55;
         ctx.save();
-        ctx.translate(hx, hy);
-        ctx.rotate((r.next() - 0.5) * 0.8);
+        ctx.translate(x + Math.cos(a) * d, y + Math.sin(a) * d * 0.8);
+        ctx.rotate(a + (r.next() - 0.5) * 0.5);
         ctx.fillStyle = C.house;
         ctx.fillRect(-4.5, -3.5, 9, 7);
         ctx.fillStyle = C.roof;
         ctx.fillRect(-4.5, -3.5, 9, 3);
         ctx.restore();
       }
+      ctx.fillStyle = C.house;
+      ctx.beginPath();
+      ctx.arc(x, y, 3.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillRect(x - 0.8, y - 9, 1.6, 6);
+      ctx.fillRect(x - 3, y - 7.5, 6, 1.4);
     }
 
-    // Quadrillage discret.
-    ctx.strokeStyle = C.grid;
-    ctx.lineWidth = 1;
+    // 9. Points cotés sur les sommets.
+    ctx.font = '600 9px "IBM Plex Mono", monospace';
+    ctx.textAlign = 'left';
+    const peaks = [];
     for (const t of map.tiles) {
+      if (t.elev < 3 || t.terrain === 'village') continue;
+      if (peaks.some((p) => hexDistance(p, t) < 4)) continue;
+      peaks.push(t);
       const { x, y } = this.center(t);
-      hexPath(ctx, x, y, HEX);
-      ctx.stroke();
+      const v = data[Math.round(y / 3) * w + Math.round(x / 3)];
+      const label = String(140 + Math.round(v * 38) + Math.floor(rng.next() * 9));
+      ctx.fillStyle = C.label;
+      ctx.beginPath();
+      ctx.moveTo(x, y - 4); ctx.lineTo(x + 4, y + 3); ctx.lineTo(x - 4, y + 3);
+      ctx.closePath();
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = C.halo;
+      ctx.strokeText(label, x + 6, y + 4);
+      ctx.fillText(label, x + 6, y + 4);
     }
 
-    // Noms des villages.
+    // 10. Noms des villages.
     ctx.font = '600 11px "IBM Plex Sans Condensed", "Arial Narrow", sans-serif';
     ctx.textAlign = 'center';
     for (const t of map.villages) {
       const { x, y } = this.center(t);
       ctx.lineWidth = 3.5;
       ctx.strokeStyle = C.halo;
-      ctx.strokeText(t.name, x, y + HEX * 0.95);
+      ctx.strokeText(t.name, x, y + HEX * 0.98);
       ctx.fillStyle = C.label;
-      ctx.fillText(t.name, x, y + HEX * 0.95);
+      ctx.fillText(t.name, x, y + HEX * 0.98);
     }
     this.layer = off;
   }
 
+  buildGrid() {
+    const g = new Path2D();
+    for (const t of this.map.tiles) {
+      const { x, y } = this.center(t);
+      for (let i = 0; i < 6; i++) {
+        const p = hexCorner(x, y, HEX, i);
+        i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y);
+      }
+      g.closePath();
+    }
+    this.gridPath = g;
+  }
+
+  mask(name, keys, rgb, alpha, opts) {
+    const c = this.cache[name];
+    if (c && c.keys === keys) return c.m;
+    const id = [...keys].sort((a, b) => a - b).join(',') + (opts?.invert ? '!' : '');
+    if (c && c.id === id) { c.keys = keys; return c.m; }
+    const m = softMask(this.map, this.worldW, this.worldH, keys, rgb, alpha, opts);
+    this.cache[name] = { id, m, keys };
+    return m;
+  }
+
+  drawMask(m, outline, lineWidth, dash = null) {
+    const { ctx } = this;
+    ctx.drawImage(m.canvas, 0, 0, m.f.w * m.f.step, m.f.h * m.f.step);
+    if (!outline) return;
+    ctx.strokeStyle = outline;
+    ctx.lineWidth = lineWidth / this.cam.s;
+    if (dash) ctx.setLineDash(dash.map((d) => d / this.cam.s));
+    strokeSegments(ctx, m.outline);
+    ctx.setLineDash([]);
+  }
+
+  // ---------- Image ----------
+
   draw(view) {
-    const { ctx, map } = this;
+    const { ctx, map, cam } = this;
     const { state, side } = view;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.drawImage(this.layer, 0, 0);
-    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    const d = this.dpr;
+    ctx.setTransform(d, 0, 0, d, 0, 0);
+    ctx.fillStyle = C.desk;
+    ctx.fillRect(0, 0, this.vw, this.vh);
+    ctx.setTransform(d * cam.s, 0, 0, d * cam.s, -cam.x * cam.s * d, -cam.y * cam.s * d);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.fillRect(4, 6, this.worldW, this.worldH);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(this.layer, 0, 0, this.worldW, this.worldH);
+
+    if (this.gridAlpha > 0) {
+      ctx.strokeStyle = C.grid + this.gridAlpha + ')';
+      ctx.lineWidth = 1 / cam.s;
+      ctx.stroke(this.gridPath);
+    }
 
     const vis = state.visibility[side];
     const reveal = state.phase === 'over';
+    const colW = HEX * SQRT3;
 
-    // Zones de repli (bords de carte) et zone de déploiement.
+    // Zones de repli : dégradés le long des bords.
     for (const s of ['DE', 'SU']) {
-      const col = retreatCol(state, s);
-      for (let row = 0; row < map.H; row++) {
-        const { x, y } = this.center({ col, row });
-        hexPath(ctx, x, y, HEX);
-        ctx.fillStyle = C[s].zone;
-        ctx.fill();
-      }
+      const west = retreatCol(state, s) === 0;
+      const g = ctx.createLinearGradient(west ? 0 : this.worldW, 0, west ? colW * 1.3 : this.worldW - colW * 1.3, 0);
+      const [r, gg, b] = C[s].zone;
+      g.addColorStop(0, `rgba(${r},${gg},${b},0.32)`);
+      g.addColorStop(1, `rgba(${r},${gg},${b},0)`);
+      ctx.fillStyle = g;
+      ctx.fillRect(west ? 0 : this.worldW - colW * 1.3, 0, colW * 1.3, this.worldH);
     }
+
     if (state.phase === 'deploy') {
-      for (const col of deployZone(state, side)) {
-        for (let row = 0; row < map.H; row++) {
-          const { x, y } = this.center({ col, row });
-          hexPath(ctx, x - 0, y, HEX - 3);
-          ctx.strokeStyle = 'rgba(179, 38, 30, 0.55)';
-          ctx.setLineDash([4, 4]);
-          ctx.lineWidth = 1.5;
-          ctx.stroke();
-          ctx.setLineDash([]);
-        }
-      }
+      const keys = new Set(map.tiles.filter((t) => deployZone(state, side).includes(t.col)).map((t) => t.row * map.W + t.col));
+      this.drawMask(this.mask('deploy', keys, [179, 38, 30], 0.12), 'rgba(179, 38, 30, 0.8)', 2, [6, 5]);
     }
 
-    // Brouillard de guerre.
-    if (!reveal) {
-      ctx.fillStyle = C.fog;
-      for (const t of map.tiles) {
-        if (vis.hexes.has(t.row * map.W + t.col)) continue;
-        const { x, y } = this.center(t);
-        hexPath(ctx, x, y, HEX + 0.6);
-        ctx.fill();
-      }
-    }
+    if (!reveal) this.drawMask(this.mask('fog', vis.hexes, [34, 37, 24], 0.42, { invert: true }), null);
 
-    // Objectif.
     if (state.objective) {
       const { x, y } = this.center(state.objective);
       const owner = state.objective.owner;
-      hexPath(ctx, x, y, HEX - 2);
+      ctx.beginPath();
+      ctx.arc(x, y, HEX * 0.86, 0, Math.PI * 2);
       ctx.strokeStyle = owner ? C[owner].edge : C.pencil;
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([5, 4]);
       ctx.stroke();
-      this.star(x, y - HEX * 0.62, 7, owner ? C[owner].fill : '#f2d34f');
+      ctx.setLineDash([]);
+      this.star(x, y - HEX * 0.7, 8, owner ? C[owner].fill : '#f2d34f');
     }
 
-    // Hexagones accessibles, portée d'artillerie.
     if (view.reach) {
-      ctx.fillStyle = 'rgba(255, 248, 220, 0.32)';
-      for (const k of view.reach.keys()) {
-        const h = { col: k % map.W, row: Math.floor(k / map.W) };
-        const { x, y } = this.center(h);
-        hexPath(ctx, x, y, HEX - 1.5);
-        ctx.fill();
-      }
+      const keys = view.reachKeys ?? new Set(view.reach.keys());
+      this.drawMask(this.mask('reach', keys, [255, 246, 214], 0.36), 'rgba(250, 240, 200, 0.95)', 2);
     }
     if (view.rangeOf) {
       const u = view.rangeOf;
       const s = unitStats(u);
-      ctx.fillStyle = 'rgba(179, 38, 30, 0.13)';
-      for (const t of map.tiles) {
-        const d = hexDistance(u, t);
-        if (d < s.minRange || d > s.range) continue;
-        const { x, y } = this.center(t);
-        hexPath(ctx, x, y, HEX - 1.5);
-        ctx.fill();
-      }
+      const keys = new Set(map.tiles.filter((t) => { const dd = hexDistance(u, t); return dd >= s.minRange && dd <= s.range; }).map((t) => t.row * map.W + t.col));
+      this.drawMask(this.mask('range', keys, [179, 38, 30], 0.16), 'rgba(179, 38, 30, 0.85)', 1.5, [4, 4]);
     }
     if (view.hover) {
       const { x, y } = this.center(view.hover);
-      hexPath(ctx, x, y, HEX - 1);
-      ctx.strokeStyle = 'rgba(40, 30, 10, 0.7)';
-      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x, y, HEX * 0.78, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(40, 30, 10, 0.6)';
+      ctx.lineWidth = 1.5 / cam.s;
       ctx.stroke();
     }
 
-    // Ordres du joueur, au crayon rouge.
     if (!view.anim) {
       for (const u of state.units) {
         if (u.side !== side || !onMap(u)) continue;
         this.drawOrders(u, u.id === view.selectedId);
       }
     }
+    if (view.preview) this.drawPreview(view.preview);
 
-    // Dernières positions connues de l'ennemi (fantômes) avec le mouvement observé.
     if (!reveal) {
       for (const [id, m] of Object.entries(state.memory[side])) {
         if (vis.units.has(id) || (view.animVisible && view.animVisible.has(id))) continue;
@@ -347,7 +657,20 @@ export class Renderer {
       }
     }
 
-    // Unités.
+    // Traînées des unités en mouvement.
+    if (view.anim?.trails) {
+      for (const [id, tr] of Object.entries(view.anim.trails)) {
+        if (tr.length < 2) continue;
+        const u = state.units.find((x) => x.id === id);
+        if (u.side !== side && !reveal && !view.animVisible.has(id)) continue;
+        ctx.strokeStyle = u.type === 'tank' ? 'rgba(90, 70, 40, 0.35)' : 'rgba(60, 50, 30, 0.25)';
+        ctx.lineWidth = u.type === 'tank' ? 5 : 3;
+        ctx.beginPath();
+        tr.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+        ctx.stroke();
+      }
+    }
+
     for (const u of state.units) {
       const snap = view.anim?.pos[u.id];
       if (view.anim ? !snap : !onMap(u)) continue;
@@ -356,9 +679,7 @@ export class Renderer {
         if (!seen) continue;
       }
       const p = snap ? { x: snap.x, y: snap.y } : this.center(u);
-      const status = snap ? snap.status : u.status;
-      const hp = view.anim?.hp?.[u.id] ?? u.hp;
-      this.drawCounter(u, p.x, p.y, { selected: u.id === view.selectedId, status, hp });
+      this.drawCounter(u, p.x, p.y, { selected: u.id === view.selectedId, status: snap ? snap.status : u.status, hp: view.anim?.hp?.[u.id] ?? u.hp, heading: snap?.heading ?? 0 });
     }
 
     if (view.fx) this.drawEffects(view.fx);
@@ -380,29 +701,45 @@ export class Renderer {
     ctx.stroke();
   }
 
+  arrowHead(b, ang, size) {
+    const { ctx } = this;
+    ctx.beginPath();
+    ctx.moveTo(b.x + Math.cos(ang) * 4, b.y + Math.sin(ang) * 4);
+    ctx.lineTo(b.x + Math.cos(ang + 2.6) * size, b.y + Math.sin(ang + 2.6) * size);
+    ctx.lineTo(b.x + Math.cos(ang - 2.6) * size, b.y + Math.sin(ang - 2.6) * size);
+    ctx.fill();
+  }
+
+  drawPathCurve(from, path, { color, width, dash }) {
+    const { ctx } = this;
+    const pts = [this.center(from), ...path.map((h) => this.center(h))];
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = width;
+    ctx.setLineDash(dash);
+    ctx.beginPath();
+    splineTo(ctx, pts);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const n = pts.length - 1;
+    const a = splineAt(pts, Math.max(0, n - 0.15)), b = pts[n];
+    this.arrowHead(b, Math.atan2(b.y - a.y, b.x - a.x), 12);
+  }
+
+  drawPreview({ unit, path }) {
+    if (!path?.length) return;
+    this.ctx.save();
+    this.ctx.globalAlpha = 0.55;
+    this.drawPathCurve(unit, path, { color: C.pencil, width: 2, dash: [3, 5] });
+    this.ctx.restore();
+  }
+
   drawOrders(u, selected) {
     const { ctx } = this;
     const o = u.orders;
     ctx.save();
-    ctx.globalAlpha = selected ? 1 : 0.75;
-    if (o.path.length) {
-      const pts = [this.center(u), ...o.path.map((h) => this.center(h))];
-      ctx.strokeStyle = C.pencil;
-      ctx.lineWidth = selected ? 3 : 2.2;
-      ctx.setLineDash([7, 5]);
-      ctx.beginPath();
-      pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
-      ctx.stroke();
-      ctx.setLineDash([]);
-      const a = pts[pts.length - 2], b = pts[pts.length - 1];
-      const ang = Math.atan2(b.y - a.y, b.x - a.x);
-      ctx.fillStyle = C.pencil;
-      ctx.beginPath();
-      ctx.moveTo(b.x + Math.cos(ang) * 4, b.y + Math.sin(ang) * 4);
-      ctx.lineTo(b.x + Math.cos(ang + 2.6) * 11, b.y + Math.sin(ang + 2.6) * 11);
-      ctx.lineTo(b.x + Math.cos(ang - 2.6) * 11, b.y + Math.sin(ang - 2.6) * 11);
-      ctx.fill();
-    }
+    ctx.globalAlpha = selected ? 1 : 0.78;
+    if (o.path.length) this.drawPathCurve(u, o.path, { color: C.pencil, width: selected ? 3 : 2.2, dash: [8, 5] });
     if (o.fireAt) {
       const a = this.center(u), b = this.center(o.fireAt);
       ctx.strokeStyle = C.pencil;
@@ -447,15 +784,14 @@ export class Renderer {
       const b = this.center(t);
       const ang = Math.atan2(b.y - y, b.x - x);
       const len = Math.min(Math.hypot(b.x - x, b.y - y), HEX * 2.4);
+      const sx = x + Math.cos(ang) * w * 0.5, sy = y + Math.sin(ang) * h * 0.5;
       const ex = x + Math.cos(ang) * len, ey = y + Math.sin(ang) * len;
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(x + Math.cos(ang) * w * 0.5, y + Math.sin(ang) * h * 0.5);
-      ctx.lineTo(ex, ey);
-      ctx.lineTo(ex - Math.cos(ang - 0.5) * 8, ey - Math.sin(ang - 0.5) * 8);
-      ctx.moveTo(ex, ey);
-      ctx.lineTo(ex - Math.cos(ang + 0.5) * 8, ey - Math.sin(ang + 0.5) * 8);
+      ctx.moveTo(sx, sy);
+      ctx.quadraticCurveTo((sx + ex) / 2 - Math.sin(ang) * 8, (sy + ey) / 2 + Math.cos(ang) * 8, ex, ey);
       ctx.stroke();
+      this.arrowHead({ x: ex, y: ey }, ang, 9);
     }
     ctx.restore();
   }
@@ -490,18 +826,20 @@ export class Renderer {
     }
   }
 
-  drawCounter(u, x, y, { selected, status, hp }) {
+  drawCounter(u, x, y, { selected, status, hp, heading }) {
     const { ctx } = this;
     const s = unitStats(u);
     const w = HEX * 1.3, h = HEX * 0.95;
     const col = C[u.side];
     ctx.save();
-    if (status === 'routed') {
+    // Légère inclinaison dans le sens de la marche : le pion « roule » au lieu de sauter.
+    const tilt = status === 'routed' ? -0.25 : Math.max(-0.12, Math.min(0.12, heading * 0.12));
+    if (tilt) {
       ctx.translate(x, y);
-      ctx.rotate(-0.25);
+      ctx.rotate(tilt);
       ctx.translate(-x, -y);
-      ctx.globalAlpha = 0.8;
     }
+    if (status === 'routed') ctx.globalAlpha = 0.8;
     if (u.entrench > 0 && status === 'ok') {
       ctx.strokeStyle = '#5e4424';
       ctx.lineWidth = 3;
@@ -512,21 +850,21 @@ export class Renderer {
       }
     }
     if (selected) {
-      ctx.shadowColor = '#ffe680';
-      ctx.shadowBlur = 14;
+      ctx.beginPath();
+      ctx.arc(x, y, HEX * 0.98, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255, 230, 128, 0.28)';
+      ctx.fill();
     }
     ctx.fillStyle = 'rgba(30,20,10,0.35)';
     ctx.fillRect(x - w / 2 + 2, y - h / 2 + 3, w, h);
     ctx.fillStyle = col.fill;
     ctx.fillRect(x - w / 2, y - h / 2, w, h);
-    ctx.shadowBlur = 0;
     ctx.strokeStyle = selected ? '#fff2a8' : col.edge;
     ctx.lineWidth = selected ? 2.5 : 1.5;
     ctx.strokeRect(x - w / 2, y - h / 2, w, h);
     ctx.fillStyle = '#f3ecd6';
     ctx.fillRect(x - w * 0.3, y - h * 0.36, w * 0.6, h * 0.5);
     this.symbol(u.type, x, y - h * 0.11, w * 0.6, h * 0.5, '#1d1a12');
-    // Chevrons d'expérience.
     ctx.strokeStyle = '#1d1a12';
     ctx.lineWidth = 1.4;
     for (let i = 0; i < u.level - 1; i++) {
@@ -537,7 +875,6 @@ export class Renderer {
       ctx.lineTo(cx + 3.5, cy + 2.5);
       ctx.stroke();
     }
-    // Barre de PV.
     const ratio = Math.max(0, hp / s.maxHp);
     ctx.fillStyle = 'rgba(20,15,5,0.55)';
     ctx.fillRect(x - w * 0.42, y + h * 0.24, w * 0.84, 4);
@@ -564,7 +901,7 @@ export class Renderer {
       if (t <= 0) continue;
       if (t < 0.45) {
         const k = t / 0.45;
-        ctx.strokeStyle = f.indirect ? 'rgba(255, 200, 90, 0.9)' : 'rgba(255, 240, 160, 0.95)';
+        ctx.strokeStyle = 'rgba(255, 240, 160, 0.95)';
         ctx.lineWidth = 2;
         ctx.beginPath();
         if (f.indirect) {
@@ -583,7 +920,7 @@ export class Renderer {
         const k = (t - 0.45) / 0.55;
         const hits = f.empty ? 2 : Math.max(1, f.hits ?? 0);
         for (let i = 0; i < Math.min(5, hits); i++) {
-          const ox = Math.cos(i * 2.4) * 9 * (i ? 1 : 0), oy = Math.sin(i * 2.4) * 7 * (i ? 1 : 0);
+          const ox = i ? Math.cos(i * 2.4) * 9 : 0, oy = i ? Math.sin(i * 2.4) * 7 : 0;
           ctx.beginPath();
           ctx.arc(b.x + ox, b.y + oy, 5 + k * 14, 0, Math.PI * 2);
           ctx.fillStyle = f.damage || f.empty ? `rgba(255, 140, 40, ${0.75 * (1 - k)})` : `rgba(230, 230, 210, ${0.6 * (1 - k)})`;
