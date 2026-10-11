@@ -131,6 +131,7 @@ function rulesHtml() {
         <li><b>Directives.</b> Le drapeau à droite de la carte (<kbd>D</kbd>) active le mode directives : placez jusqu'à ${MAX_DIRECTIVES} intentions (attaquer, défendre, se replier) et l'état-major répartit vos unités et rédige leurs ordres à chaque tour. Un ordre donné à la main prime pour le tour. « Contrôle direct » rend la main en gardant le plan en cours.</li>
         <li><b>Antichar.</b> Canon tracté : +2 dés contre les blindés, mais il ne tire pas s'il a bougé dans le tour. Embusqué en forêt ou au village, l'ennemi ne le repère qu'au contact tant qu'il n'a pas ouvert le feu : les chars qui passent à 2 hexagones ne peuvent pas riposter au premier tir.</li>
         <li><b>Conditions.</b> Chaque bataille a son biome (steppe, bocage, Polésie, bourg), sa météo et son heure : un tour dure une heure. Pluie : vision −1, et hors route les véhicules s'enlisent (½ point de plus par hexagone) ; l'infanterie passe. Brouillard : vision −2, les hauteurs ne voient pas plus loin. Neige : vision −1, même enlisement des véhicules, rivières et marais gelés franchissables. Aube et crépuscule : vision −1 ; nuit : −2. Une unité voit toujours au moins l'hexagone voisin.</li>
+        <li><b>Terrain destructible.</b> Deux barrages réduisent un village en ruines (défense +2 conservée, avance plus lente). Un barrage crible un champ de cratères (+1 en défense pour l'infanterie, ½ point de plus pour traverser). Par temps sec, chaque obus a une chance sur trois d'enflammer une forêt : 2 tours de feu, infranchissable, 2 PV perdus par tour pour qui y reste, propagation aux forêts voisines.</li>
         <li><b>Munitions.</b> Chaque batterie dispose de ${UNIT_TYPES.artillery.ammo} obus par bataille, rechargés entre deux batailles. Un barrage coûte un obus même s'il tombe sur une case vide ; le tir à vue sur un ennemi repéré aussi. « Tir à vue : non » garde les obus pour les barrages. L'autodéfense au contact est gratuite.</li>
         <li><b>Clouage.</b> Une unité qui encaisse 2 touches dans le tour (3 si retranchée) ou un barrage d'artillerie est clouée : au tour suivant elle ne bouge pas et tire à −1. Les blindés ne sont immobilisés que par un 6 d'une arme qui perce. Le marqueur jaune sur le pion le signale.</li>
         <li><b>Moral.</b> Une unité très éprouvée, ou qui voit une unité voisine anéantie, teste son moral (d6 + niveau ≥ 5) : +1 retranchée, +1 à couvert, +1 si un voisin est retranché, −1 isolée (aucun allié à 2 hex), −1 prise en tenaille (feu venu de côtés opposés). En cas d'échec elle se débande et fuit vers sa zone de repli.</li>
@@ -559,6 +560,7 @@ async function endPhase() {
     });
     ui.renderer.stampScars(fx, seed);
   }
+  ui.renderer.applyTerrain(res.terrain);
   for (const id of dead) {
     const u = s.units.find((x) => x.id === id);
     const p = last[id] ?? hexToPixel(u.col, u.row, HEX);

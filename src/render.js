@@ -643,8 +643,94 @@ export class Renderer {
 
   addWreck(w) { this.wrecks.push(w); }
 
-  // Vrai tant qu'une épave fume encore : la carte s'anime alors doucement.
-  hasSmoke(turn) { return this.wrecks.some((w) => turn - w.turn <= 1); }
+  // Vrai tant qu'une épave fume ou qu'une forêt brûle encore : la carte s'anime alors doucement.
+  hasSmoke(turn) {
+    return this.wrecks.some((w) => turn - w.turn <= 1) || this.map.tiles.some((t) => t.fire > 0 || (t.burnt && turn - t.burntTurn <= 1));
+  }
+
+  // Changements de terrain du tour, peints une fois pour toutes sur la couche : décombres, cendres.
+  applyTerrain(changes = []) {
+    const ctx = this.layerCtx();
+    for (const ch of changes) {
+      const { x, y } = this.center(ch);
+      const r = createRng(`terrain:${ch.col}:${ch.row}:${ch.kind}`);
+      if (ch.kind === 'ruins') {
+        ctx.fillStyle = 'rgba(128, 116, 98, 0.92)';
+        blobPath(ctx, x, y, HEX * 0.74, r, 9);
+        ctx.fill();
+        for (let i = 0; i < 22; i++) {
+          const a = r.next() * Math.PI * 2, d = Math.sqrt(r.next()) * HEX * 0.62;
+          ctx.save();
+          ctx.translate(x + Math.cos(a) * d, y + Math.sin(a) * d);
+          ctx.rotate(r.next() * Math.PI);
+          ctx.fillStyle = i % 3 ? 'rgba(84, 70, 56, 0.9)' : 'rgba(120, 60, 44, 0.85)';
+          ctx.fillRect(-2.5, -1.5, 3 + r.next() * 4, 2 + r.next() * 2);
+          ctx.restore();
+        }
+        // Pans de murs encore debout, noircis.
+        ctx.strokeStyle = 'rgba(40, 32, 26, 0.9)';
+        ctx.lineWidth = 1.6;
+        for (let i = 0; i < 4; i++) {
+          const a = r.next() * Math.PI * 2, d = r.next() * HEX * 0.45;
+          const px = x + Math.cos(a) * d, py = y + Math.sin(a) * d, ang = r.next() * Math.PI;
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.lineTo(px + Math.cos(ang) * 7, py + Math.sin(ang) * 7);
+          ctx.lineTo(px + Math.cos(ang) * 7 + Math.cos(ang + 1.57) * 4, py + Math.sin(ang) * 7 + Math.sin(ang + 1.57) * 4);
+          ctx.stroke();
+        }
+      } else if (ch.kind === 'burnt') {
+        ctx.fillStyle = 'rgba(46, 42, 36, 0.85)';
+        blobPath(ctx, x, y, HEX * 0.82, r, 10);
+        ctx.fill();
+        for (let i = 0; i < 22; i++) {
+          const a = r.next() * Math.PI * 2, d = Math.sqrt(r.next()) * HEX * 0.7;
+          ctx.beginPath();
+          ctx.arc(x + Math.cos(a) * d, y + Math.sin(a) * d, 0.8 + r.next() * 1.6, 0, Math.PI * 2);
+          ctx.fillStyle = i % 2 ? 'rgba(150, 146, 136, 0.7)' : 'rgba(20, 16, 12, 0.9)'; // cendres et souches
+          ctx.fill();
+        }
+      }
+    }
+  }
+
+  // Flammes et fumée des forêts en feu (animées).
+  drawFires(now) {
+    const { ctx } = this;
+    for (const t of this.map.tiles) {
+      if (!(t.fire > 0)) continue;
+      const { x, y } = this.center(t);
+      const r = createRng(`fire:${t.col}:${t.row}`);
+      const glow = ctx.createRadialGradient(x, y, 2, x, y, HEX * 1.1);
+      glow.addColorStop(0, 'rgba(255, 150, 50, 0.45)');
+      glow.addColorStop(1, 'rgba(255, 120, 40, 0)');
+      ctx.fillStyle = glow;
+      ctx.fillRect(x - HEX * 1.1, y - HEX * 1.1, HEX * 2.2, HEX * 2.2);
+      for (let i = 0; i < 9; i++) {
+        const a = r.next() * Math.PI * 2, d = Math.sqrt(r.next()) * HEX * 0.6, ph = r.next() * 10;
+        const fx = x + Math.cos(a) * d, fy = y + Math.sin(a) * d;
+        const h = Math.max(2.5, 7 + 3.5 * Math.sin(now * 9 + ph) + 2.5 * Math.sin(now * 23 + ph * 2));
+        ctx.fillStyle = 'rgba(255, 120, 30, 0.85)';
+        ctx.beginPath();
+        ctx.moveTo(fx - 3.5, fy);
+        ctx.quadraticCurveTo(fx - 2, fy - h * 0.6, fx, fy - h);
+        ctx.quadraticCurveTo(fx + 2, fy - h * 0.6, fx + 3.5, fy);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255, 224, 120, 0.9)';
+        ctx.beginPath();
+        ctx.ellipse(fx, fy - 1.5, 1.6, h * 0.3, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Colonne de fumée qui monte et dérive.
+      for (let i = 0; i < 6; i++) {
+        const k = ((now * 0.25 + i / 6) % 1);
+        ctx.beginPath();
+        ctx.arc(x + k * 14 + Math.sin(now + i) * 3, y - 6 - k * 34, 5 + k * 11, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(70, 66, 60, ${0.35 * (1 - k)})`;
+        ctx.fill();
+      }
+    }
+  }
 
   mask(name, keys, rgb, alpha, opts) {
     const c = this.cache[name];
@@ -766,6 +852,7 @@ export class Renderer {
 
     const now = (view.time ?? performance.now()) / 1000;
     for (const w of this.wrecks) drawWreck(ctx, w, now, state.turn - w.turn);
+    this.drawFires(now);
 
     // Traînées des unités en mouvement.
     if (view.anim?.trails) {

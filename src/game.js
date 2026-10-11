@@ -204,7 +204,7 @@ export function validateOrders(state, u) {
 
 export function executeTurn(state) {
   const { map, rng } = state;
-  const res = { ticks: [], fires: [], events: [] };
+  const res = { ticks: [], fires: [], events: [], burns: [], terrain: [] };
   const alive = state.units.filter(onMap);
   log(state, 'turn', `— Tour ${state.turn} —`);
 
@@ -226,6 +226,7 @@ export function executeTurn(state) {
     for (const u of alive) {
       if (!onMap(u) || !u.plan.length) continue;
       const nx = u.plan[0];
+      if (tileAt(map, nx.col, nx.row).fire > 0) { u.plan = []; continue; }
       const c = moveCost(map, u, nx, u.type);
       if (c > u.mpLeft && u.movedHexes > 0) { u.plan = []; continue; }
       wants.push({ u, nx, c });
@@ -402,12 +403,75 @@ export function executeTurn(state) {
     const keepDig = u.status === 'ok' && u.orders.entrench && u.movedHexes === 0;
     u.orders = { path: [], entrench: keepDig, fireAt: null };
   }
+  applyTerrainDamage(state, res);
   updateObjective(state);
   updateVisibility(state, state.turn + 1); // vue préparée pour le tour suivant, à sa lumière
   for (const u of state.units) { u.startPos = null; u.movedHexes = 0; }
   checkVictory(state);
   state.turn++;
   return res;
+}
+
+// ---------- Terrain destructible ----------
+
+export const FIRE_DAMAGE = 2;
+export const FIRE_TURNS = 2;
+export const RUIN_AFTER = 2;
+
+// Après le combat : les incendies en cours brûlent, se propagent puis s'éteignent ; ensuite les obus du tour
+// marquent le terrain (cratères, ruines, départs de feu). Une forêt qui s'embrase ne brûle les unités qu'au tour
+// suivant : elles ont le temps d'en sortir. res.terrain liste les changements pour le rendu.
+function applyTerrainDamage(state, res) {
+  const { map, rng } = state;
+  const changes = [];
+  const wet = map.weather === 'rain' || map.weather === 'snow'; // bois mouillé : pas de feu
+  const ignite = new Set();
+  for (const t of map.tiles.filter((x) => x.fire > 0)) {
+    for (const u of state.units) {
+      if (!onMap(u) || u.col !== t.col || u.row !== t.row) continue;
+      u.hp = Math.max(0, u.hp - FIRE_DAMAGE);
+      res.burns.push({ id: u.id, col: t.col, row: t.row, damage: FIRE_DAMAGE });
+      if (u.hp > 0) log(state, 'fire', `${u.name} est prise dans l'incendie (−${FIRE_DAMAGE} PV).`, u.side);
+      else {
+        u.status = 'destroyed';
+        res.events.push({ kind: 'destroyed', id: u.id });
+        log(state, 'destroy', `${u.name} périt dans l'incendie !`, u.side);
+      }
+    }
+    if (!wet) {
+      for (const n of neighbors(map, t)) {
+        const nt = tileAt(map, n.col, n.row);
+        if (nt.terrain === 'forest' && !nt.fire && rng.chance(1 / 3)) ignite.add(nt);
+      }
+    }
+    if (--t.fire === 0) {
+      t.terrain = 'plain';
+      t.burnt = true;
+      t.burntTurn = state.turn;
+      changes.push({ col: t.col, row: t.row, kind: 'burnt' });
+    }
+  }
+  for (const f of res.fires) {
+    if (!f.indirect) continue;
+    const t = tileAt(map, f.to.col, f.to.row);
+    if (!t) continue;
+    t.shelled = (t.shelled ?? 0) + 1;
+    if (t.terrain === 'village' && !t.ruined && t.shelled >= RUIN_AFTER) {
+      t.ruined = true;
+      changes.push({ col: t.col, row: t.row, kind: 'ruins' });
+      log(state, 'terrain', `${t.name ?? 'Un pâté de maisons'} n'est plus qu'un champ de ruines.`);
+    } else if ((t.terrain === 'plain' || t.terrain === 'farm') && !t.craters && !t.river) {
+      t.craters = true;
+      changes.push({ col: t.col, row: t.row, kind: 'craters' });
+    } else if (t.terrain === 'forest' && !t.fire && !wet && rng.chance(1 / 3)) ignite.add(t);
+  }
+  for (const t of ignite) {
+    if (t.terrain !== 'forest' || t.fire > 0) continue;
+    t.fire = FIRE_TURNS;
+    changes.push({ col: t.col, row: t.row, kind: 'fire' });
+  }
+  if (ignite.size) log(state, 'terrain', ignite.size > 1 ? `L'incendie gagne ${ignite.size} parcelles de forêt.` : 'Une forêt prend feu.');
+  res.terrain = changes;
 }
 
 // Tenaille : deux tireurs en tir direct venus de directions opposées (écart d'au moins 120°).

@@ -9,6 +9,7 @@ import { planSide, assignDirectives } from '../src/ai.js';
 import { buildCombatFx } from '../src/fx.js';
 import { sound } from '../src/audio.js';
 import { moveCost } from '../src/terrain.js';
+import { reachable } from '../src/path.js';
 import { fireOdds, moraleCheck } from '../src/combat.js';
 import { newCampaign, battleSetup, concludeBattle, campaignOver } from '../src/campaign.js';
 
@@ -411,4 +412,80 @@ test('biomes : steppe ouverte, bocage boisé, Polésie marécageuse, bourg compa
     assert.ok(town.every((t) => hexDistance(t, center) <= 1), 'pâtés de maisons contigus');
     assert.ok(m.villages.every((v) => v.name || v.town), 'seuls les pâtés du bourg sont sans nom');
   }
+});
+
+// Terrain plat, une batterie allemande face à un fantassin soviétique ; on règle le terrain de la case visée.
+function terrainScenario(target, setup) {
+  resetIds();
+  const rng = createRng('ruine');
+  const state = createBattle({ seed: 'ruine', playerSide: 'DE', armies: { DE: [makeUnit('DE', 'artillery', 1, rng), makeUnit('DE', 'infantry', 1, rng)], SU: [makeUnit('SU', 'infantry', 1, rng)] } });
+  for (const t of state.map.tiles) Object.assign(t, { terrain: 'plain', elev: 1, river: false, road: false, name: null });
+  state.map.roadEdges.clear();
+  state.objective = null;
+  const [gun, rifles] = state.units.filter((u) => u.side === 'DE');
+  const [foe] = state.units.filter((u) => u.side === 'SU');
+  Object.assign(gun, { col: 3, row: 7, holdFire: true });
+  Object.assign(rifles, { col: 2, row: 2 });
+  Object.assign(foe, { col: 12, row: 12 });
+  setup?.(state.map.tiles[target.row * state.map.W + target.col], state);
+  state.phase = 'plan';
+  const barrage = () => { gun.orders.fireAt = { ...target }; return executeTurn(state); };
+  return { state, gun, rifles, foe, barrage, tile: state.map.tiles[target.row * state.map.W + target.col] };
+}
+
+test('terrain destructible : ruines après deux barrages, cratères dans les champs', () => {
+  const v = terrainScenario({ col: 3, row: 4 }, (t) => Object.assign(t, { terrain: 'village', name: 'Testovka' }));
+  const from = v.state.map.tiles[5 * v.state.map.W + 3];
+  const before = moveCost(v.state.map, from, v.tile, 'infantry');
+  v.barrage();
+  assert.ok(!v.tile.ruined, 'un seul barrage ne suffit pas');
+  const res = v.barrage();
+  assert.ok(v.tile.ruined, 'ruiné au deuxième barrage');
+  assert.ok(res.terrain.some((c) => c.kind === 'ruins'));
+  assert.ok(moveCost(v.state.map, from, v.tile, 'infantry') > before, 'les décombres ralentissent');
+  assert.equal(fireOdds(v.state.map, v.gun, Object.assign(v.foe, { col: 3, row: 4 })).mods.find((m) => m.why.includes('ruines'))?.v, 2, 'défense conservée');
+
+  const f = terrainScenario({ col: 3, row: 4 });
+  const cost = moveCost(f.state.map, from, f.tile, 'tank');
+  f.barrage();
+  assert.ok(f.tile.craters, 'un barrage laisse des cratères');
+  assert.equal(moveCost(f.state.map, from, f.tile, 'tank'), cost + 1);
+  Object.assign(f.foe, { col: 3, row: 4 });
+  const inf = fireOdds(f.state.map, f.rifles, f.foe).mods.find((m) => m.why.includes('cratères'));
+  assert.equal(inf?.v, 1, 'l\'infanterie s\'abrite dans les cratères');
+});
+
+test('forêt en feu : brûle les occupants, infranchissable, puis découverte ; pas de feu sous la pluie', () => {
+  const s = terrainScenario({ col: 8, row: 8 }, (t) => Object.assign(t, { terrain: 'forest', fire: 2 }));
+  Object.assign(s.foe, { col: 8, row: 8 });
+  const hp = s.foe.hp;
+  const reach = reachable(s.state.map, s.rifles, { from: { col: 7, row: 8 } });
+  assert.ok(!reach.has(8 * s.state.map.W + 8), 'on n\'entre pas dans le feu');
+  s.foe.orders = { path: [], entrench: false, fireAt: null };
+  executeTurn(s.state);
+  assert.equal(s.foe.hp, hp - 2, 'l\'occupant brûle');
+  executeTurn(s.state);
+  assert.ok(s.tile.burnt && s.tile.terrain === 'plain', 'forêt brûlée, découverte');
+
+  // L'IA sort d'une forêt en feu.
+  const a = terrainScenario({ col: 8, row: 8 }, (t) => Object.assign(t, { terrain: 'forest', fire: 2 }));
+  Object.assign(a.foe, { col: 8, row: 8 });
+  planSide(a.state, 'SU');
+  assert.ok(a.foe.orders.path.length > 0, 'l\'IA évacue la forêt en feu');
+
+  // Sous la pluie, des barrages répétés n'allument rien.
+  for (const weather of ['rain', 'snow']) {
+    const w = terrainScenario({ col: 3, row: 4 }, (t, st) => { t.terrain = 'forest'; st.map.weather = weather; });
+    for (let i = 0; i < 6; i++) w.barrage();
+    assert.ok(!w.state.map.tiles.some((t) => t.fire > 0 || t.burnt), `pas d'incendie par ${weather}`);
+  }
+  // Par temps sec, six barrages finissent presque toujours par l'embraser.
+  let lit = 0;
+  for (let i = 0; i < 5; i++) {
+    const d = terrainScenario({ col: 3, row: 4 }, (t) => { t.terrain = 'forest'; });
+    d.state.rng = createRng(`feu${i}`);
+    for (let k = 0; k < 6; k++) d.barrage();
+    if (d.state.map.tiles.some((t) => t.fire > 0 || t.burnt)) lit++;
+  }
+  assert.ok(lit >= 3, `incendies déclenchés : ${lit}/5`);
 });

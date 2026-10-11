@@ -21,6 +21,7 @@ export function reachable(map, unit, { from = unit, blocked = new Set(), mp = un
       if (!tileAt(map, n.col, n.row)) continue;
       const nk = hexKey(map, n);
       if (blocked.has(nk)) continue;
+      if (tileAt(map, n.col, n.row).fire > 0) continue; // on n'entre pas dans une forêt en feu
       let c = cost + moveCost(map, h, n, unit.type);
       if (c > mp) {
         if (k !== start) continue;

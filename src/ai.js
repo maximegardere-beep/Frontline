@@ -1,7 +1,7 @@
 // IA de l'état-major adverse. Elle ne voit que ce que voient ses unités (brouillard + mémoire)
 // et anticipe les mouvements ennemis à partir des dernières observations.
 
-import { hexDistance } from './hex.js';
+import { hexDistance, neighborCoords } from './hex.js';
 import { tileAt, terrainDefense, TERRAIN } from './terrain.js';
 import { unitStats, other, UNIT_TYPES } from './units.js';
 import { reachable, pathFrom, hexKey, keyHex } from './path.js';
@@ -85,7 +85,8 @@ export function planSide(state, side, { directives = null, fixed = null, rng = s
     // (de préférence autour du point d'attaque ou de défense désigné).
     // Munitions comptées : plus le stock baisse, plus la cible doit valoir le coup ; le tir à vue est coupé en fin de stock.
     if (u.type === 'artillery' && side !== state.playerSide) u.holdFire = u.ammo <= 2; // côté joueur, c'est son réglage
-    if (u.type === 'artillery' && !falling && u.ammo > 0) {
+    const onFire = tileAt(map, u.col, u.row).fire > 0; // une batterie dans une forêt en feu déménage d'abord
+    if (u.type === 'artillery' && !falling && u.ammo > 0 && !onFire) {
       const minValue = u.ammo >= 4 ? 0 : u.ammo >= 2 ? 3.5 : 5;
       let best = null, bestV = 0;
       for (const k of known) {
@@ -163,7 +164,10 @@ export function planSide(state, side, { directives = null, fixed = null, rng = s
       const h = keyHex(map, k);
       const t = tileAt(map, h.col, h.row);
       if (t.terrain === 'marsh' && u.type === 'tank') continue;
-      let score = -hexDistance(h, goal) * wGoal + terrainDefense(t) * 0.9 + t.elev * 0.25 + rng.next() * 0.3;
+      let score = -hexDistance(h, goal) * wGoal + terrainDefense(t, u.type) * 0.9 + t.elev * 0.25 + rng.next() * 0.3;
+      // Incendie : quitter une forêt en feu, se méfier des forêts voisines d'un feu.
+      if (t.fire > 0) score -= 50;
+      else if (t.terrain === 'forest' && neighborCoords(h.col, h.row).some((n) => tileAt(map, n.col, n.row)?.fire > 0)) score -= 2;
       const danger = knownDanger(h);
       if (!aggressive || u.type === 'artillery' || u.type === 'recon') score -= danger * dangerW;
       if (aggressive) {

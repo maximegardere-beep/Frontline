@@ -13,7 +13,7 @@ export function fireOdds(map, attacker, target, { indirect = false, observed = t
   const add = (v, why) => { if (v) mods.push({ v, why }); };
 
   add(-sa.hitBonus, 'élite');
-  add(terrainDefense(tt), tt.river && !tt.road ? (tt.stream ? 'dans le ruisseau' : 'dans la rivière') : `couvert (${tt.terrain === 'village' ? 'village' : tt.terrain === 'forest' ? 'forêt' : 'terrain'})`);
+  add(terrainDefense(tt, target.type), tt.river && !tt.road && !tt.frozen ? (tt.stream ? 'dans le ruisseau' : 'dans la rivière') : `couvert (${tt.terrain === 'village' ? (tt.ruined ? 'ruines' : 'village') : tt.terrain === 'forest' ? 'forêt' : tt.craters ? 'cratères' : 'terrain'})`);
   add(target.entrench, 'retranchée');
   if (!indirect) {
     if (tt.elev > ta.elev) add(1, 'cible en hauteur');

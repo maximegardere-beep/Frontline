@@ -30,6 +30,8 @@ export function moveCost(map, from, to, unitType) {
   const f = tileAt(map, from.col, from.row);
   if (map.roadEdges.has(roadEdgeKey(map, from, to))) return 1;
   let c = TERRAIN[t.terrain].cost;
+  if (t.ruined) c = unitType === 'tank' ? 6 : 4; // décombres
+  if (t.craters && (t.terrain === 'plain' || t.terrain === 'farm')) c += 1; // champ criblé de trous d'obus
   if (unitType === 'tank' && t.terrain === 'forest') c = 6;
   if (unitType === 'tank' && t.terrain === 'marsh') c = 8;
   if (t.frozen && t.terrain === 'marsh') c = 2; // marais gelé : praticable
@@ -41,8 +43,10 @@ export function moveCost(map, from, to, unitType) {
   return c;
 }
 
-export function terrainDefense(tile) {
+// unitType : les cratères n'abritent que l'infanterie.
+export function terrainDefense(tile, unitType = null) {
   let d = TERRAIN[tile.terrain].def;
+  if (tile.craters && unitType === 'infantry' && (tile.terrain === 'plain' || tile.terrain === 'farm')) d += 1;
   if (tile.river && !tile.road && !tile.frozen) d -= 1;
   return d;
 }
@@ -50,6 +54,10 @@ export function terrainDefense(tile) {
 export function describeTile(tile) {
   const parts = [TERRAIN[tile.terrain].label + (tile.frozen && tile.terrain === 'marsh' ? ' gelé' : '')];
   if (tile.name) parts[0] += ` de ${tile.name}`;
+  if (tile.ruined) parts[0] += ' en ruines';
+  if (tile.fire > 0) parts[0] += ' en feu';
+  if (tile.burnt) parts[0] = 'Forêt brûlée';
+  if (tile.craters && (tile.terrain === 'plain' || tile.terrain === 'farm')) parts.push('cratères');
   if (tile.river) parts.push(tile.road ? 'pont' : tile.frozen ? `${tile.stream ? 'ruisseau' : 'rivière'} gelé${tile.stream ? '' : 'e'}` : tile.ford ? 'gué' : tile.stream ? 'ruisseau' : 'rivière');
   else if (tile.road) parts.push('route');
   parts.push(ELEV_LABELS[tile.elev]);

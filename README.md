@@ -166,6 +166,20 @@ Aube et crépuscule : vision −1 ; nuit : −2. Une unité voit toujours au moi
 À l'écran : palette d'hiver ou sol détrempé, lumière de l'heure, pluie, neige ou nappes de brouillard animées,
 et le fond sonore suit le temps (pluie, vent de neige). L'heure, la lumière et la météo s'affichent dans la barre.
 
+### Terrain destructible
+
+Les obus d'artillerie marquent le terrain, et ces marques deviennent des règles :
+
+| Terrain | Après les barrages |
+|---|---|
+| Village (ou pâté du bourg) | en ruines au 2e barrage : défense +2 conservée, mais on y avance plus lentement (1 point de plus, 2 pour les blindés) |
+| Steppe, champs | cratères dès le 1er barrage : +1 en défense pour l'infanterie, ½ point de plus pour traverser |
+| Forêt | une chance sur trois par obus de prendre feu (jamais sous la pluie ni la neige) |
+
+Une forêt en feu brûle 2 tours : on ne peut pas y entrer, les unités qui y restent perdent 2 PV par tour, et le
+feu gagne chaque forêt voisine une fois sur trois. Elle laisse une zone brûlée, découverte. Le feu s'allume à la
+fin d'un tour et ne brûle qu'à la fin du suivant : on a le temps d'évacuer. L'IA s'en écarte.
+
 ### Brouillard de guerre
 
 On ne voit l'ennemi que dans le champ de vision de ses unités (relief et couverts bloquent la vue,
