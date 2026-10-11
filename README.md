@@ -119,6 +119,11 @@ Seuil borné entre 2+ et 6+. Un 6 inflige 2 dégâts (sauf armes légères contr
 Embusqué en forêt ou au village, il n'est repéré qu'au contact tant qu'il n'a pas ouvert le feu : un char qui passe
 à 2 hexagones encaisse le premier tir sans pouvoir riposter.
 
+**Munitions d'artillerie** : chaque batterie a 6 obus par bataille, rechargés entre deux batailles (jauge dans
+la fiche, pastilles au-dessus du pion). Chaque tir à 2 hexagones ou plus coûte un obus : un barrage planifié, même
+s'il tombe sur une case vide, comme un tir à vue sur un ennemi repéré. « Tir à vue : non » réserve les obus aux
+barrages. L'autodéfense au contact est gratuite. À sec, la batterie ne peut plus que se défendre.
+
 **Clouage** : une unité qui encaisse 2 touches dans le tour (3 si retranchée) ou un barrage est clouée ; au tour
 suivant elle ne bouge pas et tire à −1 (losange jaune sur le pion). Un blindé n'est immobilisé que par un 6
 d'une arme qui perce.

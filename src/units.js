@@ -10,7 +10,7 @@ export const other = (side) => (side === 'DE' ? 'SU' : 'DE');
 export const UNIT_TYPES = {
   infantry: { label: 'Infanterie', hp: 10, move: 4, range: 1, attack: 4, vision: 3, entrench: 2, cost: 2 },
   recon: { label: 'Reconnaissance', hp: 6, move: 7, range: 1, attack: 2, vision: 5, entrench: 1, cost: 1 },
-  artillery: { label: 'Artillerie', hp: 7, move: 3, range: 4, minRange: 2, attack: 5, vision: 2, entrench: 1, cost: 3 },
+  artillery: { label: 'Artillerie', hp: 7, move: 3, range: 4, minRange: 2, attack: 5, vision: 2, entrench: 1, cost: 3, ammo: 6 },
   tank: { label: 'Blindés', hp: 12, move: 6, range: 2, attack: 5, vision: 3, entrench: 1, cost: 4, armored: true },
   // Canon antichar tracté : +2 dés contre les blindés, ne tire pas s'il a bougé, se cache en couvert.
   at: { label: 'Antichar', hp: 6, move: 3, range: 2, attack: 5, vision: 3, entrench: 2, cost: 3, antitank: 2 },

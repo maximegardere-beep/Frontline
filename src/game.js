@@ -50,6 +50,9 @@ export function createBattle({ seed, playerSide, armies, kind = 'rencontre', max
     u.entrench = 0;
     u.pinned = false;
     u.xpGained = 0;
+    // Munitions d'artillerie : stock plein au début de chaque bataille ; le tir à vue peut être coupé pour l'économiser.
+    u.ammo = UNIT_TYPES[u.type].ammo ?? null;
+    u.holdFire = false;
     u.orders = { path: [], entrench: false, fireAt: null };
   }
   autoDeploy(state, 'DE');
@@ -178,7 +181,7 @@ function log(state, kind, text, side = null) {
 
 export function validateOrders(state, u) {
   const o = u.orders;
-  if (u.type !== 'artillery') o.fireAt = null;
+  if (u.type !== 'artillery' || !(u.ammo > 0)) o.fireAt = null;
   if (o.fireAt) {
     const d = hexDistance(u, o.fireAt);
     const s = unitStats(u);
@@ -285,6 +288,7 @@ export function executeTurn(state) {
     const s = unitStats(u);
     const enemies = state.units.filter((e) => e.side !== u.side && onMap(e));
     if (u.type === 'artillery' && u.orders.fireAt && u.movedHexes === 0) {
+      spendAmmo(state, u);
       const target = enemies.find((e) => sameHex(e, u.orders.fireAt));
       if (target) shots.push({ u, target, indirect: true, observed: vis[u.side].units.has(target.id) });
       else {
@@ -297,7 +301,7 @@ export function executeTurn(state) {
       const d = hexDistance(u, e);
       if (!vis[u.side].units.has(e.id) && d > 1) return false;
       if (d === 1) return true;
-      if (u.type === 'artillery') return u.movedHexes === 0 && d >= s.minRange && d <= s.range;
+      if (u.type === 'artillery') return u.movedHexes === 0 && !u.holdFire && u.ammo > 0 && d >= s.minRange && d <= s.range;
       return d <= s.range && hasLOS(map, u, e);
     });
     if (!cands.length || (u.type === 'at' && u.movedHexes > 0)) continue;
@@ -306,6 +310,7 @@ export function executeTurn(state) {
     cands.sort((a, b) => prio(a) - prio(b) || a.hp / unitStats(a).maxHp - b.hp / unitStats(b).maxHp);
     const target = cands[0];
     const indirect = u.type === 'artillery' && hexDistance(u, target) > 1;
+    if (indirect) spendAmmo(state, u); // l'autodéfense au contact ne consomme pas d'obus
     shots.push({ u, target, indirect, observed: true });
   }
 
@@ -404,6 +409,11 @@ function pincered(u, shooters) {
     return { x: dx / l, y: dy / l };
   });
   return dirs.some((a, i) => dirs.slice(i + 1).some((b) => a.x * b.x + a.y * b.y <= -0.5));
+}
+
+function spendAmmo(state, u) {
+  u.ammo = Math.max(0, u.ammo - 1);
+  if (u.ammo === 0) log(state, 'ammo', `${u.name} a tiré ses derniers obus : plus que l'autodéfense au contact.`, u.side);
 }
 
 function creditKill(state, shots, victim) {

@@ -83,7 +83,10 @@ export function planSide(state, side, { directives = null, fixed = null, rng = s
 
     // Artillerie : barrage sur la position anticipée de la cible la plus intéressante
     // (de préférence autour du point d'attaque ou de défense désigné).
-    if (u.type === 'artillery' && !falling) {
+    // Munitions comptées : plus le stock baisse, plus la cible doit valoir le coup ; le tir à vue est coupé en fin de stock.
+    if (u.type === 'artillery' && side !== state.playerSide) u.holdFire = u.ammo <= 2; // côté joueur, c'est son réglage
+    if (u.type === 'artillery' && !falling && u.ammo > 0) {
+      const minValue = u.ammo >= 4 ? 0 : u.ammo >= 2 ? 3.5 : 5;
       let best = null, bestV = 0;
       for (const k of known) {
         const d = hexDistance(u, k.pred);
@@ -93,7 +96,7 @@ export function planSide(state, side, { directives = null, fixed = null, rng = s
         const v = VALUE[k.type] * (k.age === 0 ? 1.5 : 1) + (near ? 1 : 0) + focus + rng.next() * 0.5;
         if (v > bestV) { bestV = v; best = k; }
       }
-      if (best) {
+      if (best && bestV >= minValue) {
         u.orders.fireAt = { col: best.pred.col, row: best.pred.row };
         u.orders.entrench = true;
         reserved.add(hexKey(map, u));
@@ -167,7 +170,7 @@ export function planSide(state, side, { directives = null, fixed = null, rng = s
         const inRange = known.some((e) => { const d = hexDistance(h, e.pred); return d >= 1 && d <= s.range; });
         if (inRange) score += 1.5 * (ratio > 1 ? 1.3 : 0.8);
       }
-      if (u.type === 'artillery') {
+      if (u.type === 'artillery' && u.ammo > 0) {
         const covers = known.some((e) => { const d = hexDistance(h, e.pred); return d >= s.minRange && d <= s.range; });
         if (covers) score += 2;
       }

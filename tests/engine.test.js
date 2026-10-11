@@ -264,3 +264,66 @@ test('la chronologie sonore suit les effets de combat', () => {
   sound.ambient(true);
   sound.ui('bell');
 });
+
+// Petite bataille sur terrain plat : une batterie et un fantassin allemands face à un fantassin soviétique.
+function ammoScenario({ enemyAt, ammo = 6, holdFire = false, fireAt = null }) {
+  resetIds();
+  const rng = createRng('ammo');
+  const state = createBattle({ seed: 'ammo', playerSide: 'DE', armies: { DE: [makeUnit('DE', 'artillery', 1, rng), makeUnit('DE', 'infantry', 1, rng)], SU: [makeUnit('SU', 'infantry', 1, rng)] } });
+  for (const t of state.map.tiles) Object.assign(t, { terrain: 'plain', elev: 1, river: false, road: false });
+  state.map.roadEdges.clear();
+  state.objective = null;
+  const [gun, rifles] = state.units.filter((u) => u.side === 'DE');
+  const [foe] = state.units.filter((u) => u.side === 'SU');
+  Object.assign(gun, { col: 3, row: 7, ammo, holdFire });
+  Object.assign(foe, enemyAt);
+  Object.assign(rifles, { col: enemyAt.col - 1, row: enemyAt.row - 2 });
+  gun.orders.fireAt = fireAt;
+  state.phase = 'plan';
+  const res = executeTurn(state);
+  return { gun, res };
+}
+
+test("munitions d'artillerie : stock, barrage payant, tir à vue désactivable, autodéfense gratuite", () => {
+  const far = { col: 6, row: 7 };
+  let r = ammoScenario({ enemyAt: far, holdFire: true, fireAt: { col: 3, row: 4 } });
+  assert.equal(r.gun.ammo, 5, 'un barrage sur une case vide coûte un obus');
+  assert.ok(r.res.fires.some((f) => f.attacker === r.gun.id && f.empty));
+
+  r = ammoScenario({ enemyAt: far, holdFire: true });
+  assert.equal(r.gun.ammo, 6, 'sans tir à vue, la batterie garde ses obus');
+  assert.ok(!r.res.fires.some((f) => f.attacker === r.gun.id));
+
+  r = ammoScenario({ enemyAt: far });
+  assert.equal(r.gun.ammo, 5, 'le tir à vue coûte un obus');
+  assert.ok(r.res.fires.some((f) => f.attacker === r.gun.id && f.indirect));
+
+  r = ammoScenario({ enemyAt: far, ammo: 0, fireAt: { col: 6, row: 7 } });
+  assert.equal(r.gun.ammo, 0);
+  assert.ok(!r.res.fires.some((f) => f.attacker === r.gun.id), 'plus d\'obus : ni barrage ni tir à vue');
+
+  r = ammoScenario({ enemyAt: { col: 4, row: 7 }, ammo: 0 });
+  assert.ok(r.res.fires.some((f) => f.attacker === r.gun.id && !f.indirect), 'autodéfense au contact sans obus');
+
+  const fresh = createBattle({ seed: 'ammo2', playerSide: 'DE', armies: { DE: [r.gun], SU: generateArmy('SU', createRng(1), 6) } });
+  assert.equal(fresh.units.find((u) => u.id === r.gun.id).ammo, 6, 'stock rechargé à la bataille suivante');
+});
+
+test("l'IA ménage ses obus", () => {
+  let spent = 0, batteries = 0, emptied = 0;
+  for (let i = 0; i < 20; i++) {
+    resetIds();
+    const rng = createRng(`ai-ammo${i}`);
+    const state = createBattle({ seed: `ai-ammo${i}`, playerSide: 'DE', armies: { DE: generateArmy('DE', rng, 11), SU: generateArmy('SU', rng, 13) } });
+    state.phase = 'plan';
+    while (!state.result) { planSide(state, 'DE'); planSide(state, 'SU'); executeTurn(state); }
+    for (const u of state.units.filter((x) => x.type === 'artillery')) {
+      batteries++;
+      spent += 6 - u.ammo;
+      if (u.ammo === 0) emptied++;
+      assert.ok(u.ammo >= 0 && u.ammo <= 6);
+    }
+  }
+  console.log(`obus tirés par batterie : ${(spent / batteries).toFixed(1)} ; batteries à sec : ${emptied}/${batteries}`);
+  assert.ok(spent > 0, 'les batteries tirent');
+});

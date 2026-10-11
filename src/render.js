@@ -6,7 +6,7 @@ import { hexToPixel, pixelToHex, hexCorner, neighborCoords, SQRT3, hexDistance, 
 import { tileAt } from './terrain.js';
 import { createRng } from './rng.js';
 import { makeNoise } from './mapgen.js';
-import { unitStats } from './units.js';
+import { unitStats, UNIT_TYPES } from './units.js';
 import { onMap, retreatCol, deployZone } from './game.js';
 import { drawFx, fxShake, stampScars, stampTracks, drawWreck } from './fx.js';
 
@@ -734,7 +734,7 @@ export class Renderer {
         if (!seen) continue;
       }
       const p = snap ? { x: snap.x, y: snap.y } : this.center(u);
-      this.drawCounter(u, p.x, p.y, { selected: u.id === view.selectedId, status: snap ? snap.status : u.status, hp: view.anim?.hp?.[u.id] ?? u.hp, heading: snap?.heading ?? 0, pinned: !view.anim && u.pinned });
+      this.drawCounter(u, p.x, p.y, { selected: u.id === view.selectedId, status: snap ? snap.status : u.status, hp: view.anim?.hp?.[u.id] ?? u.hp, heading: snap?.heading ?? 0, pinned: !view.anim && u.pinned, ammo: u.side === side && u.ammo != null ? u.ammo : null });
     }
 
     if (view.fx) drawFx(ctx, view.fx.fx, view.fx.T);
@@ -992,7 +992,7 @@ export class Renderer {
     }
   }
 
-  drawCounter(u, x, y, { selected, status, hp, heading, pinned }) {
+  drawCounter(u, x, y, { selected, status, hp, heading, pinned, ammo = null }) {
     const { ctx } = this;
     const s = unitStats(u);
     const w = HEX * 1.3, h = HEX * 0.95;
@@ -1064,6 +1064,18 @@ export class Renderer {
       ctx.moveTo(px - r * 0.45, py);
       ctx.lineTo(px + r * 0.45, py);
       ctx.stroke();
+    }
+    // Obus restants (batteries du joueur) : pastilles au-dessus du pion, pleines pour les obus disponibles.
+    if (ammo != null && status !== 'destroyed') {
+      const n = UNIT_TYPES[u.type].ammo, pw = 4, gap = 2;
+      const x0 = x - (n * pw + (n - 1) * gap) / 2, py = y - h / 2 - 7;
+      ctx.lineWidth = 1;
+      for (let i = 0; i < n; i++) {
+        ctx.fillStyle = i < ammo ? '#e2b33c' : 'rgba(243, 236, 214, 0.55)';
+        ctx.fillRect(x0 + i * (pw + gap), py, pw, 5);
+        ctx.strokeStyle = '#1d1a12';
+        ctx.strokeRect(x0 + i * (pw + gap), py, pw, 5);
+      }
     }
     if (status === 'routed') {
       ctx.fillStyle = '#fbf6e6';

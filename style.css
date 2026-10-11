@@ -478,3 +478,8 @@ kbd {
 }
 .dossier input { user-select: text; -webkit-user-select: text; }
 .dossier { -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+
+/* Jauge d'obus de l'artillerie. */
+.ammo { display: inline-flex; gap: 2px; vertical-align: middle; margin-right: 4px; }
+.ammo i { width: 5px; height: 10px; border: 1px solid var(--muted); border-radius: 1px; }
+.ammo i.full { background: var(--warn); border-color: var(--warn); }

@@ -41,6 +41,12 @@ Campagne (5 batailles)
   au tour suivant elle ne bouge pas et tire à −1. Les blindés ne sont immobilisés que par un 6 d'une arme
   qui perce. L'état est visible pendant la planification : le joueur doit composer avec, pas le subir à l'aveugle.
   Le feu prépare donc l'assaut : clouer une ligne avant de la déborder.
+- **Munitions d'artillerie** : 6 obus par batterie et par bataille, recharge complète entre les batailles. Tout tir
+  à 2 hex ou plus en consomme un, y compris un barrage tombé dans le vide : une mauvaise anticipation coûte cher.
+  Le tir à vue se coupe par batterie, l'autodéfense au contact est gratuite. Pas de munitions pour les autres
+  unités : la contrainte reste une décision de plan, pas de la comptabilité. L'IA devient plus exigeante sur ses
+  cibles quand le stock baisse et coupe son tir à vue à 2 obus. Sur 300 batailles IA contre IA : 3,4 tirs par
+  batterie (4,8 sans limite), barrages dans le vide 532 (779), victoires DE/SU/nuls 101/154/45 (96/167/37).
 - **Moral contextuel** : −1 isolée (aucun allié à 2 hex), −1 prise en tenaille (tirs directs venus de directions
   opposées), +1 si un voisin est retranché ; voir une unité adjacente anéantie impose un test même sans pertes.
   Récompense la cohésion de la ligne et l'enveloppement. Sur 300 batailles IA contre IA, l'équilibre entre camps
@@ -53,7 +59,7 @@ Campagne (5 batailles)
 |---|---|---|---|---|---|---|---|
 | Infanterie | 10 | 4 | 1 | 4d6 | 3 | 2 | 2 |
 | Reconnaissance | 6 | 7 | 1 | 2d6 | 5 | 1 | 1 |
-| Artillerie | 7 | 3 | 2–4 | 5d6 | 2 | 1 | 3 |
+| Artillerie | 7 | 3 | 2–4 | 5d6, 6 obus par bataille | 2 | 1 | 3 |
 | Blindés | 12 | 6 | 2 | 5d6 | 3 | 1 | 4 |
 | Antichar | 6 | 3 | 2 | 5d6 (+2 contre blindés) | 3 | 2 | 3 |
 
@@ -67,7 +73,7 @@ Chaque niveau au-delà de Recrue : +1 PV et +1 dé. Vétéran ou mieux : +1 retr
 
 - **Multijoueur à deux** (hot-seat ou en ligne) : le moteur est déjà déterministe et sépare plan et exécution.
 - **Ordres conditionnels** : « avancer jusqu'au contact puis se retrancher », « tenir sauf si attaqué par des blindés ».
-- **Ravitaillement** et munitions de l'artillerie.
+- **Ravitaillement** (les munitions d'artillerie existent déjà, par bataille).
 - **Météo et saisons** (raspoutitsa : boue qui double les coûts ; hiver : rivières gelées franchissables).
 - **Génie** : ponts à construire ou faire sauter, champs de mines.
 - **Soutien aérien** aléatoire, appui de la Luftwaffe ou des Sturmoviks.
