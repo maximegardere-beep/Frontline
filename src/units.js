@@ -110,7 +110,7 @@ const WEIGHTS = {
   DE: { infantry: 3, tank: 3, artillery: 2, recon: 1, at: 1.5 },
   SU: { infantry: 4, tank: 2, artillery: 3, recon: 1, at: 1 },
 };
-const LEVEL_ODDS = { DE: { 1: 5, 2: 4, 3: 1 }, SU: { 1: 7, 2: 3, 3: 0.6 } };
+const LEVEL_ODDS = { DE: { 1: 4, 2: 5, 3: 1 }, SU: { 1: 7, 2: 3, 3: 0.6 } };
 
 // Armée aléatoire sous contrainte de budget : toujours au moins 2 infanteries et une reconnaissance.
 export function generateArmy(side, rng, budget, { core = true } = {}) {

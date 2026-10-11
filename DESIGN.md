@@ -69,6 +69,19 @@ Campagne (5 batailles)
   Récompense la cohésion de la ligne et l'enveloppement. Sur 300 batailles IA contre IA, l'équilibre entre camps
   ne bouge pas, mais les issues nettes (anéantissement, objectif tenu) passent de 15 % à 28 %.
 - **Asymétrie** légère des camps (qualité contre quantité), budgets d'armée différents.
+- **Équilibrage** (banc `tools/balance.mjs`, 600 à 1 200 batailles IA contre IA par mesure, conditions tirées) :
+  - Diagnostic : l'avantage soviétique (37 % / 52 %) venait surtout du décompte du 12e tour (« camp le moins
+    éprouvé »), qui conclut la moitié des batailles ; quand la bataille se décide sur le terrain, l'écart est faible.
+  - Réglage : budget allemand 11 → 12 points (soviétique 13) et un peu plus de vétérans allemands
+    (recrue 40 %, vétéran 50 %, élite 10 %). Le budget seul ramenait à 43 % / 47 % ; avec les vétérans,
+    sur 2 400 batailles et trois jeux de graines : environ 45 % / 44 %, 11 % de nuls. Le bruit d'une mesure
+    de 600 batailles est d'environ ±4 points : ne conclure que sur plusieurs graines.
+  - Reste : la Wehrmacht domine les prises de position (51 % / 46 %), l'Armée rouge les combats de rencontre
+    (37 % / 46 %), qui se jouent à l'usure. C'est cohérent avec « qualité contre quantité ».
+  - Campagne (`tools/campaign-sim.mjs`, l'IA joue le camp du joueur) : 48 % de batailles gagnées côté allemand,
+    51 % côté soviétique, de 56 % à la 1re bataille à environ 45 % à la 5e (l'ennemi gagne 2 points par
+    bataille). Un humain battant d'ordinaire l'IA, la campagne est plutôt accessible ; `ENEMY_GROWTH` et
+    `ENEMY_BUDGETS` (src/campaign.js) règlent la difficulté.
 
 ## Paramètres d'unités (niveau Recrue)
 
@@ -95,5 +108,4 @@ et le matériel d'élite (Tigre, T-34/85, Katioucha, Panzergrenadiers, Gardes).
 - **Génie** : ponts à construire ou faire sauter, champs de mines.
 - **Soutien aérien** aléatoire, appui de la Luftwaffe ou des Sturmoviks.
 - **Carte de campagne stratégique** reliant les batailles (choisir son axe d'attaque).
-- **Équilibrage** : la suite de tests simule des batailles IA contre IA, utile pour mesurer
-  les taux de victoire par camp après chaque changement de règles.
+- **Difficulté réglable** dans le menu (budget ennemi), à partir des réglages `ENEMY_BUDGETS` / `ENEMY_GROWTH`.

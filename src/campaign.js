@@ -5,11 +5,15 @@ import { generateArmy, gainXp, unitStats, other, variantOf, VARIANTS } from './u
 import { rollConditions } from './conditions.js';
 
 export const CAMPAIGN_LENGTH = 5;
+// Budgets d'armée (points de coût) : armée de départ du joueur, armée ennemie à la 1re bataille (+2 par bataille).
+export const BUDGETS = { DE: 12, SU: 13 };
+export const ENEMY_BUDGETS = { DE: 9, SU: 11 };
+export const ENEMY_GROWTH = 2;
 export const KIND_LABELS = { rencontre: 'Combat de rencontre', assaut: 'Prise de position stratégique' };
 
 export function newCampaign(playerSide, seed) {
   const rng = createRng(`campaign:${seed}`);
-  const budget = playerSide === 'DE' ? 11 : 13;
+  const budget = BUDGETS[playerSide];
   return {
     seed,
     playerSide,
@@ -23,7 +27,7 @@ export function newCampaign(playerSide, seed) {
 export function battleSetup(c) {
   const rng = createRng(`enemy:${c.seed}:${c.index}`);
   const foe = other(c.playerSide);
-  const budget = (foe === 'SU' ? 11 : 9) + c.index * 2;
+  const budget = ENEMY_BUDGETS[foe] + c.index * ENEMY_GROWTH;
   const enemy = generateArmy(foe, rng, budget);
   const seed = `${c.seed}-${c.index}`;
   const conditions = rollConditions(seed, c.index, c.kinds[c.index]);

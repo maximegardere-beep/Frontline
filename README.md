@@ -15,6 +15,8 @@ Aucune dépendance. Node 18+ suffit.
 ```sh
 npm start          # serveur local sur http://localhost:8080
 npm test           # tests du moteur (carte, combat, batailles IA contre IA, campagne)
+node tools/balance.mjs 600        # équilibre des camps sur 600 batailles IA contre IA
+node tools/campaign-sim.mjs 200   # difficulté de la campagne, l'IA jouant le joueur
 node tools/bundle.mjs   # génère dist/frontline.html, un fichier unique jouable hors ligne
 ```
 
