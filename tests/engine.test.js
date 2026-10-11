@@ -489,3 +489,71 @@ test('forêt en feu : brûle les occupants, infranchissable, puis découverte ; 
   }
   assert.ok(lit >= 3, `incendies déclenchés : ${lit}/5`);
 });
+
+test("unités d'élite : matériel selon camp et type, effets au combat", async () => {
+  const { variantOf, VARIANTS } = await import('../src/units.js');
+  resetIds();
+  const rng = createRng('elite');
+  const mk = (side, type, level) => makeUnit(side, type, level, rng);
+  assert.equal(variantOf(mk('DE', 'tank', 2)), null, 'pas de matériel avant Élite');
+  assert.equal(variantOf(mk('DE', 'tank', 3)), 'tiger');
+  assert.equal(variantOf(mk('SU', 'tank', 3)), 't3485');
+  assert.equal(variantOf(mk('SU', 'artillery', 3)), 'katyusha');
+  assert.equal(variantOf(mk('DE', 'artillery', 3)), null, 'pas d\'équivalent allemand (asymétrie assumée)');
+  assert.equal(variantOf(mk('DE', 'infantry', 3)), 'pzgren');
+  assert.equal(variantOf(mk('SU', 'infantry', 3)), 'guards');
+
+  const tiger = mk('DE', 'tank', 3), panzer = mk('DE', 'tank', 2);
+  assert.equal(unitStats(tiger).maxHp, unitStats(Object.assign(mk('SU', 'tank', 3), { side: 'SU' })).maxHp + VARIANTS.tiger.hp);
+  assert.equal(unitStats(tiger).move, 6, 'Élite +1, Tigre −1');
+  const state = createBattle({ seed: 'elite', playerSide: 'DE', armies: { DE: [tiger, panzer, mk('DE', 'infantry', 3)], SU: [mk('SU', 'tank', 3), mk('SU', 'infantry', 1), mk('SU', 'tank', 1)] } });
+  for (const t of state.map.tiles) Object.assign(t, { terrain: 'plain', elev: 1, river: false, road: false });
+  const [, , pzg] = state.units.filter((u) => u.side === 'DE');
+  const [t34, rifles, su] = state.units.filter((u) => u.side === 'SU');
+  Object.assign(tiger, { col: 5, row: 5 }); Object.assign(panzer, { col: 5, row: 7 }); Object.assign(pzg, { col: 9, row: 9 });
+  Object.assign(t34, { col: 7, row: 5 }); Object.assign(rifles, { col: 6, row: 5 }); Object.assign(su, { col: 10, row: 9 });
+  assert.equal(fireOdds(state.map, su, tiger).threshold, fireOdds(state.map, su, panzer).threshold + 1, 'blindage épais du Tigre');
+  assert.equal(fireOdds(state.map, t34, panzer).dice, fireOdds(state.map, Object.assign(mk('SU', 'tank', 3), { col: 7, row: 5, level: 3, side: 'DE' }), su).dice + 1, '85 mm : +1 dé contre les blindés');
+  const blind = (a) => fireOdds(state.map, a, su).mods.find((m) => m.why === 'cible blindée')?.v;
+  assert.equal(blind(pzg), 1, 'Panzergrenadiers : malus +1 contre les blindés');
+  assert.equal(blind(Object.assign(mk('DE', 'infantry', 1), { col: 9, row: 8 })), 2, 'infanterie ordinaire : +2');
+});
+
+test('Katioucha : salve sur trois cases, puis un tour de rechargement', () => {
+  resetIds();
+  const rng = createRng('kat');
+  const kat = makeUnit('SU', 'artillery', 3, rng);
+  const foes = [0, 1, 2].map(() => makeUnit('DE', 'infantry', 1, rng));
+  const state = createBattle({ seed: 'kat', playerSide: 'SU', armies: { SU: [kat, makeUnit('SU', 'recon', 1, rng)], DE: foes } });
+  for (const t of state.map.tiles) Object.assign(t, { terrain: 'plain', elev: 1, river: false, road: false, name: null });
+  state.map.roadEdges.clear();
+  state.objective = null;
+  const spotter = state.units.find((u) => u.type === 'recon');
+  Object.assign(kat, { col: 10, row: 7, holdFire: true });
+  Object.assign(spotter, { col: 10, row: 2 });
+  foes.forEach((f, i) => Object.assign(f, { col: 9 + i, row: 4 }));
+  state.phase = 'plan';
+  kat.orders.fireAt = { col: 10, row: 4 };
+  const res = executeTurn(state);
+  const hits = new Set(res.fires.filter((f) => f.attacker === kat.id).map((f) => f.target));
+  assert.equal(hits.size, 3, 'trois ennemis pris dans la salve');
+  assert.equal(kat.ammo, 5, 'une salve = un obus');
+  assert.ok(kat.reloading, 'recharge au tour suivant');
+  kat.orders.fireAt = { col: 10, row: 4 };
+  const res2 = executeTurn(state);
+  assert.ok(!res2.fires.some((f) => f.attacker === kat.id && f.indirect), 'pas de tir pendant le rechargement');
+  assert.ok(!kat.reloading, 'prête à nouveau ensuite');
+});
+
+test('promotion Élite annoncée avec le nouveau matériel', () => {
+  resetIds();
+  const c = newCampaign('DE', 'promo');
+  const tank = c.army.find((u) => u.type === 'tank') ?? c.army[0];
+  tank.level = 2; tank.xp = 99;
+  const setup = battleSetup(c);
+  const state = createBattle({ seed: setup.seed, playerSide: 'DE', armies: setup.armies, kind: setup.kind, conditions: setup.conditions });
+  state.result = { winner: 'DE', reason: 'test' };
+  const report = concludeBattle(c, state);
+  assert.equal(tank.level, 3);
+  assert.ok(report.promoted.some((p) => p.includes('rééquipée')), report.promoted.join(' | '));
+});

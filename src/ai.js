@@ -86,7 +86,7 @@ export function planSide(state, side, { directives = null, fixed = null, rng = s
     // Munitions comptées : plus le stock baisse, plus la cible doit valoir le coup ; le tir à vue est coupé en fin de stock.
     if (u.type === 'artillery' && side !== state.playerSide) u.holdFire = u.ammo <= 2; // côté joueur, c'est son réglage
     const onFire = tileAt(map, u.col, u.row).fire > 0; // une batterie dans une forêt en feu déménage d'abord
-    if (u.type === 'artillery' && !falling && u.ammo > 0 && !onFire) {
+    if (u.type === 'artillery' && !falling && u.ammo > 0 && !onFire && !u.reloading) {
       const minValue = u.ammo >= 4 ? 0 : u.ammo >= 2 ? 3.5 : 5;
       let best = null, bestV = 0;
       for (const k of known) {
@@ -94,7 +94,9 @@ export function planSide(state, side, { directives = null, fixed = null, rng = s
         if (d < s.minRange || d > s.range) continue;
         const near = all.some((m) => m !== u && hexDistance(m, k.pred) <= 1);
         const focus = dir && dir.kind !== 'retreat' && hexDistance(k.pred, dir) <= 3 ? 2 : 0;
-        const v = VALUE[k.type] * (k.age === 0 ? 1.5 : 1) + (near ? 1 : 0) + focus + rng.next() * 0.5;
+        // Katioucha : la salve couvre aussi les cases est et ouest, autant viser là où les ennemis se serrent.
+        const flank = s.salvo ? known.filter((o) => o !== k && o.pred.row === k.pred.row && Math.abs(o.pred.col - k.pred.col) === 1).reduce((a, o) => a + VALUE[o.type], 0) : 0;
+        const v = VALUE[k.type] * (k.age === 0 ? 1.5 : 1) + flank + (near ? 1 : 0) + focus + rng.next() * 0.5;
         if (v > bestV) { bestV = v; best = k; }
       }
       if (best && bestV >= minValue) {

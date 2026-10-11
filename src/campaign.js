@@ -1,7 +1,7 @@
 // Campagne : une succession de batailles sur des cartes différentes, l'armée du joueur persiste.
 
 import { createRng } from './rng.js';
-import { generateArmy, gainXp, unitStats, other } from './units.js';
+import { generateArmy, gainXp, unitStats, other, variantOf, VARIANTS } from './units.js';
 import { rollConditions } from './conditions.js';
 
 export const CAMPAIGN_LENGTH = 5;
@@ -46,7 +46,11 @@ export function concludeBattle(c, state) {
     const max = unitStats(u).maxHp;
     if (u.status === 'routed' || u.status === 'withdrawn') u.hp = Math.max(u.hp, Math.ceil(max * 0.5));
     else u.hp = Math.min(max, u.hp + Math.ceil((max - u.hp) / 2));
-    if (gainXp(u, 0)) report.promoted.push(u.name);
+    if (gainXp(u, 0)) {
+      // Passée Élite : l'unité reçoit son matériel (Tigre, T-34/85, Katioucha, Panzergrenadiers, Gardes).
+      const v = variantOf(u);
+      report.promoted.push(v && u.level === 3 ? `${u.name} (Élite, rééquipée : ${VARIANTS[v].label})` : u.name);
+    }
     u.status = 'ok';
     survivors.push(u);
   }

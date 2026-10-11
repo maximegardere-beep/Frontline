@@ -166,6 +166,21 @@ Aube et crépuscule : vision −1 ; nuit : −2. Une unité voit toujours au moi
 À l'écran : palette d'hiver ou sol détrempé, lumière de l'heure, pluie, neige ou nappes de brouillard animées,
 et le fond sonore suit le temps (pluie, vent de neige). L'heure, la lumière et la météo s'affichent dans la barre.
 
+### Unités d'élite
+
+Toute unité au niveau Élite (par promotion en campagne, ou tirée ainsi dans une armée) reçoit son matériel.
+Le niveau donne déjà +1 Mvt, +1 portée (artillerie, blindés), +2 dés et touche à −1 ; le matériel ajoute :
+
+| Matériel | Camp | Trait |
+|---|---|---|
+| Tigre | char allemand | blindage épais : +1 au seuil de tous les tirs reçus ; PV +3, Mvt −1 |
+| T-34/85 | char soviétique | canon de 85 mm : +1 dé contre les blindés |
+| Katioucha | artillerie soviétique | salve sur la case visée et ses voisines est et ouest (⅔ des dés sur chacune), 1 obus, puis un tour de rechargement |
+| Panzergrenadiers / Gardes | infanterie | armes antichars : malus +1 au lieu de +2 contre les blindés |
+
+L'artillerie allemande n'a pas d'équivalent : asymétrie assumée, l'artillerie étant déjà le point fort soviétique.
+Sur la carte, un liseré doré et le nom du matériel sous le pion signalent ces unités.
+
 ### Terrain destructible
 
 Les obus d'artillerie marquent le terrain, et ces marques deviennent des règles :

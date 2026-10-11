@@ -5,7 +5,7 @@ import { hexDistance } from './hex.js';
 import { unitStats } from './units.js';
 
 // Calcule le seuil de réussite (« touche sur X+ ») et le nombre de dés, avec le détail des modificateurs.
-export function fireOdds(map, attacker, target, { indirect = false, observed = true } = {}) {
+export function fireOdds(map, attacker, target, { indirect = false, observed = true, salvo = false } = {}) {
   const sa = unitStats(attacker), st = unitStats(target);
   const ta = tileAt(map, attacker.col, attacker.row), tt = tileAt(map, target.col, target.row);
   const dist = hexDistance(attacker, target);
@@ -23,8 +23,9 @@ export function fireOdds(map, attacker, target, { indirect = false, observed = t
   if ((target.movedHexes ?? 0) >= 3 && (tt.terrain === 'plain' || tt.terrain === 'farm')) add(-1, 'cible à découvert en mouvement');
   if (st.armored && (attacker.type === 'infantry' || attacker.type === 'recon')) {
     const close = dist <= 1 && (tt.terrain === 'forest' || tt.terrain === 'village');
-    add(close ? 0 : 2, 'cible blindée');
+    add(close ? 0 : 2 - sa.antiArmor, 'cible blindée'); // Panzergrenadiers, Gardes : armes antichars
   }
+  if (st.heavyArmor) add(st.heavyArmor, 'blindage épais');
   if (st.armored && attacker.type === 'artillery') add(1, 'blindage');
   if (indirect && !observed) add(1, 'tir non observé');
   if (ta.terrain === 'marsh' && !ta.frozen) add(1, 'tireur embourbé');
@@ -34,7 +35,8 @@ export function fireOdds(map, attacker, target, { indirect = false, observed = t
   const threshold = Math.max(2, Math.min(6, 4 + mods.reduce((s, m) => s + m.v, 0)));
   let dice = Math.max(1, Math.round((sa.attack * attacker.hp) / sa.maxHp));
   if (attacker.type === 'artillery' && dist <= 1) dice = Math.max(1, Math.ceil(dice / 2)); // autodéfense
-  if (st.armored) dice += sa.antitank; // canon antichar : obus perforants
+  if (salvo) dice = Math.max(1, Math.ceil((dice * 2) / 3)); // Katioucha : saturation, moins de coups par case
+  if (st.armored) dice += sa.antitank; // canon antichar, 85 mm : obus perforants
   const crits = !(st.armored && (attacker.type === 'infantry' || attacker.type === 'recon'));
   return { threshold, dice, mods, crits };
 }

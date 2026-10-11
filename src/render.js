@@ -7,7 +7,7 @@ import { tileAt } from './terrain.js';
 import { createRng } from './rng.js';
 import { makeNoise } from './mapgen.js';
 import { lightAt } from './conditions.js';
-import { unitStats, UNIT_TYPES } from './units.js';
+import { unitStats, UNIT_TYPES, VARIANTS } from './units.js';
 import { onMap, retreatCol, deployZone } from './game.js';
 import { drawFx, fxShake, stampScars, stampTracks, drawWreck } from './fx.js';
 
@@ -1071,8 +1071,13 @@ export class Renderer {
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.lineWidth = 2.5;
+      // Katioucha : la salve couvre aussi les cases est et ouest.
+      const cells = unitStats(u).salvo ? [-1, 0, 1].map((dc) => this.center({ col: o.fireAt.col + dc, row: o.fireAt.row })) : [b];
       ctx.beginPath();
-      ctx.arc(b.x, b.y, HEX * 0.55, 0, Math.PI * 2);
+      for (const c of cells) {
+        ctx.moveTo(c.x + HEX * 0.55, c.y);
+        ctx.arc(c.x, c.y, HEX * 0.55, 0, Math.PI * 2);
+      }
       ctx.moveTo(b.x - HEX * 0.8, b.y);
       ctx.lineTo(b.x + HEX * 0.8, b.y);
       ctx.moveTo(b.x, b.y - HEX * 0.8);
@@ -1183,9 +1188,21 @@ export class Renderer {
     ctx.fillRect(x - w / 2 + 2, y - h / 2 + 3, w, h);
     ctx.fillStyle = col.fill;
     ctx.fillRect(x - w / 2, y - h / 2, w, h);
-    ctx.strokeStyle = selected ? '#fff2a8' : col.edge;
-    ctx.lineWidth = selected ? 2.5 : 1.5;
+    // Matériel d'élite : liseré doré et nom du matériel sous le pion.
+    const variant = unitStats(u).variant;
+    ctx.strokeStyle = selected ? '#fff2a8' : variant ? '#d9b44a' : col.edge;
+    ctx.lineWidth = selected || variant ? 2.5 : 1.5;
     ctx.strokeRect(x - w / 2, y - h / 2, w, h);
+    if (variant && status !== 'destroyed') {
+      ctx.font = '700 7.5px "IBM Plex Mono", monospace';
+      ctx.textAlign = 'center';
+      const label = VARIANTS[variant].short;
+      const tw = ctx.measureText(label).width + 6;
+      ctx.fillStyle = 'rgba(29, 26, 18, 0.88)';
+      ctx.fillRect(x - tw / 2, y + h / 2 + 1, tw, 9);
+      ctx.fillStyle = '#e8c766';
+      ctx.fillText(label, x, y + h / 2 + 8);
+    }
     ctx.fillStyle = '#f3ecd6';
     ctx.fillRect(x - w * 0.3, y - h * 0.36, w * 0.6, h * 0.5);
     this.symbol(u.type, x, y - h * 0.11, w * 0.6, h * 0.5, '#1d1a12');

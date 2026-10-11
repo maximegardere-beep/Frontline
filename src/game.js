@@ -60,6 +60,7 @@ export function createBattle({ seed, playerSide, armies, kind = 'rencontre', max
     // Munitions d'artillerie : stock plein au début de chaque bataille ; le tir à vue peut être coupé pour l'économiser.
     u.ammo = UNIT_TYPES[u.type].ammo ?? null;
     u.holdFire = false;
+    u.reloading = false; // Katioucha : un tour de rechargement après chaque salve
     u.orders = { path: [], entrench: false, fireAt: null };
   }
   autoDeploy(state, 'DE');
@@ -191,7 +192,7 @@ function log(state, kind, text, side = null) {
 
 export function validateOrders(state, u) {
   const o = u.orders;
-  if (u.type !== 'artillery' || !(u.ammo > 0)) o.fireAt = null;
+  if (u.type !== 'artillery' || !(u.ammo > 0) || u.reloading) o.fireAt = null;
   if (o.fireAt) {
     const d = hexDistance(u, o.fireAt);
     const s = unitStats(u);
@@ -300,6 +301,7 @@ export function executeTurn(state) {
     const enemies = state.units.filter((e) => e.side !== u.side && onMap(e));
     if (u.type === 'artillery' && u.orders.fireAt && u.movedHexes === 0) {
       spendAmmo(state, u);
+      if (s.salvo) { salvo(state, u, u.orders.fireAt, enemies, vis, shots, res); continue; }
       const target = enemies.find((e) => sameHex(e, u.orders.fireAt));
       if (target) shots.push({ u, target, indirect: true, observed: vis[u.side].units.has(target.id) });
       else {
@@ -312,7 +314,7 @@ export function executeTurn(state) {
       const d = hexDistance(u, e);
       if (!vis[u.side].units.has(e.id) && d > 1) return false;
       if (d === 1) return true;
-      if (u.type === 'artillery') return u.movedHexes === 0 && !u.holdFire && u.ammo > 0 && d >= s.minRange && d <= s.range;
+      if (u.type === 'artillery') return u.movedHexes === 0 && !u.holdFire && !u.reloading && u.ammo > 0 && d >= s.minRange && d <= s.range;
       return d <= s.range && hasLOS(map, u, e);
     });
     if (!cands.length || (u.type === 'at' && u.movedHexes > 0)) continue;
@@ -322,6 +324,7 @@ export function executeTurn(state) {
     const target = cands[0];
     const indirect = u.type === 'artillery' && hexDistance(u, target) > 1;
     if (indirect) spendAmmo(state, u); // l'autodéfense au contact ne consomme pas d'obus
+    if (indirect && s.salvo) { salvo(state, u, target, enemies, vis, shots, res); continue; }
     shots.push({ u, target, indirect, observed: true });
   }
 
@@ -329,8 +332,8 @@ export function executeTurn(state) {
   const damageTaken = new Map();
   // Ce que chaque cible a subi : touches, barrage, coup critique, positions des tireurs en tir direct.
   const pressure = new Map();
-  for (const { u, target, indirect, observed } of shots) {
-    const odds = fireOdds(map, u, target, { indirect, observed });
+  for (const { u, target, indirect, observed, salvo: inSalvo } of shots) {
+    const odds = fireOdds(map, u, target, { indirect, observed, salvo: inSalvo });
     const r = rollFire(rng, odds);
     damageTaken.set(target.id, (damageTaken.get(target.id) ?? 0) + r.damage);
     const p = pressure.get(target.id) ?? { hits: 0, barrage: false, crit: false, from: [] };
@@ -399,6 +402,8 @@ export function executeTurn(state) {
 
   // Fin de tour : ordres remis à zéro (on continue de creuser si on était en train de le faire).
   for (const u of state.units) {
+    u.reloading = !!u.reloadNext;
+    u.reloadNext = false;
     if (!onMap(u)) continue;
     const keepDig = u.status === 'ok' && u.orders.entrench && u.movedHexes === 0;
     u.orders = { path: [], entrench: keepDig, fireAt: null };
@@ -483,6 +488,20 @@ function pincered(u, shooters) {
     return { x: dx / l, y: dy / l };
   });
   return dirs.some((a, i) => dirs.slice(i + 1).some((b) => a.x * b.x + a.y * b.y <= -0.5));
+}
+
+// Salve de Katioucha : la case visée et ses voisines est et ouest ; chaque ennemi présent reçoit ⅔ des dés.
+// La batterie recharge ensuite pendant un tour.
+function salvo(state, u, center, enemies, vis, shots, res) {
+  const cells = [center, { col: center.col - 1, row: center.row }, { col: center.col + 1, row: center.row }].filter((h) => tileAt(state.map, h.col, h.row));
+  let hit = 0;
+  for (const h of cells) {
+    const target = enemies.find((e) => sameHex(e, h));
+    if (target) { shots.push({ u, target, indirect: true, observed: vis[u.side].units.has(target.id), salvo: true }); hit++; }
+    else res.fires.push({ attacker: u.id, from: { col: u.col, row: u.row }, to: { col: h.col, row: h.row }, empty: true, indirect: true });
+  }
+  if (!hit) log(state, 'barrage', `${u.name} : salve sur une position vide.`, u.side);
+  u.reloadNext = true;
 }
 
 function spendAmmo(state, u) {

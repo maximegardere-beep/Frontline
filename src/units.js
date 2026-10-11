@@ -25,13 +25,38 @@ const SIDE_MODS = {
   SU: { infantry: { hp: 2 }, artillery: { attack: 1 } },
 };
 
+// Matériel d'élite : une unité qui atteint le niveau Élite est rééquipée selon son camp et son type.
+// Le niveau donne déjà +1 Mvt et +1 portée : le matériel ajoute son trait propre, sans cumuler ces bonus.
+export const VARIANTS = {
+  tiger: { side: 'DE', type: 'tank', label: 'Tigre', short: 'TIGRE', hp: 3, move: -1, heavyArmor: 1, text: 'Blindage épais : +1 au seuil de tous les tirs reçus. PV +3, Mvt −1.' },
+  t3485: { side: 'SU', type: 'tank', label: 'T-34/85', short: 'T-34/85', antitank: 1, text: 'Canon de 85 mm : +1 dé contre les blindés.' },
+  katyusha: { side: 'SU', type: 'artillery', label: 'Katioucha', short: 'KAT.', salvo: true, text: 'Salve sur 3 hexagones alignés (⅔ des dés sur chacun), puis un tour de rechargement.' },
+  pzgren: { side: 'DE', type: 'infantry', label: 'Panzergrenadiers', short: 'PZGREN', antiArmor: 1, text: 'Armes antichars : contre les blindés, malus +1 au lieu de +2.' },
+  guards: { side: 'SU', type: 'infantry', label: 'Gardes', short: 'GARDES', antiArmor: 1, text: 'Armes antichars : contre les blindés, malus +1 au lieu de +2.' },
+};
+
+export function variantOf(u) {
+  if (u.level < 3) return null;
+  return Object.keys(VARIANTS).find((k) => VARIANTS[k].side === u.side && VARIANTS[k].type === u.type) ?? null;
+}
+
+export function unitLabel(u) {
+  const v = variantOf(u);
+  return v ? VARIANTS[v].label : UNIT_TYPES[u.type].label;
+}
+
 export function unitStats(u) {
   const t = UNIT_TYPES[u.type];
   const mod = SIDE_MODS[u.side]?.[u.type] ?? {};
   const L = u.level;
+  const v = VARIANTS[variantOf(u)] ?? {};
   return {
-    maxHp: t.hp + (mod.hp ?? 0) + (L - 1),
-    move: t.move + (mod.move ?? 0) + (L >= 3 ? 1 : 0),
+    variant: variantOf(u),
+    heavyArmor: v.heavyArmor ?? 0,
+    salvo: !!v.salvo,
+    antiArmor: v.antiArmor ?? 0,
+    maxHp: t.hp + (mod.hp ?? 0) + (L - 1) + (v.hp ?? 0),
+    move: t.move + (mod.move ?? 0) + (L >= 3 ? 1 : 0) + (v.move ?? 0),
     range: t.range + (L >= 3 && t.range > 1 ? 1 : 0),
     minRange: t.minRange ?? 1,
     attack: t.attack + (mod.attack ?? 0) + (L - 1),
@@ -39,7 +64,7 @@ export function unitStats(u) {
     entrenchMax: t.entrench + (L >= 2 ? 1 : 0),
     hitBonus: L >= 3 ? 1 : 0,
     armored: !!t.armored,
-    antitank: t.antitank ?? 0,
+    antitank: (t.antitank ?? 0) + (v.antitank ?? 0),
   };
 }
 

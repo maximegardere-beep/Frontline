@@ -9,7 +9,7 @@ import { buildCombatFx } from './fx.js';
 import { sound } from './audio.js';
 import { createRng } from './rng.js';
 import { reachable, pathFrom, hexKey, pathCost } from './path.js';
-import { unitStats, UNIT_TYPES, LEVELS, SIDES, other, hpState, resetIds, XP_FOR_LEVEL } from './units.js';
+import { unitStats, UNIT_TYPES, LEVELS, SIDES, other, hpState, resetIds, XP_FOR_LEVEL, unitLabel, variantOf, VARIANTS } from './units.js';
 import { tileAt, describeTile, terrainDefense } from './terrain.js';
 import { hexDistance, hexToPixel, sameHex } from './hex.js';
 import { newCampaign, battleSetup, concludeBattle, campaignOver, campaignVerdict, CAMPAIGN_LENGTH, KIND_LABELS } from './campaign.js';
@@ -131,6 +131,7 @@ function rulesHtml() {
         <li><b>Directives.</b> Le drapeau à droite de la carte (<kbd>D</kbd>) active le mode directives : placez jusqu'à ${MAX_DIRECTIVES} intentions (attaquer, défendre, se replier) et l'état-major répartit vos unités et rédige leurs ordres à chaque tour. Un ordre donné à la main prime pour le tour. « Contrôle direct » rend la main en gardant le plan en cours.</li>
         <li><b>Antichar.</b> Canon tracté : +2 dés contre les blindés, mais il ne tire pas s'il a bougé dans le tour. Embusqué en forêt ou au village, l'ennemi ne le repère qu'au contact tant qu'il n'a pas ouvert le feu : les chars qui passent à 2 hexagones ne peuvent pas riposter au premier tir.</li>
         <li><b>Conditions.</b> Chaque bataille a son biome (steppe, bocage, Polésie, bourg), sa météo et son heure : un tour dure une heure. Pluie : vision −1, et hors route les véhicules s'enlisent (½ point de plus par hexagone) ; l'infanterie passe. Brouillard : vision −2, les hauteurs ne voient pas plus loin. Neige : vision −1, même enlisement des véhicules, rivières et marais gelés franchissables. Aube et crépuscule : vision −1 ; nuit : −2. Une unité voit toujours au moins l'hexagone voisin.</li>
+        <li><b>Élite.</b> Une unité Élite reçoit son matériel : Tigre (blindage épais, +1 au seuil des tirs reçus, PV +3, Mvt −1), T-34/85 (+1 dé contre les blindés), Katioucha (salve sur 3 cases alignées puis un tour de rechargement), Panzergrenadiers et Gardes (malus +1 seulement contre les blindés). Liseré doré sur le pion.</li>
         <li><b>Terrain destructible.</b> Deux barrages réduisent un village en ruines (défense +2 conservée, avance plus lente). Un barrage crible un champ de cratères (+1 en défense pour l'infanterie, ½ point de plus pour traverser). Par temps sec, chaque obus a une chance sur trois d'enflammer une forêt : 2 tours de feu, infranchissable, 2 PV perdus par tour pour qui y reste, propagation aux forêts voisines.</li>
         <li><b>Munitions.</b> Chaque batterie dispose de ${UNIT_TYPES.artillery.ammo} obus par bataille, rechargés entre deux batailles. Un barrage coûte un obus même s'il tombe sur une case vide ; le tir à vue sur un ennemi repéré aussi. « Tir à vue : non » garde les obus pour les barrages. L'autodéfense au contact est gratuite.</li>
         <li><b>Clouage.</b> Une unité qui encaisse 2 touches dans le tour (3 si retranchée) ou un barrage d'artillerie est clouée : au tour suivant elle ne bouge pas et tire à −1. Les blindés ne sont immobilisés que par un 6 d'une arme qui perce. Le marqueur jaune sur le pion le signale.</li>
@@ -187,7 +188,7 @@ function showBriefing() {
       </section>
       <section>
         <h2>Vos forces</h2>
-        <ul class="roster">${c.army.map((u) => `<li><span class="chip chip-${u.type}">${UNIT_TYPES[u.type].label}</span> ${esc(u.name)} <em>${LEVELS[u.level]}${UNIT_TYPES[u.type].ammo ? ` · ${UNIT_TYPES[u.type].ammo} obus` : ''}</em></li>`).join('')}</ul>
+        <ul class="roster">${c.army.map((u) => `<li><span class="chip chip-${u.type}">${unitLabel(u)}</span> ${esc(u.name)} <em>${LEVELS[u.level]}${UNIT_TYPES[u.type].ammo ? ` · ${UNIT_TYPES[u.type].ammo} obus` : ''}</em></li>`).join('')}</ul>
       </section>
     </div>
     <div class="row-end"><button class="btn btn-primary" id="go-deploy">Déployer les troupes</button></div>
@@ -368,7 +369,7 @@ function setOrder(kind) {
   } else if (kind === 'staff') {
     ui.manual.delete(u.id);
     staffPlan();
-  } else if (kind === 'barrage' && u.type === 'artillery' && u.ammo > 0) {
+  } else if (kind === 'barrage' && u.type === 'artillery' && u.ammo > 0 && !u.reloading) {
     ui.mode = ui.mode === 'barrage' ? 'move' : 'barrage';
   } else if (kind === 'holdfire' && u.type === 'artillery') {
     u.holdFire = !u.holdFire;
@@ -700,11 +701,12 @@ function orderSummary(u) {
   if (u.status === 'routed') return 'En déroute : fuit vers la zone de repli.';
   if (o.path.length) return `Se déplacer de ${o.path.length} hexagone${o.path.length > 1 ? 's' : ''} (${pathCost(ui.state.map, u, o.path) / 2} pts / ${unitStats(u).move}).`;
   const parts = [];
-  if (o.fireAt) parts.push(`barrage sur ${describeTile(tileAt(ui.state.map, o.fireAt.col, o.fireAt.row)).split(' · ')[0].toLowerCase()} (${hexDistance(u, o.fireAt)} hex.)`);
+  if (o.fireAt) parts.push(`${unitStats(u).salvo ? 'salve' : 'barrage'} sur ${describeTile(tileAt(ui.state.map, o.fireAt.col, o.fireAt.row)).split(' · ')[0].toLowerCase()} (${hexDistance(u, o.fireAt)} hex.)`);
   if (o.entrench) parts.push(u.entrench >= unitStats(u).entrenchMax ? 'tenir la position retranchée' : 'se retrancher');
   let txt = parts.length ? parts.join(' et ').replace(/^./, (c) => c.toUpperCase()) + '.' : 'Tenir la position et tirer sur tout ennemi à portée.';
   if (u.type === 'artillery' && !o.fireAt) {
-    if (!(u.ammo > 0)) txt = `${parts.length ? txt.slice(0, -1) : 'Tenir la position'} : plus d'obus, seulement l'autodéfense au contact.`;
+    if (u.reloading && u.ammo > 0) txt = `${parts.length ? txt.slice(0, -1) : 'Tenir la position'} : les rampes rechargent, prochaine salve au tour suivant.`;
+    else if (!(u.ammo > 0)) txt = `${parts.length ? txt.slice(0, -1) : 'Tenir la position'} : plus d'obus, seulement l'autodéfense au contact.`;
     else if (u.holdFire) txt = `${parts.length ? txt.slice(0, -1) : 'Tenir la position'}, sans tir à vue : les obus sont gardés pour les barrages.`;
   }
   return txt;
@@ -734,15 +736,17 @@ function renderUnitCard() {
     const m = s.memory[player()][u.id];
     el.innerHTML = `
       <p class="eyebrow enemy">Ennemi repéré</p>
-      <h3>${UNIT_TYPES[u.type].label} ${SIDES[u.side].name === 'Wehrmacht' ? 'allemande' : 'soviétique'}</h3>
+      <h3>${unitLabel(u)} ${SIDES[u.side].name === 'Wehrmacht' ? 'allemande' : 'soviétique'}</h3>
+      ${variantOf(u) ? `<p class="variant-note">${VARIANTS[variantOf(u)].text}</p>` : ''}
       <p class="muted">État apparent : ${m?.hpState ?? hpState(u)}${u.entrench ? ' · retranchée' : ''}${u.pinned ? ' · clouée' : ''}${u.status === 'routed' ? ' · en déroute' : ''}.</p>`;
     return;
   }
   const st = unitStats(u);
   const canAct = s.phase === 'plan' && u.status === 'ok';
   el.innerHTML = `
-    <p class="eyebrow">${UNIT_TYPES[u.type].label} · ${LEVELS[u.level]}</p>
+    <p class="eyebrow">${unitLabel(u)} · ${LEVELS[u.level]}</p>
     <h3>${esc(u.name)}</h3>
+    ${variantOf(u) ? `<p class="variant-note">${VARIANTS[variantOf(u)].text}</p>` : ''}
     <dl class="stats">
       ${statRow('PV', `${u.hp}/${st.maxHp}`)}
       ${statRow('Mouvement', st.move)}
@@ -760,7 +764,7 @@ function renderUnitCard() {
     <div class="orders">
       <button class="btn btn-sm ${ui.mode === 'move' && u.orders.path.length ? 'on' : ''}" data-order="move"${u.pinned ? ' disabled' : ''}>Déplacer</button>
       <button class="btn btn-sm ${u.orders.entrench ? 'on' : ''}" data-order="entrench" title="Raccourci : E">Retrancher</button>
-      ${u.type === 'artillery' ? `<button class="btn btn-sm ${ui.mode === 'barrage' ? 'on' : ''}" data-order="barrage" title="Raccourci : B"${u.ammo > 0 ? '' : ' disabled'}>${u.ammo > 0 ? 'Barrage' : 'Plus d\'obus'}</button>
+      ${u.type === 'artillery' ? `<button class="btn btn-sm ${ui.mode === 'barrage' ? 'on' : ''}" data-order="barrage" title="Raccourci : B"${u.ammo > 0 && !u.reloading ? '' : ' disabled'}>${!(u.ammo > 0) ? 'Plus d\'obus' : u.reloading ? 'Rechargement' : unitStats(u).salvo ? 'Salve' : 'Barrage'}</button>
       <button class="btn btn-sm ${u.holdFire ? '' : 'on'}" data-order="holdfire" aria-pressed="${!u.holdFire}" title="Tirer d'office sur les ennemis repérés à portée (1 obus par tir)"${u.ammo > 0 ? '' : ' disabled'}>Tir à vue : ${u.holdFire ? 'non' : 'oui'}</button>` : ''}
       <button class="btn btn-sm" data-order="hold" title="Raccourci : H">Annuler</button>
     </div>
@@ -797,7 +801,7 @@ function renderArmy() {
       if (ui.command && u.status === 'ok') tag = ui.manual.has(u.id) ? `${tag} · main` : ui.assignment?.has(u.id) ? `${DIRECTIVES[ui.directives[ui.assignment.get(u.id)].kind].label.toLowerCase()} · ${tag}` : tag;
       const ratio = u.hp / unitStats(u).maxHp;
       return `<li><button class="army-row ${u.id === ui.selectedId ? 'sel' : ''} st-${u.status}" data-id="${u.id}" ${onMap(u) ? '' : 'disabled'}>
-        <span class="chip chip-${u.type}">${UNIT_TYPES[u.type].label.slice(0, 3)}</span>
+        <span class="chip chip-${u.type}${variantOf(u) ? ' chip-elite' : ''}">${variantOf(u) ? VARIANTS[variantOf(u)].short.slice(0, 5) : UNIT_TYPES[u.type].label.slice(0, 3)}</span>
         <span class="army-name">${esc(u.name)}</span>
         <span class="army-tag">${tag}</span>
         <span class="hpbar"><i style="width:${Math.round(ratio * 100)}%"></i></span>

@@ -492,3 +492,7 @@ kbd {
 
 .conditions { display: grid; gap: 6px; margin: 0; }
 .conditions p { margin: 0; }
+
+/* Matériel d'élite. */
+.chip-elite { background: #6b5520; color: #f6e2a0; }
+.variant-note { margin: 0 0 8px; padding: 4px 8px; border-left: 3px solid #d9b44a; background: rgba(217, 180, 74, 0.12); font-size: 13px; }
