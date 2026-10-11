@@ -29,9 +29,10 @@ mais `dist/frontline.html` si.
 | Déplacer la carte | glisser | glisser à un doigt |
 | Zoomer | molette | pincer, ou boutons + / − |
 | Vue d'ensemble, grille | boutons à droite de la carte (`G` pour la grille) | idem |
+| Mode directives | drapeau à droite de la carte (`D`) | idem |
 | Panneaux Unité / Troupes / Journal | colonne de droite | onglets en bas ; toucher l'onglet actif replie le tiroir |
 
-Raccourcis clavier : `Tab` unité suivante, `E` retrancher, `B` barrage, `H` annuler, `Entrée` exécuter.
+Raccourcis clavier : `Tab` unité suivante, `E` retrancher, `B` barrage, `H` annuler, `D` mode directives, `Entrée` exécuter.
 
 ## Rendu : terrain continu sur grille
 
@@ -42,10 +43,16 @@ Le rendu en tire une image continue :
   On en déduit les teintes hypsométriques, l'ombrage depuis le nord-ouest et des courbes de niveau
   (« marching squares »). Les courbes maîtresses coïncident avec les seuils d'altitude de la grille ;
 - **couverts** : forêts en couronnes d'arbres fusionnées, champs en parcelles irrégulières, marais en nappes ;
-- **routes et rivières** : splines passant par les centres des cases, avec méandres pour l'eau ;
+- **routes et cours d'eau** : splines passant par les centres des cases, avec méandres pour l'eau.
+  Un tiers des cartes environ a une rivière (franchissable aux ponts, à 1 ou 2 gués aménagés pour +½ mouvement, ailleurs pour +2),
+  un tiers un ruisseau qui s'arrête en chemin (+1), le reste aucun cours d'eau ;
 - **brouillard, zone de mouvement, portée d'artillerie** : masques adoucis au contour lissé ;
 - **mouvements** : chaque unité glisse à vitesse constante le long d'une spline, avec traînée et légère
-  inclinaison, au lieu de sauter de case en case.
+  inclinaison, au lieu de sauter de case en case ;
+- **combat** (`src/fx.js`) : rafales de traçantes, départs de coups et obus en cloche, explosions (lueur, boule de feu,
+  onde de choc, débris, fumée qui dérive), légère secousse de la carte pour les gros calibres ;
+- **traces durables** : cratères et brûlures peintes sur le terrain, ornières des chenilles, épaves qui brûlent
+  puis fument pendant deux tours. Elles restent jusqu'à la fin de la bataille.
 
 La grille reste affichée en filigrane (bouton ⬡ pour la renforcer ou la masquer).
 
@@ -58,10 +65,25 @@ La grille reste affichée en filigrane (bouton ⬡ pour la renforcer ou la masqu
 3. **Déploiement** dans les trois colonnes de votre bord de carte : c'est le premier plan de bataille.
 4. **Tour de jeu** :
    - *Plan* : pour chaque unité, un trajet (dans la limite de ses points de mouvement), un ordre de
-     retranchement, ou pour l'artillerie un barrage sur un hexagone, même invisible.
+     retranchement, ou pour l'artillerie un barrage sur un hexagone, même invisible. Ou, en mode directives,
+     des intentions globales (voir plus bas).
    - *Exécution* : mouvements simultanés hexagone par hexagone ; une unité qui arrive au contact d'un
      ennemi s'arrête. Puis phase de feu simultanée aux dés.
 5. **Fin de bataille** : rapport, pertes, promotions, renforts, puis carte suivante.
+
+### Mode directives
+
+Le bouton drapeau à droite de la carte bascule entre le contrôle direct (un ordre par unité) et le commandement
+par directives. En mode directives on place jusqu'à trois intentions sur la carte :
+
+- **Attaquer** : marcher sur le point, puis engager les ennemis qui le tiennent ;
+- **Défendre** : rejoindre la position, s'y couvrir, s'y retrancher, sans poursuivre ;
+- **Repli** : rompre le contact et rejoindre ce point de ralliement.
+
+L'état-major répartit les unités entre les directives (les plus proches, à parts égales) et rédige leurs ordres
+à chaque tour, avec la même IA que l'adversaire et uniquement ce que vos unités ont vu. Les ordres restent
+visibles et modifiables : un ordre donné à la main à une unité prime pour ce tour (« Rendre à l'état-major »
+l'annule). « Contrôle direct » (ou le drapeau) rend la main en gardant le plan en cours.
 
 ### Combat
 
@@ -71,7 +93,7 @@ Il touche sur **4+**, modifié par :
 | Modificateur | Effet |
 |---|---|
 | Couvert : forêt / village | +1 / +2 |
-| Cible dans la rivière (à gué) | −1 |
+| Cible dans l'eau (rivière, ruisseau, gué) | −1 |
 | Retranchement | + niveau (1 à 3) |
 | Cible plus haute / tir plongeant | +1 / −1 |
 | Tireur ayant utilisé plus de la moitié de son mouvement | +1 |
@@ -112,9 +134,10 @@ dernier mouvement observé : c'est la base pour anticiper et placer ses barrages
 | `src/path.js` | Hexagones atteignables (Dijkstra) |
 | `src/combat.js` | Jets de dés et moral |
 | `src/game.js` | État de bataille, brouillard, exécution simultanée, victoire |
-| `src/ai.js` | IA adverse (ne voit que ce que voient ses unités) |
+| `src/ai.js` | IA adverse (ne voit que ce que voient ses unités) ; sert aussi d'état-major en mode directives |
 | `src/campaign.js` | Enchaînement des batailles, expérience, renforts |
-| `src/render.js` | Rendu Canvas : terrain continu, caméra (zoom, déplacement), pions, effets |
+| `src/fx.js` | Effets de combat (tirs, explosions, fumée) et traces durables (cratères, ornières, épaves) |
+| `src/render.js` | Rendu Canvas : terrain continu, caméra (zoom, déplacement), pions, directives |
 | `src/main.js` | Interface, gestes tactiles, animation |
 
 Le moteur (`rng` → `campaign`) ne dépend pas du navigateur : il est testé sous Node et peut servir

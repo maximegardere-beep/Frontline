@@ -8,6 +8,7 @@ import { createRng } from './rng.js';
 import { makeNoise } from './mapgen.js';
 import { unitStats } from './units.js';
 import { onMap, retreatCol, deployZone } from './game.js';
+import { drawFx, fxShake, stampScars, stampTracks, drawWreck } from './fx.js';
 
 export const HEX = 30;
 
@@ -67,6 +68,11 @@ export function splineAt(pts, u) {
     x: m * m * m * p1.x + 3 * m * m * t * c1.x + 3 * m * t * t * c2.x + t * t * t * p2.x,
     y: m * m * m * p1.y + 3 * m * m * t * c1.y + 3 * m * t * t * c2.y + t * t * t * p2.y,
   };
+}
+
+function circlePath(ctx, x, y, r) {
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
 }
 
 function hexPath(ctx, cx, cy, s) {
@@ -202,6 +208,7 @@ export class Renderer {
     this.worldW = Math.ceil((map.W + 0.5) * HEX * SQRT3);
     this.worldH = Math.ceil((map.H - 1) * 1.5 * HEX + 2 * HEX);
     this.cache = {};
+    this.wrecks = [];
     this.buildTerrain();
     this.buildGrid();
     this.resize();
@@ -430,8 +437,8 @@ export class Renderer {
     ctx.lineWidth = 1.3;
     for (const lv of [0.5, 1.5, 2.5]) strokeSegments(ctx, contourSegments(height, lv));
 
-    // 6. Rivières : méandres le long du tracé de la grille.
-    for (const path of map.rivers) {
+    // 6. Rivières et ruisseaux : méandres le long du tracé de la grille ; seules les extrémités au bord sortent de la carte.
+    for (const { path, stream } of map.rivers) {
       const pts = path.map((hx, i) => {
         const c = this.center(hx);
         if (i === 0 || i === path.length - 1) return c;
@@ -440,15 +447,40 @@ export class Renderer {
         const off = (rng.next() - 0.5) * HEX * 0.5;
         return { x: c.x - (dy / len) * off, y: c.y + (dx / len) * off };
       });
+      const atEdge = (h) => h.row === 0 || h.row === map.H - 1;
       const first = pts[0], last = pts[pts.length - 1];
-      pts.unshift({ x: first.x, y: first.y < worldH / 2 ? -10 : worldH + 10 });
-      pts.push({ x: last.x, y: last.y < worldH / 2 ? -10 : worldH + 10 });
-      for (const [lw, col] of [[13, C.riverBank], [7.5, C.river], [2.2, C.riverHi]]) {
+      if (atEdge(path[0])) pts.unshift({ x: first.x, y: first.y < worldH / 2 ? -10 : worldH + 10 });
+      if (atEdge(path[path.length - 1])) pts.push({ x: last.x, y: last.y < worldH / 2 ? -10 : worldH + 10 });
+      const widths = stream ? [[8, C.riverBank], [4.2, C.river], [1.3, C.riverHi]] : [[13, C.riverBank], [7.5, C.river], [2.2, C.riverHi]];
+      for (const [lw, col] of widths) {
         ctx.strokeStyle = col;
         ctx.lineWidth = lw;
         ctx.beginPath();
         splineTo(ctx, pts);
         ctx.stroke();
+      }
+      // Source du ruisseau : petite mare.
+      if (stream && !atEdge(path[path.length - 1])) {
+        ctx.fillStyle = C.riverBank;
+        blobPath(ctx, last.x, last.y, 9, rng, 7);
+        ctx.fill();
+        ctx.fillStyle = C.river;
+        blobPath(ctx, last.x, last.y, 6, rng, 7);
+        ctx.fill();
+      }
+    }
+    // Gués : haut-fond sableux en travers du courant.
+    for (const t of map.tiles) {
+      if (!t.ford) continue;
+      const { x, y } = this.center(t);
+      ctx.fillStyle = 'rgba(226, 204, 150, 0.9)';
+      blobPath(ctx, x, y, 8, rng, 8);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(120, 100, 70, 0.7)';
+      for (let i = -2; i <= 2; i++) {
+        ctx.beginPath();
+        ctx.arc(x + i * 3.5, y + (i % 2) * 2, 1.4, 0, Math.PI * 2);
+        ctx.fill();
       }
     }
 
@@ -543,6 +575,23 @@ export class Renderer {
     this.gridPath = g;
   }
 
+  // ---------- Traces de combat (peintes sur la couche de terrain, elles restent jusqu'à la fin de la bataille) ----------
+
+  layerCtx() {
+    const ctx = this.layer.getContext('2d');
+    ctx.setTransform(this.layerScale, 0, 0, this.layerScale, 0, 0);
+    return ctx;
+  }
+
+  stampScars(fx, seed) { stampScars(this.layerCtx(), fx, seed); }
+
+  stampTracks(pts) { stampTracks(this.layerCtx(), pts); }
+
+  addWreck(w) { this.wrecks.push(w); }
+
+  // Vrai tant qu'une épave fume encore : la carte s'anime alors doucement.
+  hasSmoke(turn) { return this.wrecks.some((w) => turn - w.turn <= 1); }
+
   mask(name, keys, rgb, alpha, opts) {
     const c = this.cache[name];
     if (c && c.keys === keys) return c.m;
@@ -573,7 +622,8 @@ export class Renderer {
     ctx.setTransform(d, 0, 0, d, 0, 0);
     ctx.fillStyle = C.desk;
     ctx.fillRect(0, 0, this.vw, this.vh);
-    ctx.setTransform(d * cam.s, 0, 0, d * cam.s, -cam.x * cam.s * d, -cam.y * cam.s * d);
+    const shake = view.fx && view.shake ? fxShake(view.fx.fx, view.fx.T) : { x: 0, y: 0 };
+    ctx.setTransform(d * cam.s, 0, 0, d * cam.s, (-cam.x * cam.s + shake.x) * d, (-cam.y * cam.s + shake.y) * d);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
@@ -642,6 +692,8 @@ export class Renderer {
       ctx.stroke();
     }
 
+    if (view.directives && !view.anim) this.drawDirectives(state, side, view.directives, view.assignment);
+
     if (!view.anim) {
       for (const u of state.units) {
         if (u.side !== side || !onMap(u)) continue;
@@ -656,6 +708,9 @@ export class Renderer {
         this.drawGhost(m, state.turn - m.turn);
       }
     }
+
+    const now = (view.time ?? performance.now()) / 1000;
+    for (const w of this.wrecks) drawWreck(ctx, w, now, state.turn - w.turn);
 
     // Traînées des unités en mouvement.
     if (view.anim?.trails) {
@@ -682,7 +737,114 @@ export class Renderer {
       this.drawCounter(u, p.x, p.y, { selected: u.id === view.selectedId, status: snap ? snap.status : u.status, hp: view.anim?.hp?.[u.id] ?? u.hp, heading: snap?.heading ?? 0 });
     }
 
-    if (view.fx) this.drawEffects(view.fx);
+    if (view.fx) drawFx(ctx, view.fx.fx, view.fx.T);
+  }
+
+  // ---------- Directives (mode commandement) ----------
+
+  drawDirectives(state, side, directives, assignment) {
+    const { ctx } = this;
+    const INK = { attack: C.pencil, defend: '#21456a', retreat: '#7a5618' };
+    const LABEL = { attack: 'ATTAQUE', defend: 'DÉFENSE', retreat: 'REPLI' };
+    const toFoe = side === 'DE' ? 1 : -1;
+    ctx.save();
+    // Liens discrets entre chaque unité et la directive qui la commande.
+    if (assignment) {
+      ctx.setLineDash([2, 4]);
+      ctx.lineWidth = 1.2;
+      for (const u of state.units) {
+        if (u.side !== side || !onMap(u) || !assignment.has(u.id)) continue;
+        const dv = directives[assignment.get(u.id)];
+        if (!dv) continue;
+        const a = this.center(u), b = this.center(dv);
+        ctx.strokeStyle = INK[dv.kind];
+        ctx.globalAlpha = 0.4;
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+    }
+    directives.forEach((dv, i) => {
+      const { x, y } = this.center(dv);
+      const ink = INK[dv.kind];
+      ctx.strokeStyle = ink;
+      ctx.fillStyle = ink;
+      if (dv.kind === 'attack') {
+        // Axe d'effort : large flèche venant de nos lignes (ou du groupe qui attaque).
+        const grp = state.units.filter((u) => u.side === side && onMap(u) && assignment?.get(u.id) === i).map((u) => this.center(u));
+        let ang = toFoe > 0 ? 0 : Math.PI;
+        if (grp.length) {
+          const cx = grp.reduce((s, p) => s + p.x, 0) / grp.length, cy = grp.reduce((s, p) => s + p.y, 0) / grp.length;
+          if (Math.hypot(x - cx, y - cy) > HEX) ang = Math.atan2(y - cy, x - cx);
+        }
+        const L = HEX * 2.2, wdt = HEX * 0.34, head = HEX * 0.62;
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(ang);
+        ctx.beginPath();
+        ctx.moveTo(-L, -wdt);
+        ctx.quadraticCurveTo(-L * 0.5, -wdt * 1.2, -head, -wdt);
+        ctx.lineTo(-head, -wdt - HEX * 0.3);
+        ctx.lineTo(0, 0);
+        ctx.lineTo(-head, wdt + HEX * 0.3);
+        ctx.lineTo(-head, wdt);
+        ctx.quadraticCurveTo(-L * 0.5, wdt * 1.2, -L, wdt);
+        ctx.closePath();
+        ctx.globalAlpha = 0.28;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.lineWidth = 2.2;
+        ctx.stroke();
+        ctx.restore();
+      } else if (dv.kind === 'defend') {
+        // Position défensive : arc dentelé tourné vers l'ennemi.
+        const r = HEX * 0.95;
+        const a0 = (toFoe > 0 ? 0 : Math.PI) - Math.PI * 0.55, a1 = a0 + Math.PI * 1.1;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(x, y, r, a0, a1);
+        ctx.stroke();
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        for (let k = 0; k <= 6; k++) {
+          const a = a0 + ((a1 - a0) * k) / 6;
+          ctx.moveTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+          ctx.lineTo(x + Math.cos(a) * (r + 7), y + Math.sin(a) * (r + 7));
+        }
+        ctx.stroke();
+        ctx.globalAlpha = 0.18;
+        circlePath(ctx, x, y, r);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      } else {
+        // Repli : double chevron vers nos lignes, point de ralliement cerclé.
+        const back = -toFoe;
+        ctx.lineWidth = 2.5;
+        ctx.setLineDash([5, 3]);
+        circlePath(ctx, x, y, HEX * 0.7);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        for (const o of [-6, 6]) {
+          ctx.moveTo(x - back * 6 + o * back, y - 9);
+          ctx.lineTo(x + back * 6 + o * back, y);
+          ctx.lineTo(x - back * 6 + o * back, y + 9);
+        }
+        ctx.stroke();
+      }
+      ctx.font = '700 10px "IBM Plex Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = C.halo;
+      const ly = y - HEX * 1.15;
+      ctx.strokeText(LABEL[dv.kind], x, ly);
+      ctx.fillText(LABEL[dv.kind], x, ly);
+    });
+    ctx.restore();
   }
 
   star(x, y, r, fill) {
@@ -891,52 +1053,5 @@ export class Renderer {
       ctx.stroke();
     }
     ctx.restore();
-  }
-
-  drawEffects(fx) {
-    const { ctx } = this;
-    for (const f of fx) {
-      const a = this.center(f.from), b = this.center(f.to);
-      const t = f.t;
-      if (t <= 0) continue;
-      if (t < 0.45) {
-        const k = t / 0.45;
-        ctx.strokeStyle = 'rgba(255, 240, 160, 0.95)';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        if (f.indirect) {
-          const mx = (a.x + b.x) / 2, my = Math.min(a.y, b.y) - 60;
-          const px = (1 - k) ** 2 * a.x + 2 * (1 - k) * k * mx + k * k * b.x;
-          const py = (1 - k) ** 2 * a.y + 2 * (1 - k) * k * my + k * k * b.y;
-          ctx.arc(px, py, 3, 0, Math.PI * 2);
-          ctx.fillStyle = '#ffd36a';
-          ctx.fill();
-        } else {
-          ctx.moveTo(a.x, a.y);
-          ctx.lineTo(a.x + (b.x - a.x) * k, a.y + (b.y - a.y) * k);
-          ctx.stroke();
-        }
-      } else {
-        const k = (t - 0.45) / 0.55;
-        const hits = f.empty ? 2 : Math.max(1, f.hits ?? 0);
-        for (let i = 0; i < Math.min(5, hits); i++) {
-          const ox = i ? Math.cos(i * 2.4) * 9 : 0, oy = i ? Math.sin(i * 2.4) * 7 : 0;
-          ctx.beginPath();
-          ctx.arc(b.x + ox, b.y + oy, 5 + k * 14, 0, Math.PI * 2);
-          ctx.fillStyle = f.damage || f.empty ? `rgba(255, 140, 40, ${0.75 * (1 - k)})` : `rgba(230, 230, 210, ${0.6 * (1 - k)})`;
-          ctx.fill();
-        }
-        if (!f.empty) {
-          ctx.font = '700 15px "IBM Plex Mono", monospace';
-          ctx.textAlign = 'center';
-          ctx.lineWidth = 3;
-          ctx.strokeStyle = 'rgba(20,15,5,0.85)';
-          const txt = f.damage ? `−${f.damage}` : 'raté';
-          ctx.strokeText(txt, b.x, b.y - 18 - k * 14);
-          ctx.fillStyle = f.damage ? '#ffcf5a' : '#e8e2cc';
-          ctx.fillText(txt, b.x, b.y - 18 - k * 14);
-        }
-      }
-    }
   }
 }

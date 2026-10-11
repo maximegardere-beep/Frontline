@@ -40,6 +40,15 @@
         <button class="tool" id="zoom-out" aria-label="Dézoomer">−</button>
         <button class="tool" id="zoom-fit" aria-label="Voir toute la carte"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 8V3h5M12 3h5v5M17 12v5h-5M8 17H3v-5" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
         <button class="tool" id="grid-toggle" aria-label="Afficher la grille" aria-pressed="true"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2l6.5 3.75v7.5L10 17l-6.5-3.75v-7.5z" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
+        <button class="tool" id="cmd-toggle" aria-label="Mode directives" aria-pressed="false" title="Mode directives (D)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 18V2.5M5 3h10l-2.5 3.5L15 10H5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button>
+      </div>
+      <div class="directive-bar" id="directive-bar" hidden>
+        <span class="directive-title">Directives</span>
+        <button class="dtool" data-dir="attack" aria-pressed="false">Attaquer</button>
+        <button class="dtool" data-dir="defend" aria-pressed="false">Défendre</button>
+        <button class="dtool" data-dir="retreat" aria-pressed="false">Repli</button>
+        <button class="dtool dtool-x" id="dir-clear" aria-label="Effacer les directives"><span class="lbl-long">Effacer</span><span class="lbl-short" aria-hidden="true">✕</span></button>
+        <button class="dtool dtool-x" id="dir-off" aria-label="Reprendre le contrôle direct">Contrôle direct</button>
       </div>
       <p class="hint" id="hint" hidden></p>
     </section>

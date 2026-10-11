@@ -42,7 +42,8 @@ export function neighbors(map, h) {
   return neighborCoords(h.col, h.row).filter((n) => inBounds(map, n));
 }
 
-function carveRiver(map, rng) {
+// Cours d'eau descendant la carte du nord au sud (ou l'inverse). Un ruisseau (maxLen) s'arrête en chemin.
+function carveRiver(map, rng, { maxLen = Infinity, stream = false } = {}) {
   const { W, H } = map;
   const fromTop = rng.chance(0.5);
   let cur = { col: rng.int(Math.floor(W * 0.38), Math.ceil(W * 0.62) - 1), row: fromTop ? 0 : H - 1 };
@@ -51,7 +52,7 @@ function carveRiver(map, rng) {
   const seen = new Set([`${cur.col},${cur.row}`]);
   let lateral = 0;
   const center = W / 2;
-  while (cur.row !== (fromTop ? H - 1 : 0) && path.length < H * 3) {
+  while (cur.row !== (fromTop ? H - 1 : 0) && path.length < Math.min(H * 3, maxLen)) {
     const opts = neighbors(map, cur).filter((n) => !seen.has(`${n.col},${n.row}`));
     let best = null, bestScore = Infinity;
     for (const n of opts) {
@@ -71,6 +72,7 @@ function carveRiver(map, rng) {
   for (const h of path) {
     const t = tileAt(map, h.col, h.row);
     t.river = true;
+    if (stream) t.stream = true;
     if (t.terrain === 'forest') t.terrain = 'plain';
     t.elev = Math.min(t.elev, 1);
     for (const n of neighbors(map, h)) {
@@ -78,7 +80,21 @@ function carveRiver(map, rng) {
       if (nt.elev > t.elev + 1) nt.elev = t.elev + 1; // vallée
     }
   }
-  return path;
+  return { path, stream };
+}
+
+// Gués : quelques points de passage plus faciles, à l'écart des ponts et les uns des autres.
+function placeFords(map, river, rng, count) {
+  const cands = rng.shuffle(river.path.slice(1, -1).map((h) => tileAt(map, h.col, h.row)));
+  const fords = [];
+  for (const t of cands) {
+    if (fords.length >= count) break;
+    if (t.road || t.terrain === 'marsh') continue;
+    if (river.path.some((h) => tileAt(map, h.col, h.row).road && hexDistance(h, t) < 3)) continue;
+    if (fords.some((f) => hexDistance(f, t) < 4)) continue;
+    t.ford = true;
+    fords.push(t);
+  }
 }
 
 // A* pour tracer les routes (coût = difficulté de construction).
@@ -154,7 +170,11 @@ export function generateMap(seed, opts = {}) {
     else if (rng.chance(0.03)) t.terrain = 'forest'; // bosquets isolés
   }
 
-  if (opts.river ?? rng.chance(0.85)) map.rivers.push(carveRiver(map, rng));
+  // Eau : une rivière sur environ un tiers des cartes, un ruisseau qui s'arrête en chemin sur un autre tiers,
+  // rien sur le reste. Trop de rivières faisaient de chaque bataille une bataille de pont.
+  const water = opts.river === true ? 'river' : opts.river === false ? 'none' : rng.weighted({ river: 35, stream: 30, none: 35 });
+  if (water === 'river') map.rivers.push(carveRiver(map, rng));
+  else if (water === 'stream') map.rivers.push(carveRiver(map, rng, { stream: true, maxLen: rng.int(Math.round(H * 0.4), Math.round(H * 0.7)) }));
 
   // Villages : espacés, hors rivière et marais, plutôt bas et proches de l'eau.
   const usedNames = new Set();
@@ -203,6 +223,7 @@ export function generateMap(seed, opts = {}) {
       }
     }
   }
+  for (const r of map.rivers) if (!r.stream) placeFords(map, r, rng, rng.int(1, 2));
   // Les routes défrichent la forêt.
   for (const t of map.tiles) if (t.road && t.terrain === 'forest' && rng.chance(0.6)) t.terrain = 'plain';
 

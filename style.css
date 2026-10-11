@@ -139,6 +139,49 @@ kbd {
 }
 .tool svg { width: 20px; height: 20px; }
 .tool[aria-pressed="false"] { color: var(--muted); }
+/* Mode directives : barre flottante en haut de la carte. */
+.directive-bar {
+  position: absolute;
+  top: 10px;
+  left: max(10px, env(safe-area-inset-left, 0px));
+  max-width: calc(100% - 76px);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.5);
+  border-radius: 4px;
+  background: rgba(44, 49, 36, 0.92);
+}
+.directive-title {
+  padding: 0 4px;
+  font: 600 11px var(--f-body);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--brass);
+}
+.dtool {
+  min-height: 36px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-left-width: 4px;
+  border-radius: 3px;
+  background: var(--desk-3);
+  font: 600 13px var(--f-body);
+  cursor: pointer;
+}
+.dtool[data-dir="attack"] { border-left-color: #c0392b; }
+.dtool[data-dir="defend"] { border-left-color: #4f7db0; }
+.dtool[data-dir="retreat"] { border-left-color: #b58a2e; }
+.dtool[aria-pressed="true"] { background: var(--paper); color: var(--ink); }
+.dtool-x { border-left-width: 1px; background: transparent; color: var(--muted); font-weight: 500; }
+.lbl-short { display: none; }
+.dtool:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+.tool#cmd-toggle[aria-pressed="true"] { color: var(--brass); border-color: var(--brass); }
+.staff-note { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+.staff-note b { color: var(--text); }
+
 .hint {
   position: absolute;
   left: max(10px, env(safe-area-inset-left, 0px));
@@ -398,6 +441,10 @@ kbd {
   .stat dd { font-size: 14px; }
   .dock { order: 0; border-bottom: 0; border-top: 1px solid var(--line); padding: 8px 16px; }
   .map-tools { top: 8px; }
+  .directive-bar { top: 8px; gap: 4px; padding: 4px; }
+  .directive-title, #dir-off, .lbl-long { display: none; }
+  .lbl-short { display: inline; }
+  .dtool { min-height: 40px; padding: 4px 8px; }
 }
 /* Paysage sur téléphone : panneau à droite, barre compacte. */
 @media (max-height: 500px) and (orientation: landscape) {
@@ -415,6 +462,7 @@ kbd {
   .dock { order: 0; border-top: 1px solid var(--line); border-bottom: 0; padding: 6px 12px; }
   .btn-go { min-height: 42px; }
   .map-tools { flex-direction: row; top: auto; bottom: 8px; right: 8px; }
+  .directive-bar { max-width: calc(100% - 20px); }
 }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }

@@ -32,6 +32,11 @@ Campagne (5 batailles)
 - **Barrage d'artillerie** sur un hexagone, pas sur une unité : c'est le mécanisme d'anticipation par excellence.
 - **Mémoire** des positions ennemies avec le dernier vecteur de mouvement : l'IA s'en sert pour prédire,
   le joueur la voit sur la carte.
+- **Commandement par directives** (optionnel) : le joueur fixe des intentions (attaquer, défendre, se replier),
+  l'état-major, soumis au même brouillard, en tire les ordres. Le joueur garde la main unité par unité. C'est la
+  même IA que l'adversaire, paramétrée par les directives.
+- **Eau rare** : une rivière infranchissable hors des ponts transformait chaque carte en goulot d'étranglement.
+  Désormais environ un tiers de rivières (avec gués), un tiers de ruisseaux partiels, un tiers sans eau.
 - **Asymétrie** légère des camps (qualité contre quantité), budgets d'armée différents.
 
 ## Paramètres d'unités (niveau Recrue)

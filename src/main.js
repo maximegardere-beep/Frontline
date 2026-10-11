@@ -2,7 +2,9 @@
 
 import { Renderer, HEX, splineAt } from './render.js';
 import { createBattle, executeTurn, onMap, active, unitAt, canDeployAt, updateVisibility, HOLD_TO_WIN } from './game.js';
-import { planSide } from './ai.js';
+import { planSide, DIRECTIVES } from './ai.js';
+import { buildCombatFx } from './fx.js';
+import { createRng } from './rng.js';
 import { reachable, pathFrom, hexKey, pathCost } from './path.js';
 import { unitStats, UNIT_TYPES, LEVELS, SIDES, other, hpState, resetIds, XP_FOR_LEVEL } from './units.js';
 import { tileAt, describeTile, terrainDefense } from './terrain.js';
@@ -28,7 +30,15 @@ const ui = {
   busy: false,
   tab: 'unit',
   preview: null,
+  // Mode directives : le joueur fixe des intentions (attaquer, défendre, se replier), l'état-major en tire les ordres.
+  command: false,
+  directives: [],
+  dirTool: null,
+  manual: new Set(),
+  assignment: null,
 };
+
+const MAX_DIRECTIVES = 3;
 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const player = () => ui.campaign.playerSide;
@@ -108,6 +118,7 @@ function rulesHtml() {
         <li><b>Déploiement.</b> Placez vos unités dans les trois colonnes de votre bord de carte. La colonne extrême est votre zone de repli.</li>
         <li><b>Plan.</b> Sélectionnez une unité, puis cliquez un hexagone éclairé pour tracer son mouvement. <kbd>E</kbd> : se retrancher (seulement sans bouger). <kbd>B</kbd> : barrage d'artillerie sur un hexagone, même invisible. L'adversaire planifie en même temps que vous.</li>
         <li><b>Exécution.</b> Tous les mouvements sont simultanés. Une unité qui arrive au contact d'un ennemi s'arrête. Puis chacun tire : dés d6, touche sur 4+ modifié par le couvert, le relief, le retranchement, le mouvement et le blindage. Un 6 inflige 2 dégâts.</li>
+        <li><b>Directives.</b> Le drapeau à droite de la carte (<kbd>D</kbd>) active le mode directives : placez jusqu'à ${MAX_DIRECTIVES} intentions (attaquer, défendre, se replier) et l'état-major répartit vos unités et rédige leurs ordres à chaque tour. Un ordre donné à la main prime pour le tour. « Contrôle direct » rend la main en gardant le plan en cours.</li>
         <li><b>Moral.</b> Une unité très éprouvée teste son moral (d6 + niveau ≥ 5). En cas d'échec elle se débande et fuit vers sa zone de repli.</li>
         <li><b>Victoire.</b> Détruire ou mettre en déroute toutes les unités ennemies ; ou, sur les cartes à objectif, tenir la position étoilée ${HOLD_TO_WIN} tours sans ennemi au contact. Après 12 tours, le détenteur de l'objectif ou le camp le moins éprouvé l'emporte.</li>
         <li><b>Campagne.</b> Les survivants gagnent de l'expérience (Recrue → Vétéran → Élite) et sont rejoints par des renforts.</li>
@@ -131,6 +142,11 @@ function showBriefing() {
   ui.setup = battleSetup(c);
   ui.state = createBattle({ seed: ui.setup.seed, playerSide: c.playerSide, armies: ui.setup.armies, kind: ui.setup.kind });
   ui.reopenReport = null;
+  ui.directives = [];
+  ui.dirTool = null;
+  ui.manual = new Set();
+  ui.assignment = null;
+  ui.staffRng = createRng(`staff:${ui.setup.seed}`);
   ui.renderer.setMap(ui.state.map);
   ui.renderer.initialView(c.playerSide);
   ui.selectedId = null;
@@ -238,6 +254,7 @@ function onMapClick(ev) {
   const h = ui.renderer.hexAt(ev.clientX, ev.clientY);
   if (!h) return;
   showTileInfo(h);
+  if (ui.command && ui.dirTool && (s.phase === 'plan' || s.phase === 'deploy')) return placeDirective(h);
   const here = unitAt(s, h);
   const sel = selected();
 
@@ -260,6 +277,7 @@ function onMapClick(ev) {
       sel.orders.fireAt = sameHex(sel.orders.fireAt, h) ? null : { col: h.col, row: h.row };
       sel.orders.path = [];
       ui.mode = 'move';
+      takeOver(sel);
       return refresh();
     }
   }
@@ -267,7 +285,7 @@ function onMapClick(ev) {
   const leaving = here && here.side === player() && here.orders.path.length > 0;
   if (here && here.side === player() && here.status === 'ok' && here !== sel && !(sel && leaving && ui.mode === 'move')) return select(here);
   if (sel && sel.status === 'ok') {
-    if (sameHex(sel, h)) { sel.orders.path = []; return refresh(); }
+    if (sameHex(sel, h)) { sel.orders.path = []; takeOver(sel); return refresh(); }
     const reach = playerReach(sel);
     if (reach.has(hexKey(s.map, h))) {
       if (here && !leaving) return;
@@ -275,6 +293,7 @@ function onMapClick(ev) {
       sel.orders.entrench = false;
       sel.orders.fireAt = null;
       ui.preview = null;
+      takeOver(sel);
       return refresh();
     }
   }
@@ -285,7 +304,8 @@ function onMapClick(ev) {
 function showTileInfo(h) {
   const t = h && tileAt(ui.state.map, h.col, h.row);
   const d = t && terrainDefense(t);
-  $('hint').textContent = t ? `${describeTile(t)}${d ? ` · défense ${d > 0 ? '+' : ''}${d}` : ''}` : '';
+  const tool = ui.command && ui.dirTool ? `${DIRECTIVES[ui.dirTool].label} → ` : '';
+  $('hint').textContent = t ? `${tool}${describeTile(t)}${d ? ` · défense ${d > 0 ? '+' : ''}${d}` : ''}` : '';
   $('hint').hidden = !t;
 }
 
@@ -311,11 +331,62 @@ function setOrder(kind) {
   if (kind === 'entrench') {
     u.orders.entrench = !u.orders.entrench;
     if (u.orders.entrench) u.orders.path = [];
+    takeOver(u);
   } else if (kind === 'hold') {
     u.orders = { path: [], entrench: false, fireAt: null };
+    takeOver(u);
+  } else if (kind === 'staff') {
+    ui.manual.delete(u.id);
+    staffPlan();
   } else if (kind === 'barrage' && u.type === 'artillery') {
     ui.mode = ui.mode === 'barrage' ? 'move' : 'barrage';
   } else if (kind === 'move') ui.mode = 'move';
+  refresh();
+}
+
+// ---------- Mode directives ----------
+
+// L'état-major répartit les unités entre les directives et rédige leurs ordres ; les unités reprises en main gardent les leurs.
+function staffPlan() {
+  const s = ui.state;
+  if (!ui.command || s?.phase !== 'plan') return;
+  const mine = s.units.filter((u) => u.side === player() && active(u));
+  for (const u of mine) if (!ui.manual.has(u.id)) u.orders = { path: [], entrench: false, fireAt: null };
+  if (!ui.directives.length) { ui.assignment = null; return; }
+  ui.assignment = planSide(s, player(), { directives: ui.directives, fixed: ui.manual, rng: ui.staffRng }).assignment;
+}
+
+// Un ordre donné à la main suspend la directive de cette unité jusqu'à la fin du tour.
+function takeOver(u) {
+  if (ui.command) ui.manual.add(u.id);
+}
+
+function placeDirective(h) {
+  const i = ui.directives.findIndex((d) => sameHex(d, h));
+  if (i >= 0 && ui.directives[i].kind === ui.dirTool) ui.directives.splice(i, 1);
+  else if (i >= 0) ui.directives[i].kind = ui.dirTool;
+  else {
+    ui.directives.push({ kind: ui.dirTool, col: h.col, row: h.row });
+    if (ui.directives.length > MAX_DIRECTIVES) ui.directives.shift();
+  }
+  ui.dirTool = null;
+  staffPlan();
+  refresh();
+}
+
+function setCommand(on) {
+  ui.command = on;
+  ui.dirTool = null;
+  ui.manual = new Set();
+  // En reprenant le contrôle direct, on garde les ordres rédigés par l'état-major : on peut les retoucher.
+  if (on) staffPlan(); else ui.assignment = null;
+  refresh();
+}
+
+function pickDirectiveTool(kind) {
+  if (!ui.command) setCommand(true);
+  ui.dirTool = ui.dirTool === kind ? null : kind;
+  ui.selectedId = null;
   refresh();
 }
 
@@ -349,12 +420,14 @@ async function endPhase() {
     s.phase = 'plan';
     s.log.push({ turn: 1, kind: 'info', text: 'Déploiement terminé. Tracez votre plan de bataille.' });
     ui.selectedId = null;
+    staffPlan();
     return refresh();
   }
   if (s.phase !== 'plan') return;
   ui.busy = true;
   ui.selectedId = null;
   ui.mode = 'move';
+  ui.dirTool = null;
   planSide(s, other(player()));
   const me = player();
   const visStart = new Set(s.visibility[me].units);
@@ -364,9 +437,10 @@ async function endPhase() {
   const res = executeTurn(s);
   const visEnd = s.visibility[me].units;
   ui.animVisible = new Set([...visStart, ...visEnd]);
+  // Un tir direct trahit le tireur ; une batterie qui tire de loin reste invisible.
   for (const f of res.fires) {
     const a = s.units.find((u) => u.id === f.attacker);
-    if (a.side !== me) ui.animVisible.add(a.id);
+    if (a.side !== me && !f.indirect) ui.animVisible.add(a.id);
   }
   // Mouvement continu : chaque unité glisse à vitesse constante le long d'une spline passant par ses positions successives.
   const ids = Object.keys(res.ticks[0]);
@@ -401,28 +475,62 @@ async function endPhase() {
       draw();
     });
   }
+  // Ornières : les chenilles marquent durablement le terrain.
+  for (const id of ids) {
+    const u = s.units.find((x) => x.id === id);
+    if (u.type === 'tank' && (u.side === me || ui.animVisible.has(id))) ui.renderer.stampTracks(tracks[id].pts);
+  }
   const last = Object.fromEntries(ids.filter((id) => tracks[id].end).map((id) => {
     const p = tracks[id].pts[tracks[id].pts.length - 1];
     return [id, { x: p.x, y: p.y, status: tracks[id].end.status }];
   }));
-  // Combat : tirs simultanés.
+  // Combat : tirs simultanés, puis traces laissées sur le terrain (cratères, épaves).
+  const dead = new Set(res.events.filter((e) => e.kind === 'destroyed').map((e) => e.id));
   if (res.fires.length) {
-    const fx = res.fires.map((f, i) => {
-      const hiddenShooter = !ui.animVisible.has(f.attacker) && !f.attacker.startsWith(me);
-      return { ...f, from: hiddenShooter ? f.to : f.from, delay: (i % 6) * 0.05 };
+    const lastShot = new Map();
+    res.fires.forEach((f, i) => { if (f.target) lastShot.set(f.target, i); });
+    const fires = res.fires.map((f, i) => {
+      const a = s.units.find((u) => u.id === f.attacker);
+      return {
+        a: hexToPixel(f.from.col, f.from.row, HEX),
+        b: hexToPixel(f.to.col, f.to.row, HEX),
+        type: a.type,
+        indirect: f.indirect,
+        hidden: a.side !== me && !ui.animVisible.has(a.id),
+        dice: f.rolls?.length ?? 3,
+        hits: f.hits ?? 0,
+        damage: f.damage ?? 0,
+        empty: !!f.empty,
+        kill: dead.has(f.target) && lastShot.get(f.target) === i,
+      };
     });
-    await tween(reduceMotion ? 300 : 1500, (k) => {
-      ui.fx = fx.map((f) => ({ ...f, t: Math.max(0, Math.min(1, (k - f.delay) / (1 - 0.3))) }));
-      ui.anim = { pos: last, hp: k > 0.5 ? null : hpStart };
+    const seed = `fx:${s.seed}:${s.turn}`;
+    const fx = buildCombatFx(fires, seed);
+    const speed = reduceMotion ? 3 : 1;
+    await tween((fx.duration / speed) * 1000, (k) => {
+      const T = k * fx.duration;
+      ui.fx = { fx, T };
+      // Les PV baissent quand les premiers coups arrivent.
+      ui.anim = { pos: last, hp: T > Math.min(0.6, fx.duration * 0.4) ? null : hpStart };
       draw();
     });
+    ui.renderer.stampScars(fx, seed);
+  }
+  for (const id of dead) {
+    const u = s.units.find((x) => x.id === id);
+    const p = last[id] ?? hexToPixel(u.col, u.row, HEX);
+    const r = createRng(`wreck:${id}:${s.turn}`);
+    ui.renderer.addWreck({ x: p.x + (r.next() - 0.5) * 10, y: p.y + (r.next() - 0.5) * 8, type: u.type, side: u.side, rot: r.next() * Math.PI * 2, turn: s.turn, seed: `${id}` });
   }
   ui.anim = null;
   ui.fx = null;
   ui.animVisible = null;
   ui.busy = false;
+  ui.manual = new Set();
   if (s.phase === 'execute') s.phase = 'plan';
+  staffPlan();
   refresh();
+  ambient();
   if (s.result) {
     await wait(reduceMotion ? 100 : 900);
     showDebrief();
@@ -430,6 +538,20 @@ async function endPhase() {
 }
 
 // ---------- Affichage ----------
+
+// Les épaves fument encore : on anime doucement la carte (une douzaine d'images par seconde), sans plus.
+let ambientOn = false;
+function ambient() {
+  if (ambientOn || reduceMotion) return;
+  ambientOn = true;
+  let lastT = 0;
+  const step = (now) => {
+    if (!ui.state || !ui.renderer.hasSmoke(ui.state.turn)) { ambientOn = false; return; }
+    if (!ui.busy && now - lastT > 80 && document.visibilityState === 'visible') { lastT = now; draw(); }
+    requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
 
 let drawQueued = false;
 function scheduleDraw() {
@@ -451,6 +573,9 @@ function draw() {
     reachKeys: ui.reachMemo?.keys,
     rangeOf: !ui.anim && mine && sel.type === 'artillery' && (ui.mode === 'barrage' || sel.orders.fireAt) ? sel : null,
     hover: ui.anim ? null : ui.hover,
+    directives: ui.command && s.phase !== 'over' ? ui.directives : null,
+    assignment: ui.assignment,
+    shake: !reduceMotion,
     preview: ui.anim ? null : ui.preview,
     anim: ui.anim,
     animVisible: ui.animVisible,
@@ -474,6 +599,7 @@ function refresh() {
   document.querySelectorAll('[data-tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === ui.tab)));
   document.querySelectorAll('[data-panel]').forEach((p) => p.classList.toggle('active', p.dataset.panel === ui.tab));
   renderObjective();
+  renderDirectiveBar();
   renderUnitCard();
   renderArmy();
   renderLog();
@@ -487,6 +613,20 @@ function renderObjective() {
   const o = s.objective;
   const name = tileAt(s.map, o.col, o.row).name ?? 'Objectif';
   el.innerHTML = `<span class="star">★</span> ${esc(name)} : ${o.owner ? `${SIDES[o.owner].name}${o.contested ? ', disputé' : ''} · ${o.hold}/${HOLD_TO_WIN}` : 'non tenu'}`;
+}
+
+function renderDirectiveBar() {
+  const s = ui.state;
+  $('cmd-toggle').setAttribute('aria-pressed', String(ui.command));
+  $('directive-bar').hidden = !ui.command || s.phase === 'over';
+  document.querySelectorAll('[data-dir]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.dir === ui.dirTool)));
+  $('dir-clear').disabled = !ui.directives.length;
+  if (!ui.dirTool && $('hint').dataset.tool) { $('hint').hidden = true; delete $('hint').dataset.tool; }
+  if (ui.dirTool) {
+    $('hint').dataset.tool = '1';
+    $('hint').textContent = `${touchUI ? 'Touchez' : 'Cliquez'} la carte pour placer « ${DIRECTIVES[ui.dirTool].label} » (${ui.directives.length}/${MAX_DIRECTIVES})`;
+    $('hint').hidden = false;
+  }
 }
 
 function statRow(label, value) {
@@ -507,6 +647,14 @@ function renderUnitCard() {
   const s = ui.state;
   const u = selected();
   const el = $('unit-card');
+  if (!u && ui.command && s.phase !== 'over') {
+    const counts = ui.directives.map((d, i) => `<li><b>${DIRECTIVES[d.kind].label}</b> : ${[...(ui.assignment ?? new Map()).values()].filter((v) => v === i).length} unité(s)</li>`).join('');
+    el.innerHTML = `
+      <p class="eyebrow">Mode directives</p>
+      ${ui.directives.length ? `<ul class="ticks">${counts}</ul>` : ''}
+      <p class="muted">Choisissez <b>Attaquer</b>, <b>Défendre</b> ou <b>Repli</b>, puis ${touchUI ? 'touchez' : 'cliquez'} la carte (${MAX_DIRECTIVES} au plus). L'état-major répartit les unités et rédige leurs ordres à chaque tour. Un ordre donné à la main à une unité prime pour ce tour.</p>`;
+    return;
+  }
   if (!u) {
     el.innerHTML = s.phase === 'deploy'
       ? `<p class="muted">${touchUI ? 'Touchez' : 'Sélectionnez'} une unité, puis un emplacement libre dans la zone de déploiement (pointillés rouges).</p>`
@@ -538,6 +686,7 @@ function renderUnitCard() {
       ${statRow('Expérience', u.level < 3 ? `${u.xp}/${XP_FOR_LEVEL[u.level + 1]}` : `${u.xp}`)}
     </dl>
     <p class="order">${esc(orderSummary(u))}</p>
+    ${canAct && ui.command ? staffNote(u) : ''}
     ${canAct ? `
     <div class="orders">
       <button class="btn btn-sm ${ui.mode === 'move' && u.orders.path.length ? 'on' : ''}" data-order="move">Déplacer</button>
@@ -549,6 +698,14 @@ function renderUnitCard() {
   el.querySelectorAll('[data-order]').forEach((b) => b.addEventListener('click', () => setOrder(b.dataset.order)));
 }
 
+function staffNote(u) {
+  if (ui.manual.has(u.id)) return '<p class="staff-note">Ordre donné à la main pour ce tour. <button class="btn btn-sm" data-order="staff">Rendre à l\'état-major</button></p>';
+  const i = ui.assignment?.get(u.id);
+  if (i === undefined) return '<p class="staff-note">Aucune directive : placez-en une sur la carte.</p>';
+  const d = ui.directives[i];
+  return `<p class="staff-note">Directive : <b>${DIRECTIVES[d.kind].label}</b> (${hexDistance(u, d)} hex.). Tout ordre donné ici la suspend pour ce tour.</p>`;
+}
+
 const STATUS_LABEL = { ok: '', routed: 'en déroute', destroyed: 'anéantie', withdrawn: 'repliée' };
 
 function renderArmy() {
@@ -558,7 +715,8 @@ function renderArmy() {
   $('army').innerHTML = `
     <ul class="army">${mine.map((u) => {
       const o = u.orders;
-      const tag = u.status !== 'ok' ? STATUS_LABEL[u.status] : o.path.length ? 'mouvement' : o.fireAt ? 'barrage' : o.entrench ? 'retranche' : '';
+      let tag = u.status !== 'ok' ? STATUS_LABEL[u.status] : o.path.length ? 'mouvement' : o.fireAt ? 'barrage' : o.entrench ? 'retranche' : '';
+      if (ui.command && u.status === 'ok') tag = ui.manual.has(u.id) ? `${tag} · main` : ui.assignment?.has(u.id) ? `${DIRECTIVES[ui.directives[ui.assignment.get(u.id)].kind].label.toLowerCase()} · ${tag}` : tag;
       const ratio = u.hp / unitStats(u).maxHp;
       return `<li><button class="army-row ${u.id === ui.selectedId ? 'sel' : ''} st-${u.status}" data-id="${u.id}" ${onMap(u) ? '' : 'disabled'}>
         <span class="chip chip-${u.type}">${UNIT_TYPES[u.type].label.slice(0, 3)}</span>
@@ -647,6 +805,10 @@ function bindMapInput() {
   $('zoom-in').addEventListener('click', () => zoomCenter(1.35));
   $('zoom-out').addEventListener('click', () => zoomCenter(1 / 1.35));
   $('zoom-fit').addEventListener('click', () => { r.fitAll(); scheduleDraw(); });
+  $('cmd-toggle').addEventListener('click', () => setCommand(!ui.command));
+  document.querySelectorAll('[data-dir]').forEach((b) => b.addEventListener('click', () => pickDirectiveTool(b.dataset.dir)));
+  $('dir-clear').addEventListener('click', () => { ui.directives = []; ui.dirTool = null; staffPlan(); refresh(); });
+  $('dir-off').addEventListener('click', () => setCommand(false));
   $('grid-toggle').addEventListener('click', () => {
     r.gridAlpha = r.gridAlpha === 0 ? 0.12 : r.gridAlpha < 0.2 ? 0.3 : 0;
     $('grid-toggle').setAttribute('aria-pressed', String(r.gridAlpha > 0));
@@ -671,7 +833,8 @@ function start() {
   window.addEventListener('keydown', (e) => {
     if (!$('overlay').hidden || e.target.tagName === 'INPUT') return;
     if (e.key === 'Enter') endPhase();
-    else if (e.key === 'Escape') select(null);
+    else if (e.key === 'Escape') { if (ui.dirTool) { ui.dirTool = null; refresh(); } else select(null); }
+    else if (e.key === 'd' || e.key === 'D') setCommand(!ui.command);
     else if (e.key === 'Tab') { e.preventDefault(); cycleUnit(); }
     else if (e.key === 'e' || e.key === 'E') setOrder('entrench');
     else if (e.key === 'b' || e.key === 'B') setOrder('barrage');

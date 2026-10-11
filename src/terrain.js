@@ -32,7 +32,7 @@ export function moveCost(map, from, to, unitType) {
   let c = TERRAIN[t.terrain].cost;
   if (unitType === 'tank' && t.terrain === 'forest') c = 6;
   if (unitType === 'tank' && t.terrain === 'marsh') c = 8;
-  if (t.river && !t.road) c += 4; // passage à gué
+  if (t.river && !t.road) c += t.ford ? 1 : t.stream ? 2 : 4; // à gué : rivière, ruisseau ou gué aménagé
   const dz = t.elev - f.elev;
   if (dz > 0) c += 2 * dz;
   return c;
@@ -47,7 +47,7 @@ export function terrainDefense(tile) {
 export function describeTile(tile) {
   const parts = [TERRAIN[tile.terrain].label];
   if (tile.name) parts[0] += ` de ${tile.name}`;
-  if (tile.river) parts.push(tile.road ? 'pont' : 'rivière');
+  if (tile.river) parts.push(tile.road ? 'pont' : tile.ford ? 'gué' : tile.stream ? 'ruisseau' : 'rivière');
   else if (tile.road) parts.push('route');
   parts.push(ELEV_LABELS[tile.elev]);
   return parts.join(' · ');
