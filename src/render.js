@@ -734,7 +734,7 @@ export class Renderer {
         if (!seen) continue;
       }
       const p = snap ? { x: snap.x, y: snap.y } : this.center(u);
-      this.drawCounter(u, p.x, p.y, { selected: u.id === view.selectedId, status: snap ? snap.status : u.status, hp: view.anim?.hp?.[u.id] ?? u.hp, heading: snap?.heading ?? 0 });
+      this.drawCounter(u, p.x, p.y, { selected: u.id === view.selectedId, status: snap ? snap.status : u.status, hp: view.anim?.hp?.[u.id] ?? u.hp, heading: snap?.heading ?? 0, pinned: !view.anim && u.pinned });
     }
 
     if (view.fx) drawFx(ctx, view.fx.fx, view.fx.T);
@@ -988,7 +988,7 @@ export class Renderer {
     }
   }
 
-  drawCounter(u, x, y, { selected, status, hp, heading }) {
+  drawCounter(u, x, y, { selected, status, hp, heading, pinned }) {
     const { ctx } = this;
     const s = unitStats(u);
     const w = HEX * 1.3, h = HEX * 0.95;
@@ -1042,6 +1042,25 @@ export class Renderer {
     ctx.fillRect(x - w * 0.42, y + h * 0.24, w * 0.84, 4);
     ctx.fillStyle = ratio > 0.6 ? '#7fbf4d' : ratio > 0.3 ? '#e2b33c' : '#d4462f';
     ctx.fillRect(x - w * 0.42, y + h * 0.24, w * 0.84 * ratio, 4);
+    // Clouée (masqué pendant l'animation, l'état affiché étant déjà celui de fin de tour).
+    if (pinned && status === 'ok') {
+      const px = x - w / 2 + 1, py = y - h / 2 + 1, r = 7.5;
+      ctx.beginPath();
+      ctx.moveTo(px, py - r);
+      ctx.lineTo(px + r, py);
+      ctx.lineTo(px, py + r);
+      ctx.lineTo(px - r, py);
+      ctx.closePath();
+      ctx.fillStyle = '#f2c230';
+      ctx.fill();
+      ctx.strokeStyle = '#1d1a12';
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(px - r * 0.45, py);
+      ctx.lineTo(px + r * 0.45, py);
+      ctx.stroke();
+    }
     if (status === 'routed') {
       ctx.fillStyle = '#fbf6e6';
       ctx.fillRect(x + w / 2 - 2, y - h / 2 - 9, 9, 6);

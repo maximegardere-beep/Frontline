@@ -101,6 +101,13 @@ export function planSide(state, side, { directives = null, fixed = null, rng = s
       }
     }
 
+    // Clouée : elle ne bougera pas de toute façon, autant creuser.
+    if (u.pinned && u.status === 'ok') {
+      u.orders.entrench = true;
+      reserved.add(hexKey(map, u));
+      continue;
+    }
+
     let goal;
     let aggressive = false;
     let wGoal = { attack: 1, balanced: 0.65, defend: 0.3 }[stance] * (u.type === 'recon' && state.turn <= 3 ? 1.4 : 1);

@@ -2,7 +2,7 @@
 
 import { createRng } from './rng.js';
 import { generateMap, neighbors } from './mapgen.js';
-import { hexDistance, toCube, fromCube, sameHex } from './hex.js';
+import { hexDistance, hexToPixel, toCube, fromCube, sameHex } from './hex.js';
 import { tileAt, moveCost, hasLOS, TERRAIN } from './terrain.js';
 import { unitStats, other, UNIT_TYPES, hpState } from './units.js';
 import { fireOdds, rollFire, moraleCheck } from './combat.js';
@@ -48,6 +48,7 @@ export function createBattle({ seed, playerSide, armies, kind = 'rencontre', max
   for (const u of state.units) {
     u.status = 'ok';
     u.entrench = 0;
+    u.pinned = false;
     u.xpGained = 0;
     u.orders = { path: [], entrench: false, fireAt: null };
   }
@@ -181,6 +182,8 @@ export function validateOrders(state, u) {
     const s = unitStats(u);
     if (o.path.length || d < s.minRange || d > s.range) o.fireAt = null;
   }
+  // Une unité clouée ne bouge pas ce tour-ci (elle peut creuser et tirer).
+  if (u.pinned && u.status === 'ok') o.path = [];
   if (o.path.length) o.entrench = false;
 }
 
@@ -304,10 +307,18 @@ export function executeTurn(state) {
 
   const hpBefore = new Map(alive.map((u) => [u.id, u.hp]));
   const damageTaken = new Map();
+  // Ce que chaque cible a subi : touches, barrage, coup critique, positions des tireurs en tir direct.
+  const pressure = new Map();
   for (const { u, target, indirect, observed } of shots) {
     const odds = fireOdds(map, u, target, { indirect, observed });
     const r = rollFire(rng, odds);
     damageTaken.set(target.id, (damageTaken.get(target.id) ?? 0) + r.damage);
+    const p = pressure.get(target.id) ?? { hits: 0, barrage: false, crit: false, from: [] };
+    p.hits += r.hits;
+    if (indirect) p.barrage = true;
+    else p.from.push(u);
+    if (odds.crits && r.rolls.includes(6)) p.crit = true;
+    pressure.set(target.id, p);
     u.revealed = true;
     u.inCombat = true;
     target.inCombat = true;
@@ -319,27 +330,50 @@ export function executeTurn(state) {
     const t = state.units.find((x) => x.id === id);
     t.hp = Math.max(0, t.hp - dmg);
   }
+  const shaken = new Set();
   for (const u of alive) {
     if (u.inCombat) { u.xpGained++; u.xp++; u.inCombat = false; }
-    if (!damageTaken.has(u.id)) continue;
-    if (u.hp <= 0) {
-      u.status = 'destroyed';
-      res.events.push({ kind: 'destroyed', id: u.id });
-      log(state, 'destroy', `${u.name} est anéantie !`, u.side);
-      creditKill(state, shots, u);
-      continue;
-    }
-    if (u.status !== 'ok') continue;
-    const m = moraleCheck(map, u, hpBefore.get(u.id), rng);
+    if (!damageTaken.has(u.id) || u.hp > 0) continue;
+    u.status = 'destroyed';
+    res.events.push({ kind: 'destroyed', id: u.id });
+    log(state, 'destroy', `${u.name} est anéantie !`, u.side);
+    creditKill(state, shots, u);
+    // Voir une unité voisine anéantie ébranle ses voisines.
+    for (const a of alive) if (a.side === u.side && a.hp > 0 && hexDistance(a, u) === 1) shaken.add(a.id);
+  }
+  const standing = alive.filter((u) => u.status === 'ok' && u.hp > 0);
+  for (const u of alive) {
+    if (u.status !== 'ok' || u.hp <= 0 || (!damageTaken.has(u.id) && !shaken.has(u.id))) continue;
+    const friends = standing.filter((a) => a !== u && a.side === u.side);
+    const m = moraleCheck(map, u, hpBefore.get(u.id), rng, {
+      forced: shaken.has(u.id),
+      isolated: !friends.some((a) => hexDistance(a, u) <= 2),
+      support: friends.some((a) => a.entrench > 0 && hexDistance(a, u) === 1),
+      pincer: pincered(u, pressure.get(u.id)?.from ?? []),
+    });
     if (!m) continue;
-    if (m.held) log(state, 'morale', `${u.name} tient bon (moral : ${m.roll} → ${m.total}).`, u.side);
+    const modTxt = m.mods.length ? `, ${m.mods.map((x) => `${x.v > 0 ? '+' : ''}${x.v} ${x.why}`).join(', ')}` : '';
+    if (m.held) log(state, 'morale', `${u.name} tient bon (moral : ${m.roll} → ${m.total}${modTxt}).`, u.side);
     else {
       u.status = 'routed';
       u.entrench = 0;
       u.orders = { path: [], entrench: false, fireAt: null };
       res.events.push({ kind: 'routed', id: u.id });
-      log(state, 'morale', `${u.name} cède et se replie en désordre ! (moral : ${m.roll} → ${m.total})`, u.side);
+      log(state, 'morale', `${u.name} cède et se replie en désordre ! (moral : ${m.roll} → ${m.total}${modTxt})`, u.side);
       creditKill(state, shots, u);
+    }
+  }
+
+  // Clouage pour le tour suivant : feu nourri, barrage (sauf blindés), ou coup critique sur un blindé.
+  for (const u of alive) {
+    u.pinned = false;
+    const p = pressure.get(u.id);
+    if (!p || u.status !== 'ok') continue;
+    const armored = unitStats(u).armored;
+    if (armored ? p.crit : p.barrage || p.hits >= (u.entrench > 0 ? 3 : 2)) {
+      u.pinned = true;
+      res.events.push({ kind: 'pinned', id: u.id });
+      log(state, 'morale', armored ? `${u.name} est immobilisée : coup au but sur le train de roulement.` : `${u.name} est clouée au sol par le feu.`, u.side);
     }
   }
 
@@ -355,6 +389,17 @@ export function executeTurn(state) {
   checkVictory(state);
   state.turn++;
   return res;
+}
+
+// Tenaille : deux tireurs en tir direct venus de directions opposées (écart d'au moins 120°).
+function pincered(u, shooters) {
+  const c = hexToPixel(u.col, u.row, 1);
+  const dirs = shooters.map((s) => {
+    const p = hexToPixel(s.col, s.row, 1);
+    const dx = p.x - c.x, dy = p.y - c.y, l = Math.hypot(dx, dy) || 1;
+    return { x: dx / l, y: dy / l };
+  });
+  return dirs.some((a, i) => dirs.slice(i + 1).some((b) => a.x * b.x + a.y * b.y <= -0.5));
 }
 
 function creditKill(state, shots, victim) {

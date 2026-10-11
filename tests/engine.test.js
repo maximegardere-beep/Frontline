@@ -9,7 +9,7 @@ import { planSide, assignDirectives } from '../src/ai.js';
 import { buildCombatFx } from '../src/fx.js';
 import { sound } from '../src/audio.js';
 import { moveCost } from '../src/terrain.js';
-import { fireOdds } from '../src/combat.js';
+import { fireOdds, moraleCheck } from '../src/combat.js';
 import { newCampaign, battleSetup, concludeBattle, campaignOver } from '../src/campaign.js';
 
 test('géométrie hexagonale cohérente', () => {
@@ -52,6 +52,44 @@ test('le retranchement et le terrain rendent la cible plus difficile à toucher'
   const base = fireOdds(state.map, a, t).threshold;
   t.entrench = 2;
   assert.ok(fireOdds(state.map, a, t).threshold > base || base === 6);
+});
+
+test('clouée : tir gêné, aucun mouvement ; le moral tient compte du voisinage', () => {
+  const state = createBattle({ seed: 's', playerSide: 'DE', armies: { DE: generateArmy('DE', createRng(2), 6), SU: generateArmy('SU', createRng(3), 6) } });
+  const [a] = state.units.filter((u) => u.side === 'DE');
+  const [t] = state.units.filter((u) => u.side === 'SU');
+  a.entrench = 0;
+  const free = fireOdds(state.map, a, t);
+  a.pinned = true;
+  const pinned = fireOdds(state.map, a, t);
+  assert.ok(pinned.mods.some((m) => m.why === 'tireur cloué'));
+  assert.ok(pinned.threshold > free.threshold || free.threshold === 6);
+  // Un test forcé a lieu même sans pertes ; isolement et tenaille pèsent, le soutien aide.
+  assert.equal(moraleCheck(state.map, a, a.hp, createRng(1)), null);
+  const worst = moraleCheck(state.map, a, a.hp, createRng(1), { forced: true, isolated: true, pincer: true });
+  const best = moraleCheck(state.map, a, a.hp, createRng(1), { forced: true, support: true });
+  assert.equal(best.total - worst.total, 3);
+});
+
+test('une unité clouée ne bouge pas au tour suivant', () => {
+  resetIds();
+  let checked = 0;
+  for (let i = 0; i < 6; i++) {
+    const rng = createRng(`pin${i}`);
+    const state = createBattle({ seed: `pin${i}`, playerSide: 'DE', kind: 'rencontre', armies: { DE: generateArmy('DE', rng, 11), SU: generateArmy('SU', rng, 13) } });
+    state.phase = 'plan';
+    while (!state.result) {
+      planSide(state, 'DE');
+      planSide(state, 'SU');
+      const pinned = state.units.filter((u) => u.pinned && u.status === 'ok').map((u) => ({ u, col: u.col, row: u.row }));
+      executeTurn(state);
+      for (const p of pinned) {
+        assert.deepEqual([p.u.col, p.u.row], [p.col, p.row], `${p.u.name} a bougé alors qu'elle était clouée`);
+        checked++;
+      }
+    }
+  }
+  assert.ok(checked > 5, `assez de cas de clouage (${checked})`);
 });
 
 function simulate(seed, kind) {

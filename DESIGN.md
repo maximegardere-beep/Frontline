@@ -37,6 +37,14 @@ Campagne (5 batailles)
   même IA que l'adversaire, paramétrée par les directives.
 - **Eau rare** : une rivière infranchissable hors des ponts transformait chaque carte en goulot d'étranglement.
   Désormais environ un tiers de rivières (avec gués), un tiers de ruisseaux partiels, un tiers sans eau.
+- **Clouage** : une unité qui encaisse 2 touches dans le tour (3 si retranchée) ou un barrage est clouée ;
+  au tour suivant elle ne bouge pas et tire à −1. Les blindés ne sont immobilisés que par un 6 d'une arme
+  qui perce. L'état est visible pendant la planification : le joueur doit composer avec, pas le subir à l'aveugle.
+  Le feu prépare donc l'assaut : clouer une ligne avant de la déborder.
+- **Moral contextuel** : −1 isolée (aucun allié à 2 hex), −1 prise en tenaille (tirs directs venus de directions
+  opposées), +1 si un voisin est retranché ; voir une unité adjacente anéantie impose un test même sans pertes.
+  Récompense la cohésion de la ligne et l'enveloppement. Sur 300 batailles IA contre IA, l'équilibre entre camps
+  ne bouge pas, mais les issues nettes (anéantissement, objectif tenu) passent de 15 % à 28 %.
 - **Asymétrie** légère des camps (qualité contre quantité), budgets d'armée différents.
 
 ## Paramètres d'unités (niveau Recrue)

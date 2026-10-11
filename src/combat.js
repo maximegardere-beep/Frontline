@@ -29,6 +29,7 @@ export function fireOdds(map, attacker, target, { indirect = false, observed = t
   if (indirect && !observed) add(1, 'tir non observé');
   if (ta.terrain === 'marsh') add(1, 'tireur embourbé');
   if (target.status === 'routed') add(-1, 'cible en déroute');
+  if (attacker.pinned) add(1, 'tireur cloué');
 
   const threshold = Math.max(2, Math.min(6, 4 + mods.reduce((s, m) => s + m.v, 0)));
   let dice = Math.max(1, Math.round((sa.attack * attacker.hp) / sa.maxHp));
@@ -49,15 +50,23 @@ export function rollFire(rng, odds) {
   return { rolls, hits, damage };
 }
 
-// Test de moral après des pertes : d6 + niveau + bonus ≥ 5 pour tenir.
-export function moraleCheck(map, unit, hpBefore, rng) {
+// Test de moral après des pertes (ou la destruction d'une unité voisine) : d6 + niveau + modificateurs ≥ 5 pour tenir.
+// ctx : forced (test même sans pertes), isolated (aucun allié à 2 hex), pincer (feu venu de côtés opposés),
+// support (allié adjacent retranché).
+export function moraleCheck(map, unit, hpBefore, rng, { forced = false, isolated = false, pincer = false, support = false } = {}) {
   const s = unitStats(unit);
   const lost = hpBefore - unit.hp;
-  const shaken = unit.hp <= s.maxHp * 0.35 || lost >= hpBefore * 0.4;
+  const shaken = forced || unit.hp <= s.maxHp * 0.35 || lost >= hpBefore * 0.4;
   if (!shaken) return null;
   const t = tileAt(map, unit.col, unit.row);
-  const bonus = (unit.entrench > 0 ? 1 : 0) + (t.terrain === 'village' || t.terrain === 'forest' ? 1 : 0);
+  const mods = [];
+  const add = (v, why) => { if (v) mods.push({ v, why }); };
+  add(unit.entrench > 0 ? 1 : 0, 'retranchée');
+  add(t.terrain === 'village' || t.terrain === 'forest' ? 1 : 0, 'à couvert');
+  add(support ? 1 : 0, 'soutien retranché');
+  add(isolated ? -1 : 0, 'isolée');
+  add(pincer ? -1 : 0, 'prise en tenaille');
   const roll = rng.d6();
-  const total = roll + unit.level + bonus;
-  return { roll, total, held: roll !== 1 && total >= 5 };
+  const total = roll + unit.level + mods.reduce((a, m) => a + m.v, 0);
+  return { roll, total, held: roll !== 1 && total >= 5, mods };
 }

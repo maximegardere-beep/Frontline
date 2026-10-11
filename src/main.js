@@ -126,7 +126,8 @@ function rulesHtml() {
         <li><b>Plan.</b> Sélectionnez une unité, puis cliquez un hexagone éclairé pour tracer son mouvement. <kbd>E</kbd> : se retrancher (seulement sans bouger). <kbd>B</kbd> : barrage d'artillerie sur un hexagone, même invisible. L'adversaire planifie en même temps que vous.</li>
         <li><b>Exécution.</b> Tous les mouvements sont simultanés. Une unité qui arrive au contact d'un ennemi s'arrête. Puis chacun tire : dés d6, touche sur 4+ modifié par le couvert, le relief, le retranchement, le mouvement et le blindage. Un 6 inflige 2 dégâts.</li>
         <li><b>Directives.</b> Le drapeau à droite de la carte (<kbd>D</kbd>) active le mode directives : placez jusqu'à ${MAX_DIRECTIVES} intentions (attaquer, défendre, se replier) et l'état-major répartit vos unités et rédige leurs ordres à chaque tour. Un ordre donné à la main prime pour le tour. « Contrôle direct » rend la main en gardant le plan en cours.</li>
-        <li><b>Moral.</b> Une unité très éprouvée teste son moral (d6 + niveau ≥ 5). En cas d'échec elle se débande et fuit vers sa zone de repli.</li>
+        <li><b>Clouage.</b> Une unité qui encaisse 2 touches dans le tour (3 si retranchée) ou un barrage d'artillerie est clouée : au tour suivant elle ne bouge pas et tire à −1. Les blindés ne sont immobilisés que par un 6 d'une arme qui perce. Le marqueur jaune sur le pion le signale.</li>
+        <li><b>Moral.</b> Une unité très éprouvée, ou qui voit une unité voisine anéantie, teste son moral (d6 + niveau ≥ 5) : +1 retranchée, +1 à couvert, +1 si un voisin est retranché, −1 isolée (aucun allié à 2 hex), −1 prise en tenaille (feu venu de côtés opposés). En cas d'échec elle se débande et fuit vers sa zone de repli.</li>
         <li><b>Victoire.</b> Détruire ou mettre en déroute toutes les unités ennemies ; ou, sur les cartes à objectif, tenir la position étoilée ${HOLD_TO_WIN} tours sans ennemi au contact. Après 12 tours, le détenteur de l'objectif ou le camp le moins éprouvé l'emporte.</li>
         <li><b>Campagne.</b> Les survivants gagnent de l'expérience (Recrue → Vétéran → Élite) et sont rejoints par des renforts.</li>
       </ol>
@@ -292,7 +293,7 @@ function onMapClick(ev) {
   // Une unité amie qui a déjà un ordre de mouvement libérera sa case : on peut la viser.
   const leaving = here && here.side === player() && here.orders.path.length > 0;
   if (here && here.side === player() && here.status === 'ok' && here !== sel && !(sel && leaving && ui.mode === 'move')) return select(here);
-  if (sel && sel.status === 'ok') {
+  if (sel && sel.status === 'ok' && !sel.pinned) {
     if (sameHex(sel, h)) { sel.orders.path = []; takeOver(sel); return refresh(); }
     const reach = playerReach(sel);
     if (reach.has(hexKey(s.map, h))) {
@@ -326,7 +327,7 @@ function onMapHover(ev) {
   showTileInfo(h);
   ui.preview = null;
   const sel = selected();
-  if (h && sel && sel.side === player() && sel.status === 'ok' && ui.state.phase === 'plan' && ui.mode === 'move' && !sameHex(h, sel)) {
+  if (h && sel && sel.side === player() && sel.status === 'ok' && !sel.pinned && ui.state.phase === 'plan' && ui.mode === 'move' && !sameHex(h, sel)) {
     const reach = playerReach(sel);
     if (reach.has(hexKey(ui.state.map, h))) ui.preview = { unit: sel, path: pathFrom(ui.state.map, reach, h) };
   }
@@ -590,7 +591,7 @@ function draw() {
     state: s,
     side: player(),
     selectedId: ui.selectedId,
-    reach: !ui.anim && mine && s.phase === 'plan' && ui.mode === 'move' ? playerReach(sel) : null,
+    reach: !ui.anim && mine && !sel.pinned && s.phase === 'plan' && ui.mode === 'move' ? playerReach(sel) : null,
     reachKeys: ui.reachMemo?.keys,
     rangeOf: !ui.anim && mine && sel.type === 'artillery' && (ui.mode === 'barrage' || sel.orders.fireAt) ? sel : null,
     hover: ui.anim ? null : ui.hover,
@@ -690,7 +691,7 @@ function renderUnitCard() {
     el.innerHTML = `
       <p class="eyebrow enemy">Ennemi repéré</p>
       <h3>${UNIT_TYPES[u.type].label} ${SIDES[u.side].name === 'Wehrmacht' ? 'allemande' : 'soviétique'}</h3>
-      <p class="muted">État apparent : ${m?.hpState ?? hpState(u)}${u.entrench ? ' · retranchée' : ''}${u.status === 'routed' ? ' · en déroute' : ''}.</p>`;
+      <p class="muted">État apparent : ${m?.hpState ?? hpState(u)}${u.entrench ? ' · retranchée' : ''}${u.pinned ? ' · clouée' : ''}${u.status === 'routed' ? ' · en déroute' : ''}.</p>`;
     return;
   }
   const st = unitStats(u);
@@ -707,11 +708,12 @@ function renderUnitCard() {
       ${statRow('Retranch.', `${u.entrench}/${st.entrenchMax}`)}
       ${statRow('Expérience', u.level < 3 ? `${u.xp}/${XP_FOR_LEVEL[u.level + 1]}` : `${u.xp}`)}
     </dl>
+    ${u.pinned && u.status === 'ok' ? `<p class="pinned-note">${unitStats(u).armored ? 'Immobilisée' : 'Clouée au sol'} : ne peut pas bouger ce tour, tir à −1.</p>` : ''}
     <p class="order">${esc(orderSummary(u))}</p>
     ${canAct && ui.command ? staffNote(u) : ''}
     ${canAct ? `
     <div class="orders">
-      <button class="btn btn-sm ${ui.mode === 'move' && u.orders.path.length ? 'on' : ''}" data-order="move">Déplacer</button>
+      <button class="btn btn-sm ${ui.mode === 'move' && u.orders.path.length ? 'on' : ''}" data-order="move"${u.pinned ? ' disabled' : ''}>Déplacer</button>
       <button class="btn btn-sm ${u.orders.entrench ? 'on' : ''}" data-order="entrench" title="Raccourci : E">Retrancher</button>
       ${u.type === 'artillery' ? `<button class="btn btn-sm ${ui.mode === 'barrage' ? 'on' : ''}" data-order="barrage" title="Raccourci : B">Barrage</button>` : ''}
       <button class="btn btn-sm" data-order="hold" title="Raccourci : H">Annuler</button>
@@ -738,6 +740,7 @@ function renderArmy() {
     <ul class="army">${mine.map((u) => {
       const o = u.orders;
       let tag = u.status !== 'ok' ? STATUS_LABEL[u.status] : o.path.length ? 'mouvement' : o.fireAt ? 'barrage' : o.entrench ? 'retranche' : '';
+      if (u.pinned && u.status === 'ok') tag = tag ? `clouée · ${tag}` : 'clouée';
       if (ui.command && u.status === 'ok') tag = ui.manual.has(u.id) ? `${tag} · main` : ui.assignment?.has(u.id) ? `${DIRECTIVES[ui.directives[ui.assignment.get(u.id)].kind].label.toLowerCase()} · ${tag}` : tag;
       const ratio = u.hp / unitStats(u).maxHp;
       return `<li><button class="army-row ${u.id === ui.selectedId ? 'sel' : ''} st-${u.status}" data-id="${u.id}" ${onMap(u) ? '' : 'disabled'}>

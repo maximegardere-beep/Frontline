@@ -237,6 +237,13 @@ kbd {
   background: rgba(192, 57, 43, 0.1);
   font-size: 14px;
 }
+.pinned-note {
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  border-left: 3px solid #f2c230;
+  background: rgba(242, 194, 48, 0.12);
+  font-size: 14px;
+}
 .orders { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
 .orders .btn { flex: 1 1 auto; }
 
