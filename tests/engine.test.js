@@ -158,7 +158,7 @@ test('une campagne enchaîne les batailles', () => {
   const c = newCampaign('SU', 'camp');
   while (!campaignOver(c)) {
     const setup = battleSetup(c);
-    const state = createBattle({ seed: setup.seed, playerSide: c.playerSide, armies: setup.armies, kind: setup.kind });
+    const state = createBattle({ seed: setup.seed, playerSide: c.playerSide, armies: setup.armies, kind: setup.kind, conditions: setup.conditions });
     while (!state.result) { planSide(state, 'DE'); planSide(state, 'SU'); executeTurn(state); }
     concludeBattle(c, state);
   }
@@ -326,4 +326,89 @@ test("l'IA ménage ses obus", () => {
   }
   console.log(`obus tirés par batterie : ${(spent / batteries).toFixed(1)} ; batteries à sec : ${emptied}/${batteries}`);
   assert.ok(spent > 0, 'les batteries tirent');
+});
+
+test('conditions : tirage reproductible, saisons, lumière et plancher de vision', async () => {
+  const { rollConditions, lightAt, effectiveVision, hourAt, SEASON } = await import('../src/conditions.js');
+  assert.deepEqual(rollConditions('x', 2, 'assaut'), rollConditions('x', 2, 'assaut'));
+  const july = Array.from({ length: 200 }, (_, i) => rollConditions(`s${i}`, 0));
+  const nov = Array.from({ length: 200 }, (_, i) => rollConditions(`s${i}`, 4));
+  assert.ok(!july.some((c) => c.weather === 'snow'), 'pas de neige en juillet');
+  assert.ok(nov.filter((c) => c.weather === 'snow').length > 40, 'de la neige en novembre');
+  assert.equal(new Set(july.map((c) => c.biome)).size, 4, 'les quatre biomes sortent');
+  assert.ok(nov.some((c) => lightAt(c, 12) === 'night'), 'des batailles finissent de nuit');
+  const c = { ...SEASON[4], weather: 'fog', startHour: 15 };
+  assert.equal(hourAt(c, 1), 15);
+  assert.equal(lightAt(c, 1), 'day');
+  assert.equal(lightAt(c, 2), 'dusk');
+  assert.equal(lightAt(c, 5), 'night');
+  assert.equal(effectiveVision(2, c, 5), 1, 'brouillard + nuit : vision plancher à 1');
+  assert.equal(effectiveVision(5, { ...c, weather: 'clear', startHour: 10 }, 1), 5);
+});
+
+test('météo : véhicules enlisés hors route, gel des rivières et des marais', () => {
+  resetIds();
+  const armies = () => ({ DE: generateArmy('DE', createRng(2), 6), SU: generateArmy('SU', createRng(3), 6) });
+  const base = { weather: 'clear', biome: null, month: 'Novembre 1943', sunrise: 7, sunset: 16, startHour: 9 };
+  const seed = 'meteo';
+  const dry = createBattle({ seed, playerSide: 'DE', armies: armies(), conditions: base });
+  const wet = createBattle({ seed, playerSide: 'DE', armies: armies(), conditions: { ...base, weather: 'rain' } });
+  const snow = createBattle({ seed, playerSide: 'DE', armies: armies(), conditions: { ...base, weather: 'snow' } });
+  const m = dry.map;
+  // Un pas hors route sur plaine : ½ point de plus sous la pluie ; sur route, rien ne change.
+  const pair = (pred) => {
+    for (const t of m.tiles) for (const n of neighborCoords(t.col, t.row)) {
+      const u = m.tiles[n.row * m.W + n.col];
+      if (u && n.col >= 0 && n.col < m.W && pred(t, u)) return [t, u];
+    }
+  };
+  const [a, b] = pair((t, u) => !t.road && u.terrain === 'plain' && !u.river && u.elev <= t.elev);
+  assert.equal(moveCost(wet.map, a, b, 'tank'), moveCost(m, a, b, 'tank') + 1, 'les véhicules s\'enlisent hors route');
+  assert.equal(moveCost(wet.map, a, b, 'infantry'), moveCost(m, a, b, 'infantry'), 'l\'infanterie passe');
+  const road = [...m.roadEdges][0].split('|').map(Number).map((i) => m.tiles[i]);
+  assert.equal(moveCost(wet.map, road[0], road[1], 'tank'), 1);
+  const river = snow.map.tiles.find((t) => t.river && !t.road);
+  if (river) assert.ok(river.frozen, 'rivière gelée par la neige');
+  const marsh = snow.map.tiles.find((t) => t.terrain === 'marsh');
+  if (marsh) {
+    const from = snow.map.tiles.find((t) => hexDistance(t, marsh) === 1 && t.elev >= marsh.elev);
+    if (from) assert.ok(moveCost(snow.map, from, marsh, 'tank') < moveCost(dry.map, from, marsh, 'tank'), 'marais gelé praticable');
+  }
+});
+
+test('la nuit et le brouillard raccourcissent la vue', () => {
+  resetIds();
+  const mk = (cond) => {
+    resetIds();
+    const rng = createRng('vue');
+    return createBattle({ seed: 'vue', playerSide: 'DE', armies: { DE: generateArmy('DE', rng, 11), SU: generateArmy('SU', rng, 13) }, conditions: cond });
+  };
+  const day = { weather: 'clear', biome: null, month: 'Juillet 1943', sunrise: 4, sunset: 20, startHour: 10 };
+  const seen = (s) => computeVisibility(s, 'DE').hexes.size;
+  const clear = seen(mk(day));
+  assert.ok(seen(mk({ ...day, weather: 'fog' })) < clear, 'brouillard');
+  assert.ok(seen(mk({ ...day, startHour: 23 })) < clear, 'nuit');
+  assert.ok(seen(mk({ ...day, startHour: 4 })) < clear, 'aube');
+});
+
+test('biomes : steppe ouverte, bocage boisé, Polésie marécageuse, bourg compact', () => {
+  const share = (biome, terrain) => {
+    let n = 0, tot = 0;
+    for (let i = 0; i < 12; i++) {
+      const m = generateMap(`biome${i}`, { biome });
+      n += m.tiles.filter((t) => t.terrain === terrain).length;
+      tot += m.tiles.length;
+    }
+    return n / tot;
+  };
+  assert.ok(share('bocage', 'forest') > 2 * share('steppe', 'forest'), 'le bocage est bien plus boisé que la steppe');
+  assert.ok(share('polesie', 'marsh') > 2 * share('steppe', 'marsh'), 'la Polésie est marécageuse');
+  for (let i = 0; i < 12; i++) {
+    const m = generateMap(`bourg${i}`, { biome: 'bourg', objective: true });
+    const town = m.tiles.filter((t) => t.town);
+    assert.ok(town.length >= 4, `bourg de ${town.length} hexagones`);
+    const center = town.find((t) => t.name);
+    assert.ok(town.every((t) => hexDistance(t, center) <= 1), 'pâtés de maisons contigus');
+    assert.ok(m.villages.every((v) => v.name || v.town), 'seuls les pâtés du bourg sont sans nom');
+  }
 });

@@ -1,7 +1,7 @@
 // Assemble le jeu en un seul fichier HTML autonome (dist/frontline.html) : CSS et modules JS inclus.
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 
-const ORDER = ['rng', 'hex', 'names', 'terrain', 'mapgen', 'units', 'path', 'combat', 'game', 'ai', 'campaign', 'fx', 'audio', 'render', 'main'];
+const ORDER = ['rng', 'hex', 'names', 'conditions', 'terrain', 'mapgen', 'units', 'path', 'combat', 'game', 'ai', 'campaign', 'fx', 'audio', 'weather', 'render', 'main'];
 const root = new URL('..', import.meta.url).pathname;
 
 let js = '';

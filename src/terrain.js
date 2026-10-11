@@ -32,7 +32,10 @@ export function moveCost(map, from, to, unitType) {
   let c = TERRAIN[t.terrain].cost;
   if (unitType === 'tank' && t.terrain === 'forest') c = 6;
   if (unitType === 'tank' && t.terrain === 'marsh') c = 8;
-  if (t.river && !t.road) c += t.ford ? 1 : t.stream ? 2 : 4; // à gué : rivière, ruisseau ou gué aménagé
+  if (t.frozen && t.terrain === 'marsh') c = 2; // marais gelé : praticable
+  if (t.river && !t.road && !t.frozen) c += t.ford ? 1 : t.stream ? 2 : 4; // à gué : rivière, ruisseau ou gué aménagé
+  // Pluie ou neige : les véhicules s'enlisent hors route ; l'infanterie, à pied, passe.
+  if (unitType !== 'infantry') c += map.mud ?? 0;
   const dz = t.elev - f.elev;
   if (dz > 0) c += 2 * dz;
   return c;
@@ -40,14 +43,14 @@ export function moveCost(map, from, to, unitType) {
 
 export function terrainDefense(tile) {
   let d = TERRAIN[tile.terrain].def;
-  if (tile.river && !tile.road) d -= 1;
+  if (tile.river && !tile.road && !tile.frozen) d -= 1;
   return d;
 }
 
 export function describeTile(tile) {
-  const parts = [TERRAIN[tile.terrain].label];
+  const parts = [TERRAIN[tile.terrain].label + (tile.frozen && tile.terrain === 'marsh' ? ' gelé' : '')];
   if (tile.name) parts[0] += ` de ${tile.name}`;
-  if (tile.river) parts.push(tile.road ? 'pont' : tile.ford ? 'gué' : tile.stream ? 'ruisseau' : 'rivière');
+  if (tile.river) parts.push(tile.road ? 'pont' : tile.frozen ? `${tile.stream ? 'ruisseau' : 'rivière'} gelé${tile.stream ? '' : 'e'}` : tile.ford ? 'gué' : tile.stream ? 'ruisseau' : 'rivière');
   else if (tile.road) parts.push('route');
   parts.push(ELEV_LABELS[tile.elev]);
   return parts.join(' · ');

@@ -2,9 +2,9 @@
 
 import { createRng } from './rng.js';
 import { generateArmy, gainXp, unitStats, other } from './units.js';
+import { rollConditions } from './conditions.js';
 
 export const CAMPAIGN_LENGTH = 5;
-const MONTHS = ['Juillet 1943', 'Août 1943', 'Septembre 1943', 'Octobre 1943', 'Novembre 1943'];
 export const KIND_LABELS = { rencontre: 'Combat de rencontre', assaut: 'Prise de position stratégique' };
 
 export function newCampaign(playerSide, seed) {
@@ -25,10 +25,13 @@ export function battleSetup(c) {
   const foe = other(c.playerSide);
   const budget = (foe === 'SU' ? 11 : 9) + c.index * 2;
   const enemy = generateArmy(foe, rng, budget);
+  const seed = `${c.seed}-${c.index}`;
+  const conditions = rollConditions(seed, c.index, c.kinds[c.index]);
   return {
-    seed: `${c.seed}-${c.index}`,
+    seed,
     kind: c.kinds[c.index],
-    date: MONTHS[c.index] ?? '',
+    date: conditions.month,
+    conditions,
     armies: { [c.playerSide]: c.army, [foe]: enemy },
   };
 }

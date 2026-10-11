@@ -24,6 +24,7 @@
     <div class="status">
       <span id="battle-name" class="battle-name"></span>
       <span id="turn" class="turn"></span>
+      <span id="cond" class="cond"></span>
       <span id="phase" class="phase"></span>
       <span id="objective" class="objective" hidden></span>
     </div>
@@ -35,6 +36,7 @@
   <main class="desk">
     <section class="board" aria-label="Carte du champ de bataille">
       <canvas id="map"></canvas>
+      <canvas id="weather" aria-hidden="true"></canvas>
       <div class="map-tools">
         <button class="tool" id="zoom-in" aria-label="Zoomer">+</button>
         <button class="tool" id="zoom-out" aria-label="Dézoomer">−</button>

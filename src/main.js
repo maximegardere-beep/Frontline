@@ -1,6 +1,8 @@
 // Contrôleur : menus, phases de déploiement / planification, animation de l'exécution, campagne.
 
 import { Renderer, HEX, splineAt } from './render.js';
+import { WeatherLayer } from './weather.js';
+import { WEATHER, LIGHT, BIOMES, lightAt, clockLabel, lightChanges } from './conditions.js';
 import { createBattle, executeTurn, onMap, active, unitAt, canDeployAt, updateVisibility, HOLD_TO_WIN } from './game.js';
 import { planSide, DIRECTIVES } from './ai.js';
 import { buildCombatFx } from './fx.js';
@@ -18,6 +20,7 @@ const touchUI = window.matchMedia?.('(hover: none)').matches;
 const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 const ui = {
+  weather: new WeatherLayer(document.getElementById('weather')),
   campaign: null,
   setup: null,
   state: null,
@@ -127,6 +130,7 @@ function rulesHtml() {
         <li><b>Exécution.</b> Tous les mouvements sont simultanés. Une unité qui arrive au contact d'un ennemi s'arrête. Puis chacun tire : dés d6, touche sur 4+ modifié par le couvert, le relief, le retranchement, le mouvement et le blindage. Un 6 inflige 2 dégâts.</li>
         <li><b>Directives.</b> Le drapeau à droite de la carte (<kbd>D</kbd>) active le mode directives : placez jusqu'à ${MAX_DIRECTIVES} intentions (attaquer, défendre, se replier) et l'état-major répartit vos unités et rédige leurs ordres à chaque tour. Un ordre donné à la main prime pour le tour. « Contrôle direct » rend la main en gardant le plan en cours.</li>
         <li><b>Antichar.</b> Canon tracté : +2 dés contre les blindés, mais il ne tire pas s'il a bougé dans le tour. Embusqué en forêt ou au village, l'ennemi ne le repère qu'au contact tant qu'il n'a pas ouvert le feu : les chars qui passent à 2 hexagones ne peuvent pas riposter au premier tir.</li>
+        <li><b>Conditions.</b> Chaque bataille a son biome (steppe, bocage, Polésie, bourg), sa météo et son heure : un tour dure une heure. Pluie : vision −1, et hors route les véhicules s'enlisent (½ point de plus par hexagone) ; l'infanterie passe. Brouillard : vision −2, les hauteurs ne voient pas plus loin. Neige : vision −1, même enlisement des véhicules, rivières et marais gelés franchissables. Aube et crépuscule : vision −1 ; nuit : −2. Une unité voit toujours au moins l'hexagone voisin.</li>
         <li><b>Munitions.</b> Chaque batterie dispose de ${UNIT_TYPES.artillery.ammo} obus par bataille, rechargés entre deux batailles. Un barrage coûte un obus même s'il tombe sur une case vide ; le tir à vue sur un ennemi repéré aussi. « Tir à vue : non » garde les obus pour les barrages. L'autodéfense au contact est gratuite.</li>
         <li><b>Clouage.</b> Une unité qui encaisse 2 touches dans le tour (3 si retranchée) ou un barrage d'artillerie est clouée : au tour suivant elle ne bouge pas et tire à −1. Les blindés ne sont immobilisés que par un 6 d'une arme qui perce. Le marqueur jaune sur le pion le signale.</li>
         <li><b>Moral.</b> Une unité très éprouvée, ou qui voit une unité voisine anéantie, teste son moral (d6 + niveau ≥ 5) : +1 retranchée, +1 à couvert, +1 si un voisin est retranché, −1 isolée (aucun allié à 2 hex), −1 prise en tenaille (feu venu de côtés opposés). En cas d'échec elle se débande et fuit vers sa zone de repli.</li>
@@ -150,7 +154,7 @@ function showBriefing() {
   const c = ui.campaign;
   ui.inGame = true;
   ui.setup = battleSetup(c);
-  ui.state = createBattle({ seed: ui.setup.seed, playerSide: c.playerSide, armies: ui.setup.armies, kind: ui.setup.kind });
+  ui.state = createBattle({ seed: ui.setup.seed, playerSide: c.playerSide, armies: ui.setup.armies, kind: ui.setup.kind, conditions: ui.setup.conditions });
   ui.reopenReport = null;
   ui.directives = [];
   ui.dirTool = null;
@@ -177,6 +181,8 @@ function showBriefing() {
         <ul class="ticks">${goals.map((g) => `<li>${g}</li>`).join('')}</ul>
         <h2>Renseignements</h2>
         <p>${esc(intelReport(s))}</p>
+        <h2>Conditions</h2>
+        <div class="conditions">${conditionsHtml(s)}</div>
       </section>
       <section>
         <h2>Vos forces</h2>
@@ -185,6 +191,18 @@ function showBriefing() {
     </div>
     <div class="row-end"><button class="btn btn-primary" id="go-deploy">Déployer les troupes</button></div>
   `, () => $('go-deploy').addEventListener('click', () => { hideDossier(); refresh(); }));
+}
+
+const LIGHT_EVENT = { dawn: 'l\'aube point', day: 'plein jour', dusk: 'le crépuscule tombe', night: 'la nuit tombe' };
+
+function conditionsHtml(s) {
+  const c = s.conditions;
+  const first = lightAt(c, 1);
+  const changes = lightChanges(c, s.maxTurns).map((ch) => `${LIGHT_EVENT[ch.light]} au tour ${ch.turn} (${clockLabel(c, ch.turn)})`);
+  const sky = `Début à ${clockLabel(c, 1)}, ${LIGHT[first].label.toLowerCase()}${changes.length ? ` ; ${changes.join(', ')}` : ''}. Vision −1 à l'aube et au crépuscule, −2 de nuit (jamais moins d'un hexagone).`;
+  return `${c.biome ? `<p><b>${BIOMES[c.biome].label}.</b> ${BIOMES[c.biome].text}</p>` : ''}
+    <p><b>${WEATHER[c.weather].label}.</b> ${WEATHER[c.weather].text}</p>
+    <p><b>Heure.</b> ${sky}</p>`;
 }
 
 function showDebrief() {
@@ -607,6 +625,9 @@ function draw() {
     animVisible: ui.animVisible,
     fx: ui.fx,
   });
+  // La météo ne tombe que sur la carte, pas sur le bureau autour.
+  const { cam, worldW, worldH } = ui.renderer;
+  ui.weather.clip = { x: -cam.x * cam.s, y: -cam.y * cam.s, w: worldW * cam.s, h: worldH * cam.s };
 }
 
 const PHASE_LABEL = { deploy: 'Déploiement', plan: 'Plan de bataille', execute: 'Exécution', over: 'Terminée' };
@@ -616,7 +637,19 @@ function refresh() {
   if (!s) return;
   draw();
   $('battle-name').textContent = s.title;
-  $('turn').textContent = `Tour ${Math.min(s.turn, s.maxTurns)} / ${s.maxTurns}`;
+  // Sur téléphone, en-tête compact : « T3/12 · 21 h · Nuit · Pluie » (la lumière n'est citée que hors du jour).
+  const compact = window.matchMedia?.('(max-width: 600px)').matches;
+  const turnNow = Math.min(s.turn, s.maxTurns);
+  $('turn').textContent = compact ? `T${turnNow}/${s.maxTurns}` : `Tour ${turnNow} / ${s.maxTurns}`;
+  const cond = s.conditions, light = lightAt(cond, turnNow);
+  const weatherLabel = compact && cond.weather === 'clear' ? 'Clair' : WEATHER[cond.weather].label;
+  $('cond').textContent = compact
+    ? `· ${clockLabel(cond, turnNow)}${light === 'day' ? '' : ` · ${LIGHT[light].label}`} · ${weatherLabel}`
+    : `${clockLabel(cond, turnNow)} · ${LIGHT[light].label} · ${weatherLabel}`;
+  $('cond').title = `${LIGHT[light].label}, ${WEATHER[cond.weather].label.toLowerCase()} : ${WEATHER[cond.weather].text}`;
+  $('cond').dataset.light = light;
+  ui.weather.set(cond.weather, light);
+  sound.setWeather(cond.weather);
   $('phase').textContent = PHASE_LABEL[s.phase];
   $('phase').dataset.phase = s.phase;
   const go = $('btn-go');
@@ -857,7 +890,7 @@ function bindMapInput() {
     $('grid-toggle').setAttribute('aria-pressed', String(r.gridAlpha > 0));
     scheduleDraw();
   });
-  new ResizeObserver(() => { if (ui.state) { r.resize(); draw(); } }).observe($('map').parentElement);
+  new ResizeObserver(() => { ui.weather.resize(); if (ui.state) { r.resize(); draw(); } }).observe($('map').parentElement);
 }
 
 // Panoramique et volume d'un son selon sa place à l'écran : plus faible hors champ.
@@ -908,7 +941,7 @@ function start() {
   resetIds();
   ui.campaign = newCampaign('DE', 'DEMO');
   ui.setup = battleSetup(ui.campaign);
-  ui.state = createBattle({ seed: ui.setup.seed, playerSide: 'DE', armies: ui.setup.armies, kind: 'assaut' });
+  ui.state = createBattle({ seed: ui.setup.seed, playerSide: 'DE', armies: ui.setup.armies, kind: 'assaut', conditions: ui.setup.conditions });
   ui.renderer.setMap(ui.state.map);
   ui.renderer.fitAll();
   refresh();

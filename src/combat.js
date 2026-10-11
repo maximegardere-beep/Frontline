@@ -27,7 +27,7 @@ export function fireOdds(map, attacker, target, { indirect = false, observed = t
   }
   if (st.armored && attacker.type === 'artillery') add(1, 'blindage');
   if (indirect && !observed) add(1, 'tir non observé');
-  if (ta.terrain === 'marsh') add(1, 'tireur embourbé');
+  if (ta.terrain === 'marsh' && !ta.frozen) add(1, 'tireur embourbé');
   if (target.status === 'routed') add(-1, 'cible en déroute');
   if (attacker.pinned) add(1, 'tireur cloué');
 

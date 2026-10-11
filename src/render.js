@@ -6,6 +6,7 @@ import { hexToPixel, pixelToHex, hexCorner, neighborCoords, SQRT3, hexDistance, 
 import { tileAt } from './terrain.js';
 import { createRng } from './rng.js';
 import { makeNoise } from './mapgen.js';
+import { lightAt } from './conditions.js';
 import { unitStats, UNIT_TYPES } from './units.js';
 import { onMap, retreatCol, deployZone } from './game.js';
 import { drawFx, fxShake, stampScars, stampTracks, drawWreck } from './fx.js';
@@ -13,6 +14,8 @@ import { drawFx, fxShake, stampScars, stampTracks, drawWreck } from './fx.js';
 export const HEX = 30;
 
 const ELEV_STOPS = [[187, 199, 150], [219, 213, 163], [209, 182, 127], [166, 133, 90]];
+// Neige : relief blanchi, forêts sombres, eau et marais pris par la glace.
+const WINTER_STOPS = [[212, 220, 224], [234, 236, 236], [221, 221, 215], [196, 194, 186]];
 
 const C = {
   desk: '#1b1f16',
@@ -101,6 +104,20 @@ function blobPath(ctx, cx, cy, r, rng, points = 9) {
     ctx.quadraticCurveTo(pts[i].x, pts[i].y, m.x, m.y);
   }
   ctx.closePath();
+}
+
+function paletteFor(map) {
+  if (map.weather === 'snow') {
+    return {
+      stops: WINTER_STOPS,
+      C: { ...C, canopy: '#6c7d68', canopyShadow: 'rgba(40, 52, 45, 0.4)', tree: '#33453a', farmA: '#f0f2f0', farmB: '#dfe4e3',
+        hedge: 'rgba(80, 90, 80, 0.5)', marsh: 'rgba(205, 225, 236, 0.75)', reed: '#7f8e92', river: '#c4dbe8', riverHi: '#f5fbff',
+        riverBank: 'rgba(120, 150, 168, 0.55)', roadHi: '#d8ccb4', roof: '#8a5a4a' },
+    };
+  }
+  // Pluie : sol détrempé, plus sombre et plus vert.
+  if (map.weather === 'rain') return { stops: ELEV_STOPS.map((s) => [s[0] * 0.86, s[1] * 0.9, s[2] * 0.84]), C: { ...C, farmA: '#c9b86e', farmB: '#ad9d52', roadHi: '#c9a35d' } };
+  return { stops: ELEV_STOPS, C };
 }
 
 // ---------- Champs continus ----------
@@ -300,6 +317,7 @@ export class Renderer {
 
   buildTerrain() {
     const map = this.map;
+    const { C, stops: ELEV_STOPS } = paletteFor(map);
     const { worldW, worldH } = this;
     const rng = createRng(`render:${map.seed}`);
     const detail = makeNoise(rng);
@@ -427,6 +445,12 @@ export class Renderer {
       ctx.globalAlpha = 0.75;
       ctx.fill();
       ctx.globalAlpha = 1;
+      if (map.weather === 'snow') {
+        ctx.beginPath();
+        ctx.arc(c.x - c.r * 0.3, c.y - c.r * 0.35, c.r * 0.55, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(246, 248, 250, 0.85)';
+        ctx.fill();
+      }
     }
 
     // 5. Courbes de niveau continues : maîtresses aux seuils de la grille, intermédiaires tous les quarts.
@@ -458,6 +482,15 @@ export class Renderer {
         ctx.beginPath();
         splineTo(ctx, pts);
         ctx.stroke();
+      }
+      if (map.weather === 'snow') {
+        ctx.strokeStyle = 'rgba(110, 140, 160, 0.55)';
+        ctx.lineWidth = 0.8;
+        ctx.setLineDash([3, 7]);
+        ctx.beginPath();
+        splineTo(ctx, pts);
+        ctx.stroke();
+        ctx.setLineDash([]);
       }
       // Source du ruisseau : petite mare.
       if (stream && !atEdge(path[path.length - 1])) {
@@ -503,11 +536,30 @@ export class Renderer {
       ctx.fillRect(x - 7, y - 2, 14, 4);
     }
 
-    // 8. Villages : maisons groupées et église.
+    // 8. Villages : maisons groupées et église. Bourg : îlots serrés alignés sur un même quadrillage de rues.
+    const townAngle = createRng(`town:${map.seed}`).next() * 0.6 - 0.3;
     for (const t of map.villages) {
       const { x, y } = this.center(t);
       const r = createRng(t.col * 31 + t.row * 977);
-      for (let i = 0; i < 9; i++) {
+      if (t.town) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(townAngle);
+        for (let gx = -2; gx <= 1; gx++) {
+          for (let gy = -2; gy <= 1; gy++) {
+            if (t.name && (gx === -1 || gx === 0) && (gy === -1 || gy === 0)) continue; // place centrale
+            if (r.next() < 0.12) continue;
+            const bx = gx * 12 + 1, by = gy * 11 + 1;
+            ctx.fillStyle = C.house;
+            ctx.fillRect(bx, by, 10, 9);
+            ctx.fillStyle = C.roof;
+            ctx.fillRect(bx, by, 10, 3.5 + r.next() * 2);
+          }
+        }
+        ctx.restore();
+        if (!t.name) continue;
+      } else {
+        for (let i = 0; i < 9; i++) {
         const a = r.next() * Math.PI * 2, d = 5 + r.next() * HEX * 0.55;
         ctx.save();
         ctx.translate(x + Math.cos(a) * d, y + Math.sin(a) * d * 0.8);
@@ -517,6 +569,7 @@ export class Renderer {
         ctx.fillStyle = C.roof;
         ctx.fillRect(-4.5, -3.5, 9, 3);
         ctx.restore();
+        }
       }
       ctx.fillStyle = C.house;
       ctx.beginPath();
@@ -552,6 +605,7 @@ export class Renderer {
     ctx.font = '600 11px "IBM Plex Sans Condensed", "Arial Narrow", sans-serif';
     ctx.textAlign = 'center';
     for (const t of map.villages) {
+      if (!t.name) continue;
       const { x, y } = this.center(t);
       ctx.lineWidth = 3.5;
       ctx.strokeStyle = C.halo;
@@ -659,6 +713,7 @@ export class Renderer {
     }
 
     if (!reveal) this.drawMask(this.mask('fog', vis.hexes, [34, 37, 24], 0.42, { invert: true }), null);
+    this.drawAtmosphere(state);
 
     if (state.objective) {
       const { x, y } = this.center(state.objective);
@@ -845,6 +900,22 @@ export class Renderer {
       ctx.fillText(LABEL[dv.kind], x, ly);
     });
     ctx.restore();
+  }
+
+  // Lumière de l'heure (aube rosée, crépuscule orangé, nuit bleue) et voile du brouillard, sous les pions.
+  drawAtmosphere(state) {
+    const c = state.conditions;
+    if (!c) return;
+    const { ctx } = this;
+    const tint = { dawn: 'rgba(255, 176, 140, 0.16)', dusk: 'rgba(255, 128, 60, 0.2)', night: 'rgba(14, 22, 58, 0.5)' }[lightAt(c, state.turn)];
+    if (c.weather === 'fog') {
+      ctx.fillStyle = 'rgba(232, 234, 228, 0.24)';
+      ctx.fillRect(0, 0, this.worldW, this.worldH);
+    }
+    if (tint) {
+      ctx.fillStyle = tint;
+      ctx.fillRect(0, 0, this.worldW, this.worldH);
+    }
   }
 
   star(x, y, r, fill) {

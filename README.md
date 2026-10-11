@@ -140,6 +140,32 @@ Un 1 échoue toujours. En cas d'échec elle part en déroute vers sa zone de rep
   sans ennemi au contact).
 - Au bout de 12 tours : le détenteur de l'objectif, sinon le camp proportionnellement le moins éprouvé.
 
+### Conditions de bataille
+
+Chaque bataille tire au briefing son biome, sa météo et son heure de départ (même graine, mêmes conditions).
+
+| Biome | Carte |
+|---|---|
+| Steppe ouverte | peu de couvert, longues vues : le terrain des chars |
+| Forêts et bocages | environ un tiers de forêt : vues courtes, embuscades |
+| Marais de Polésie | environ un quart de marais : les routes servent de digues |
+| Bourg | un pâté de 4 à 6 hexagones bâtis au centre, souvent l'objectif |
+
+| Météo | Effet |
+|---|---|
+| Temps clair | aucun |
+| Pluie | vision −1 ; hors route, les véhicules s'enlisent (½ point de plus par hexagone), l'infanterie passe |
+| Brouillard | vision −2 ; les hauteurs ne donnent plus de vue supplémentaire |
+| Neige | vision −1 ; même enlisement des véhicules ; rivières et marais gelés franchissables, sans malus de défense |
+
+La météo suit la saison de la campagne : de juillet à novembre 1943, de plus en plus de pluie et de brouillard,
+et la neige à partir d'octobre. Un tour dure une heure. La bataille commence le plus souvent au matin, parfois
+l'après-midi, et peut alors finir de nuit (plus souvent en automne, quand les jours raccourcissent).
+Aube et crépuscule : vision −1 ; nuit : −2. Une unité voit toujours au moins l'hexagone voisin.
+
+À l'écran : palette d'hiver ou sol détrempé, lumière de l'heure, pluie, neige ou nappes de brouillard animées,
+et le fond sonore suit le temps (pluie, vent de neige). L'heure, la lumière et la météo s'affichent dans la barre.
+
 ### Brouillard de guerre
 
 On ne voit l'ennemi que dans le champ de vision de ses unités (relief et couverts bloquent la vue,
@@ -161,6 +187,8 @@ dernier mouvement observé : c'est la base pour anticiper et placer ses barrages
 | `src/game.js` | État de bataille, brouillard, exécution simultanée, victoire |
 | `src/ai.js` | IA adverse (ne voit que ce que voient ses unités) ; sert aussi d'état-major en mode directives |
 | `src/campaign.js` | Enchaînement des batailles, expérience, renforts |
+| `src/conditions.js` | Météo, heure du jour, biomes et saisons : tirage et effets sur la vision |
+| `src/weather.js` | Couche animée de pluie, neige et brouillard au-dessus de la carte |
 | `src/fx.js` | Effets de combat (tirs, explosions, fumée) et traces durables (cratères, ornières, épaves) |
 | `src/audio.js` | Sons synthétisés (Web Audio) : combat, mouvements, fond sonore, interface |
 | `src/render.js` | Rendu Canvas : terrain continu, caméra (zoom, déplacement), pions, directives |

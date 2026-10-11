@@ -14,6 +14,7 @@ class AudioBoard {
     this.locate = () => ({ pan: 0, gain: 1 });
     this.amb = null;
     this.ambWanted = false;
+    this.weather = 'clear';
   }
 
   // Le navigateur n'autorise le son qu'après un geste de l'utilisateur.
@@ -250,6 +251,13 @@ class AudioBoard {
 
   // ---------- Fond sonore ----------
 
+  // Le fond sonore suit la météo : pluie, vent de neige, calme du brouillard.
+  setWeather(kind) {
+    if (kind === this.weather) return;
+    this.weather = kind;
+    if (this.amb) { this.stopAmbient(); this.ambient(true); }
+  }
+
   ambient(on) {
     this.ambWanted = on;
     if (!on || !this.live) return this.stopAmbient();
@@ -263,7 +271,9 @@ class AudioBoard {
     const wind = this.src(this.brown, t, null, true);
     const bp = this.filter('bandpass', 420, 0.6);
     const wg = ctx.createGain();
-    wg.gain.value = 0.11;
+    const w = this.weather;
+    wg.gain.value = w === 'snow' ? 0.17 : w === 'fog' ? 0.06 : 0.11;
+    if (w === 'snow') bp.frequency.value = 560;
     const lfos = [[bp.frequency, 0.07, 220], [wg.gain, 0.045, 0.06]].map(([param, f, depth]) => {
       const o = ctx.createOscillator();
       o.frequency.value = f;
@@ -274,7 +284,22 @@ class AudioBoard {
       return o;
     });
     wind.connect(bp).connect(wg).connect(bus);
-    this.amb = { bus, nodes: [wind, ...lfos], timer: null };
+    const nodes = [wind, ...lfos];
+    // Pluie : bruit blanc adouci, régulier, avec un léger souffle de rafales.
+    if (w === 'rain') {
+      const rain = this.src(this.noise, t, null, true);
+      const rg = ctx.createGain();
+      rg.gain.value = 0.075;
+      rain.connect(this.filter('highpass', 900)).connect(this.filter('lowpass', 6500)).connect(rg).connect(bus);
+      const gust = ctx.createOscillator();
+      gust.frequency.value = 0.11;
+      const gd = ctx.createGain();
+      gd.gain.value = 0.025;
+      gust.connect(gd).connect(rg.gain);
+      gust.start(t);
+      nodes.push(rain, gust);
+    }
+    this.amb = { bus, nodes, timer: null };
     this.scheduleDistant();
   }
 

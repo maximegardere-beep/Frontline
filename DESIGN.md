@@ -47,6 +47,12 @@ Campagne (5 batailles)
   unités : la contrainte reste une décision de plan, pas de la comptabilité. L'IA devient plus exigeante sur ses
   cibles quand le stock baisse et coupe son tir à vue à 2 obus. Sur 300 batailles IA contre IA : 3,4 tirs par
   batterie (4,8 sans limite), barrages dans le vide 532 (779), victoires DE/SU/nuls 101/154/45 (96/167/37).
+- **Conditions de bataille** : biome, météo et heure passent tous par les mêmes réglages (vision, coûts,
+  génération, rendu), tirés au briefing depuis la graine. La boue ne freine que les véhicules : appliquée à tous,
+  elle divisait par deux la marche de l'infanterie. Le départ est surtout matinal (27 % des batailles finissent
+  de nuit) ; la vision ne descend jamais sous 1, même brouillard et nuit cumulés. La Polésie, d'abord trop
+  marécageuse (36 % de marais), s'enlisait (5 % d'issues nettes) : ramenée à environ 25 %. Sur 300 batailles
+  avec conditions, l'équilibre entre camps ne bouge pas (104/168/28 contre 101/153/46 sans).
 - **Moral contextuel** : −1 isolée (aucun allié à 2 hex), −1 prise en tenaille (tirs directs venus de directions
   opposées), +1 si un voisin est retranché ; voir une unité adjacente anéantie impose un test même sans pertes.
   Récompense la cohésion de la ligne et l'enveloppement. Sur 300 batailles IA contre IA, l'équilibre entre camps
@@ -74,7 +80,6 @@ Chaque niveau au-delà de Recrue : +1 PV et +1 dé. Vétéran ou mieux : +1 retr
 - **Multijoueur à deux** (hot-seat ou en ligne) : le moteur est déjà déterministe et sépare plan et exécution.
 - **Ordres conditionnels** : « avancer jusqu'au contact puis se retrancher », « tenir sauf si attaqué par des blindés ».
 - **Ravitaillement** (les munitions d'artillerie existent déjà, par bataille).
-- **Météo et saisons** (raspoutitsa : boue qui double les coûts ; hiver : rivières gelées franchissables).
 - **Génie** : ponts à construire ou faire sauter, champs de mines.
 - **Soutien aérien** aléatoire, appui de la Luftwaffe ou des Sturmoviks.
 - **Carte de campagne stratégique** reliant les batailles (choisir son axe d'attaque).

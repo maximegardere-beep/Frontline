@@ -1,6 +1,7 @@
 // Moteur de bataille : état, déploiement, brouillard de guerre, exécution simultanée des ordres, combat, victoire.
 
 import { createRng } from './rng.js';
+import { DEFAULT_CONDITIONS, WEATHER, effectiveVision } from './conditions.js';
 import { generateMap, neighbors } from './mapgen.js';
 import { hexDistance, hexToPixel, toCube, fromCube, sameHex } from './hex.js';
 import { tileAt, moveCost, hasLOS, TERRAIN } from './terrain.js';
@@ -26,11 +27,17 @@ function strength(units) {
   return units.filter(active).reduce((s, u) => s + UNIT_TYPES[u.type].cost * (u.hp / unitStats(u).maxHp), 0);
 }
 
-export function createBattle({ seed, playerSide, armies, kind = 'rencontre', maxTurns = 12, title = null }) {
-  const map = generateMap(seed, { objective: kind === 'assaut' });
+export function createBattle({ seed, playerSide, armies, kind = 'rencontre', maxTurns = 12, title = null, conditions = DEFAULT_CONDITIONS }) {
+  const map = generateMap(seed, { objective: kind === 'assaut', biome: conditions.biome });
+  // Météo : terrain lourd hors route, eau et marais gelés par la neige.
+  const weather = WEATHER[conditions.weather];
+  map.mud = weather.mud;
+  map.weather = conditions.weather;
+  if (weather.frozen) for (const t of map.tiles) if (t.river || t.terrain === 'marsh') t.frozen = true;
   const state = {
     seed,
     map,
+    conditions,
     rng: createRng(`battle:${seed}`),
     kind,
     title: title ?? map.name,
@@ -95,13 +102,16 @@ export function autoDeploy(state, side) {
 
 // ---------- Brouillard de guerre ----------
 
-export function computeVisibility(state, side) {
+// turn : l'heure qui compte pour la lumière (fin d'un tour = début du suivant).
+export function computeVisibility(state, side, turn = state.turn) {
   const { map } = state;
+  const cond = state.conditions ?? DEFAULT_CONDITIONS;
+  const heights = !WEATHER[cond.weather].noHeights; // dans le brouillard, les hauteurs ne voient pas plus loin
   const hexes = new Set();
   const own = state.units.filter((u) => u.side === side && onMap(u));
   for (const u of own) {
     const ut = tileAt(map, u.col, u.row);
-    const range = unitStats(u).vision + (ut.elev >= 2 ? 1 : 0) - (u.status === 'routed' ? 2 : 0);
+    const range = Math.max(1, effectiveVision(unitStats(u).vision + (heights && ut.elev >= 2 ? 1 : 0), cond, turn) - (u.status === 'routed' ? 2 : 0));
     for (const t of map.tiles) {
       const d = hexDistance(u, t);
       if (d <= range && hasLOS(map, u, t)) hexes.add(t.row * map.W + t.col);
@@ -120,9 +130,9 @@ export function computeVisibility(state, side) {
   return { hexes, units };
 }
 
-export function updateVisibility(state) {
+export function updateVisibility(state, turn = state.turn) {
   for (const side of ['DE', 'SU']) {
-    const vis = computeVisibility(state, side);
+    const vis = computeVisibility(state, side, turn);
     state.visibility[side] = vis;
     const mem = state.memory[side];
     for (const e of state.units) {
@@ -393,7 +403,7 @@ export function executeTurn(state) {
     u.orders = { path: [], entrench: keepDig, fireAt: null };
   }
   updateObjective(state);
-  updateVisibility(state);
+  updateVisibility(state, state.turn + 1); // vue préparée pour le tour suivant, à sa lumière
   for (const u of state.units) { u.startPos = null; u.movedHexes = 0; }
   checkVictory(state);
   state.turn++;
