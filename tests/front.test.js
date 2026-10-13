@@ -194,3 +194,51 @@ test('poches : statu quo, Festung (fond moins vite), percée d\'évasion (dégag
   assert.ok(festung > hold * 1.2, `Festung ${festung?.toFixed(0)} contre ${hold?.toFixed(0)}`);
   assert.equal(out, null, 'la percée d\'évasion dégage la poche');
 });
+
+test('météo du jour : tirage selon le mois, persistance, effets', async () => {
+  const { FRONT_WEATHER, applyWeather, computeVision, visionRange } = await import('../src/front.js');
+  const tally = (season) => {
+    const c = {};
+    for (let k = 0; k < 40; k++) {
+      const f = createFront({ seed: `meteo${k}`, season, days: 6 });
+      f.reserve = [0, 0];
+      for (let d = 0; d < 5; d++) { c[f.weather] = (c[f.weather] ?? 0) + 1; runDay(f); }
+    }
+    return c;
+  };
+  const july = tally(0), nov = tally(4);
+  assert.ok(!july.snow, 'pas de neige en juillet');
+  assert.ok(nov.snow > 20, `neige en novembre : ${nov.snow}`);
+  assert.ok(july.clear > nov.clear, 'juillet plus clair que novembre');
+
+  const f = createFront({ seed: 'meteo-x' });
+  const seen = (w) => { f.weather = w; applyWeather(f); let n = 0; for (const v of computeVision(f, 0)) n += v; return n; };
+  assert.ok(seen('fog') < seen('rain') && seen('rain') < seen('clear'), 'le brouillard et la pluie réduisent la reconnaissance');
+  f.weather = 'fog';
+  assert.equal(visionRange(f), 2);
+
+  const marsh = [...f.map.kind].findIndex((k) => k === 2);
+  if (marsh >= 0) {
+    f.weather = 'clear'; applyWeather(f);
+    const wet = f.map.flow[marsh];
+    f.weather = 'snow'; applyWeather(f);
+    assert.ok(f.map.flow[marsh] > wet * 2, 'marais gelé praticable');
+  }
+  assert.equal(Object.keys(FRONT_WEATHER).length, 4);
+});
+
+test('biomes de la micro-grille : steppe ouverte, bocage boisé, Polésie marécageuse, bourg à grande ville', () => {
+  const share = (biome, k) => {
+    let n = 0, tot = 0;
+    for (let s = 0; s < 4; s++) { const m = generateFrontMap(`bio${s}`, { biome }); for (const x of m.kind) { tot++; if (x === k) n++; } }
+    return n / tot;
+  };
+  assert.ok(share('bocage', 1) > 4 * share('steppe', 1), 'forêt : bocage ≫ steppe');
+  assert.ok(share('polesie', 2) > 5 * share('steppe', 2), 'marais : Polésie ≫ steppe');
+  const m = generateFrontMap('bio0', { biome: 'bourg' });
+  const city = m.towns.find((t) => t.city);
+  assert.ok(city, 'une grande ville');
+  let around = 0;
+  for (let d = 0; d < 6; d++) if (m.kind[m.nb[city.i * 6 + d]] === 3) around++;
+  assert.equal(around, 6, 'la grande ville couvre ses abords');
+});

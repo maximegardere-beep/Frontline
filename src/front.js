@@ -7,7 +7,8 @@
 import { createRng, hashString } from './rng.js';
 import { generateFrontMap, makeNoise } from './mapgen.js';
 import { cellCenters, pixelToHex } from './hex.js';
-import { MOUNTAIN } from './terrain.js';
+import { MOUNTAIN, FRONT_KINDS, cellFluidity, cellDefense } from './terrain.js';
+import { SEASON } from './conditions.js';
 import { findPockets, bfsDistance } from './path.js';
 import { emptyField, frontNeed, frontTick } from './combat.js';
 
@@ -58,6 +59,16 @@ export const VECTOR_TYPES = {
   retreat: { label: 'Repli', sigma: 2.8, catch: 5, speed: 0.3, atk: 0, maxLen: 20, retreat: true },
 };
 
+// Météo du jour : tirée chaque matin selon le mois (même table que le mode tactique), avec une chance sur deux de
+// garder le temps de la veille. Effets : vitesse des vecteurs, portée de reconnaissance, efficacité des barrages
+// (le brouillard les prive d'observation) ; la neige gèle les marais.
+export const FRONT_WEATHER = {
+  clear: { label: 'Temps clair', armor: 1, infantry: 1, vision: 0, barrage: 1, text: 'Bonne visibilité, terrain sec.' },
+  rain: { label: 'Pluie', armor: 0.6, infantry: 0.9, vision: -1, barrage: 1, text: 'Les blindés s\'enlisent (vitesse × 0,6) ; reconnaissance −1.' },
+  fog: { label: 'Brouillard', armor: 0.9, infantry: 1, vision: -3, barrage: 0.7, text: 'Reconnaissance réduite à 2 cases ; barrages sans observation, 30 % moins efficaces.' },
+  snow: { label: 'Neige', armor: 0.75, infantry: 0.85, vision: -1, barrage: 1, frozen: true, text: 'Progression ralentie ; marais gelés, praticables.' },
+};
+
 // Poches : comportements possibles (statu quo, forteresse, percée d'évasion).
 export const POCKET_MODES = {
   hold: 'statu quo',
@@ -67,8 +78,8 @@ export const POCKET_MODES = {
 
 let nextVectorId = 1;
 
-// attacker : camp attaquant ('DE' ou 'SU'), fixé au briefing.
-export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = null, days = FRONT_SETUP.days, setup = {} } = {}) {
+// attacker : camp attaquant ('DE' ou 'SU'), fixé au briefing ; season : indice du mois (0 juillet … 4 novembre).
+export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = null, season = 0, days = FRONT_SETUP.days, setup = {} } = {}) {
   const cfg = { ...FRONT_SETUP, ...setup, days };
   const map = generateFrontMap(seed, { biome });
   const { W, H, N } = map;
@@ -92,6 +103,8 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
     quality: cfg.quality.slice(),
     reserve: cfg.reserve.slice(),
     attacker: sideIndex(attacker),
+    season: Math.max(0, Math.min(SEASON.length - 1, season)),
+    weather: 'clear',
     entrench: new Float32Array(N), // 0 à 1 : retranchement de chaque case (défense × 1 + entrenchDef × e)
     orders: [[], []],
     lastOrders: [[], []],
@@ -152,11 +165,42 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
   front.goal = Math.max(1, Math.ceil(front.defTowns.length / 2));
   front.initial = [troops(front, 0) + front.reserve[0], troops(front, 1) + front.reserve[1]];
   front.memory = [0, 1].map((s) => ({ owner: Int8Array.from(owner), est: new Float32Array(N), seen: new Int32Array(N).fill(-1) }));
+  map.baseFlow = map.flow;
+  map.baseDef = map.def;
+  rollWeather(front);
   updateSupply(front);
   updateMemory(front);
-  flog(front, 'day', `— Jour 1 : ${map.name} —`);
+  flog(front, 'day', `— Jour 1 : ${map.name} · ${FRONT_WEATHER[front.weather].label} —`);
   return front;
 }
+
+// ---------- Météo ----------
+
+// Tire le temps du jour (persistance : une chance sur deux de garder celui de la veille) et l'applique au terrain.
+function rollWeather(front) {
+  const odds = SEASON[front.season].weather;
+  const keep = front.day > 1 && odds[front.weather] && front.rng.chance(0.5);
+  if (!keep) front.weather = front.rng.weighted(odds);
+  applyWeather(front);
+}
+
+// Le gel rend les marais praticables : fluidité et défense recalculées comme pour une plaine.
+export function applyWeather(front) {
+  const { map } = front;
+  if (!FRONT_WEATHER[front.weather].frozen) { map.flow = map.baseFlow; map.def = map.baseDef; return; }
+  const marsh = FRONT_KINDS.indexOf('marsh');
+  map.flow = Float32Array.from(map.baseFlow);
+  map.def = Float32Array.from(map.baseDef);
+  const plain = { ...map, kind: Uint8Array.of(0), elev: Uint8Array.of(0) };
+  for (let i = 0; i < map.N; i++) {
+    if (map.kind[i] !== marsh) continue;
+    plain.elev[0] = map.elev[i];
+    map.flow[i] = cellFluidity(plain, 0);
+    map.def[i] = cellDefense(plain, 0);
+  }
+}
+
+export const visionRange = (front) => Math.max(1, front.cfg.vision + FRONT_WEATHER[front.weather].vision);
 
 // ---------- Mesures ----------
 
@@ -378,8 +422,10 @@ export function rebuildFields(front, s) {
     F.speed[i] += w * speed;
     F.atk[i] += w * atk;
   };
+  const W8 = FRONT_WEATHER[front.weather];
   for (const v of front.orders[s]) {
-    const T = VECTOR_TYPES[v.type];
+    const T0 = VECTOR_TYPES[v.type];
+    const T = { ...T0, speed: T0.speed * (v.type === 'armor' ? W8.armor : W8.infantry) };
     const L = len(v.from, v.to);
     const ux = (v.to.x - v.from.x) / L, uy = (v.to.y - v.from.y) / L;
     for (let i = 0; i < N; i++) {
@@ -486,9 +532,10 @@ export function computeVision(front, s) {
   const { map, owner, dens } = front;
   const seeds = [];
   for (let i = 0; i < map.N; i++) if (owner[i] === s && dens[i] > 0.5) seeds.push(i);
-  const dist = bfsDistance(map.nb, map.N, seeds, (i) => owner[i] >= 0 || true, front.cfg.vision);
+  const range = visionRange(front);
+  const dist = bfsDistance(map.nb, map.N, seeds, () => true, range);
   const vis = new Uint8Array(map.N);
-  for (let i = 0; i < map.N; i++) vis[i] = owner[i] === s || dist[i] <= front.cfg.vision ? 1 : 0;
+  for (let i = 0; i < map.N; i++) vis[i] = owner[i] === s || dist[i] <= range ? 1 : 0;
   return vis;
 }
 
@@ -578,7 +625,7 @@ function applyWorks(front) {
       for (let i = 0; i < front.map.N; i++) {
         if (front.owner[i] !== 1 - s) continue;
         if (Math.hypot(front.centers.x[i] - b.x, front.centers.y[i] - b.y) > b.r) continue;
-        const l = front.dens[i] * c.barrageRate;
+        const l = front.dens[i] * c.barrageRate * FRONT_WEATHER[front.weather].barrage;
         front.dens[i] -= l;
         front.stats.losses[1 - s] += l;
         front.entrench[i] = Math.max(0, front.entrench[i] - c.barrageWorks);
@@ -621,7 +668,8 @@ function endDay(front) {
   front.day++;
   front.phase = 'plan';
   front.tick = 0;
-  flog(front, 'day', `— Jour ${front.day} —`);
+  rollWeather(front);
+  flog(front, 'day', `— Jour ${front.day} : ${FRONT_WEATHER[front.weather].label} —`);
 }
 
 // ---------- Conditions de victoire ----------

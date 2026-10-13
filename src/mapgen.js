@@ -264,12 +264,20 @@ export function generateMap(seed, opts = {}) {
 // plus d'unités mais une densité de troupes. Tableaux plats indexés i = row * W + col.
 // Relief : 0 bas-fond, 1 plaine, 2 collines, 3 hauteurs ; quelques massifs de montagne infranchissables font goulets.
 
+// Biomes de la micro-grille : mêmes noms que le mode tactique, réglages adaptés à la grande carte.
+export const FRONT_BIOMES = {
+  steppe: { forestQ: 0.93, marshQ: 0.9, marshElev: 0, mountains: 0.02, towns: [5, 7] },
+  bocage: { forestQ: 0.62, marshQ: 0.86, marshElev: 0, mountains: 0.03, towns: [5, 7] },
+  polesie: { forestQ: 0.74, marshQ: 0.64, marshElev: 1, mountains: 0.008, towns: [4, 6] },
+  bourg: { forestQ: 0.8, marshQ: 0.86, marshElev: 0, mountains: 0.03, towns: [4, 6], city: true },
+};
+
 export function generateFrontMap(seed, opts = {}) {
   const W = opts.width ?? 96;
   const H = opts.height ?? 64;
   const N = W * H;
   const rng = createRng(`front:${seed}`);
-  const B = { forestQ: 0.76, marshQ: 0.84, towns: [5, 7], ...(BIOMES[opts.biome] ?? {}) };
+  const B = { forestQ: 0.76, marshQ: 0.84, marshElev: 0, mountains: 0.035, towns: [5, 7], ...(FRONT_BIOMES[opts.biome] ?? {}) };
   const heightNoise = makeNoise(rng), moistNoise = makeNoise(rng), ridgeNoise = makeNoise(rng);
   const hs = new Float32Array(N), ms = new Float32Array(N), rs = new Float32Array(N);
   for (let row = 0; row < H; row++) {
@@ -287,7 +295,7 @@ export function generateFrontMap(seed, opts = {}) {
   const K = (name) => FRONT_KINDS.indexOf(name);
   for (let i = 0; i < N; i++) {
     elev[i] = hs[i] < q1 ? 0 : hs[i] < q2 ? 1 : hs[i] < q3 ? 2 : 3;
-    if (elev[i] === 0 && ms[i] > marshQ) kind[i] = K('marsh');
+    if (elev[i] <= B.marshElev && ms[i] > marshQ) kind[i] = K('marsh');
     else if (ms[i] > forestQ && elev[i] >= 1) kind[i] = K('forest');
   }
   const nb = neighborTable(W, H);
@@ -295,7 +303,7 @@ export function generateFrontMap(seed, opts = {}) {
 
   // Montagnes : sommets des hauteurs qui sont aussi sur une crête, jamais sur les bords ouest et est
   // (chaque camp doit pouvoir se ravitailler) ; on vérifie qu'un passage ouest → est subsiste.
-  const mountainShare = opts.mountains ?? 0.035;
+  const mountainShare = opts.mountains ?? B.mountains;
   const score = new Float32Array(N);
   for (let i = 0; i < N; i++) score[i] = elev[i] >= 2 ? hs[i] + rs[i] * 0.08 : -1;
   for (let share = mountainShare; share > 0.004; share *= 0.6) {
@@ -310,6 +318,20 @@ export function generateFrontMap(seed, opts = {}) {
 
   // Villes : nœuds à tenir, espacées, hors marais et montagnes, plutôt réparties d'ouest en est.
   const usedNames = new Set();
+  // Bourg : une grande ville au centre (la case et deux couronnes, 19 cases), le nœud de la bataille.
+  if (B.city) {
+    let best = -1, bd = Infinity;
+    for (let i = 0; i < N; i++) {
+      if (kind[i] === MOUNTAIN || elev[i] >= 3) continue;
+      const col = i % W, row = Math.floor(i / W);
+      const d = Math.hypot(col - W / 2, (row - H / 2) * 1.2) + elev[i] * 2 + (kind[i] === K('marsh') ? 5 : 0);
+      if (d < bd) { bd = d; best = i; }
+    }
+    const ring1 = [0, 1, 2, 3, 4, 5].map((d) => nb[best * 6 + d]).filter((j) => j >= 0);
+    const area = new Set([best, ...ring1, ...ring1.flatMap((j) => [0, 1, 2, 3, 4, 5].map((d) => nb[j * 6 + d]))]);
+    for (const j of area) if (j >= 0 && kind[j] !== MOUNTAIN) kind[j] = TOWN;
+    map.towns.push({ i: best, col: best % W, row: Math.floor(best / W), name: placeName(rng, usedNames), city: true });
+  }
   const nTowns = rng.int(...B.towns);
   for (let t = 0; t < nTowns; t++) {
     let best = -1, bestScore = -Infinity;

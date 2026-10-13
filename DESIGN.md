@@ -129,7 +129,7 @@ sans voir ceux de l'autre ; la journée s'exécute seule, en 30 ticks. Le mode t
 2. Recalibrage de la physique avec un banc de mesure (cases gagnées par percée, coût d'une attaque frontale,
    fréquence des encerclements) ; rôles attaquant et défenseur (fait, voir ci-dessous).
 3. Nouveaux ordres et choix du joueur pour ses poches (fait, voir ci-dessous).
-4. Météo du jour et biomes sur la micro-grille.
+4. Météo du jour et biomes sur la micro-grille (fait, voir ci-dessous).
 5. IA (`frontai.js`) : défense élastique, percées sur les points faibles estimés, réserves, barrages, poches ;
    équilibrage IA contre IA.
 6. Rendu en masses fondues (champ calculé par tick, interpolé entre deux ticks pour l'iPhone).
@@ -182,6 +182,21 @@ Résultats sur 8 cartes (cibles du cahier des charges entre parenthèses) :
 Mesures : repli face à une percée blindée, 35 % de pertes en moins qu'en tenant ; barrage, 19 % de densité
 détruite dans la zone ; ligne, 10 % de troupes en plus sur les cases tracées ; Festung, la poche dure nettement plus
 longtemps ; percée d'évasion, poche dégagée en deux jours à une dizaine de cases des lignes amies.
+
+### Conditions (étape 4)
+
+Météo tirée chaque matin selon le mois (même table que le mode tactique : neige à partir d'octobre), avec une
+chance sur deux de garder le temps de la veille. Elle est connue au moment de donner les ordres.
+
+| Temps | Blindés | Infanterie | Reconnaissance | Autre | Percée blindée d'un jour (médiane) |
+|---|---|---|---|---|---|
+| Clair | × 1 | × 1 | 5 cases | | 15 cases |
+| Pluie | × 0,6 | × 0,9 | 4 cases | | 9 cases |
+| Brouillard | × 0,9 | × 1 | 2 cases | barrages 30 % moins efficaces (pas d'observation) | 13 cases |
+| Neige | × 0,75 | × 0,85 | 4 cases | marais gelés, praticables | 11 cases |
+
+Biomes de la micro-grille (moyennes sur 8 cartes) : steppe 90 % de plaine, 5 % de forêt ; bocage 28 % de forêt ;
+Polésie 25 % de marais, presque pas de montagnes ; bourg avec une grande ville de 19 cases au centre.
 
 ### Plus tard : batailles locales
 
