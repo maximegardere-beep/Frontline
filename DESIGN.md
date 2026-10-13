@@ -100,6 +100,49 @@ Chaque niveau au-delà de Recrue : +1 PV et +1 dé. Vétéran ou mieux : +1 retr
 (et +1 vision pour la reconnaissance). Élite : +1 mouvement, +1 portée (artillerie, blindés), touche à −1,
 et le matériel d'élite (Tigre, T-34/85, Katioucha, Panzergrenadiers, Gardes).
 
+## Frontline stratégique (mode en préparation)
+
+Mode séparé au menu : un front continu à grande échelle, en WEGO. Plus d'unités discrètes : chaque case d'une
+micro-grille (96 × 64) porte une densité de troupes. Le matin, le jeu est en pause et chaque camp donne ses ordres
+sans voir ceux de l'autre ; la journée s'exécute seule, en 30 ticks. Le mode tactique reste intact.
+
+### Cahier des charges v1 (validé)
+
+| Sujet | Décision |
+|---|---|
+| Intégration | Mode séparé au menu ; le mode tactique n'est pas modifié |
+| Rendu | Masses fondues aux couleurs des camps, plus foncées où la densité est forte ; ligne de contact épaisse ; flèches d'ordres au crayon rouge, sur le relief continu |
+| Saisie des ordres | Toucher le départ puis la cible ; le jeu retient la case la plus pertinente autour du doigt, sans viser une case précise |
+| Rythme | Front mobile : une percée concentrée sur un point faible avance de 10 à 15 cases par jour ; une attaque frontale sur un secteur dense s'use |
+| Ordres | Vecteurs infanterie et blindés, déploiement des réserves, ligne de défense, barrage d'artillerie de zone, repli ordonné |
+| Poches | Le joueur choisit chaque matin pour les siennes (statu quo, Festung, percée d'évasion) ; l'IA tire au sort, pondéré par les troupes piégées |
+| Conditions | Météo tirée chaque jour, biomes de carte |
+| Échelle | 10 jours, 96 × 64 cases |
+| Rôles | Attaquant et défenseur fixés au briefing |
+| Victoire | Anéantissement, effondrement du front, toutes les villes ; sinon au 10e jour, moitié territoire, moitié villes ; adaptées aux rôles |
+| Vitesse | Journée contemplative d'environ 20 s, avec un bouton discret « Passer la journée » |
+| Brouillard | Force ennemie lue à l'épaisseur de sa masse ; au toucher, une fourchette (« 2 000 à 3 000 hommes ») |
+
+### Plan (une étape par commit)
+
+1. Moteur mis à l'abri tel quel (fait).
+2. Recalibrage de la physique avec un banc de mesure (cases gagnées par percée, coût d'une attaque frontale,
+   fréquence des encerclements) ; rôles attaquant et défenseur.
+3. Nouveaux ordres et choix du joueur pour ses poches.
+4. Météo du jour et biomes sur la micro-grille.
+5. IA (`frontai.js`) : défense élastique, percées sur les points faibles estimés, réserves, barrages, poches ;
+   équilibrage IA contre IA.
+6. Rendu en masses fondues (champ calculé par tick, interpolé entre deux ticks pour l'iPhone).
+7. Interface : menu, briefing, outils d'ordres, estimation au toucher, bilan quotidien, iPhone.
+8. Sons, tests, documentation, publication.
+
+### Plus tard : batailles locales
+
+Après la v1, proposer de jouer en mode tactique un engagement décisif (percée contre secteur dense, ville
+disputée, sortie de poche), au plus une fois par jour, avec résolution automatique possible. À prévoir : conversion
+densités et vecteurs vers armées tactiques, terrain local vers paramètres de carte, résultat réinjecté dans les
+densités. Le moteur garde des points d'accroche pour cela.
+
 ## Pistes pour la suite
 
 - **Multijoueur à deux** (hot-seat ou en ligne) : le moteur est déjà déterministe et sépare plan et exécution.
