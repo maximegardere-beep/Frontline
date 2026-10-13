@@ -587,6 +587,19 @@ kbd {
 .dossier .warn-note { padding: 6px 10px; border-left: 3px solid var(--pencil); background: rgba(192, 57, 43, 0.1); }
 
 /* Menu : entrée du front stratégique. */
+.link-front {
+  display: block;
+  margin: -8px 0 16px;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: var(--pencil);
+  font: 600 14px var(--f-body);
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
 .mode-front { margin-top: 22px; padding: 14px 16px 16px; border: 2px dashed rgba(42, 36, 22, 0.45); }
 .mode-front h2 { margin-top: 0; }
 .mode-front .lede { font-size: 15px; margin: 6px 0 12px; }

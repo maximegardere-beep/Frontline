@@ -11,7 +11,8 @@ import {
   cellAtPoint, FRONT_WEATHER, POCKET_MODES, VECTOR_TYPES, sideIndex,
 } from './front.js';
 import { installAI } from './frontai.js';
-import { FrontRenderer, CELL, MIN_POCKET } from './frontrender.js';
+import { FrontRenderer, CELL } from './frontrender.js';
+import { bigPockets, menRange, pickCell, areaReport, combatSpots } from './frontinput.js';
 import { WeatherLayer } from './weather.js';
 import { BIOMES, SEASON } from './conditions.js';
 import { describeCell } from './terrain.js';
@@ -68,16 +69,7 @@ export const frontActive = () => !!fui.front && !byId('front-app').hidden;
 export const frontAmbient = () => frontActive() && byId('overlay').hidden && fui.front?.phase === 'resolve';
 
 const men = (d) => Math.round(d * (fui.front?.cfg.men ?? 10));
-// Poches qui comptent (les miettes de moins de 200 hommes sont ignorées), les plus grosses d'abord.
-const bigPockets = (f, s) => f.pockets[s].filter((p) => p.troops >= MIN_POCKET).sort((a, b) => b.troops - a.troops);
 const fmtMen = (n) => `${(Math.round(n / 100) * 100).toLocaleString('fr-FR')} h`;
-// Fourchette d'estimation, arrondie à la centaine ou au demi-millier : « 2 000 à 3 000 hommes ».
-function menRange(n, lo = 0.75, hi = 1.3) {
-  const step = n >= 4000 ? 500 : 100;
-  const a = Math.max(0, Math.floor((n * lo) / step) * step), b = Math.max(step, Math.ceil((n * hi) / step) * step);
-  return `${a.toLocaleString('fr-FR')} à ${b.toLocaleString('fr-FR')} hommes`;
-}
-
 // ---------- Entrée et sortie du mode ----------
 
 export function initFront(hooks) {
@@ -251,7 +243,7 @@ function showDayReport() {
   `, () => byId('f-next').addEventListener('click', () => {
     if (f.phase === 'over') return showFrontDebrief();
     fui.hooks.hideDossier();
-    sound.ui('bell');
+    sound.ui('select');
     refreshFront();
   }));
 }
@@ -293,43 +285,8 @@ function showFrontDebrief() {
 
 // Rayon de recherche autour du doigt, en unités de grille : ~32 px d'écran, jamais moins de 1,5 case.
 function reach() { return Math.max(1.5, 32 / (CELL * fui.r.cam.s)); }
-
-function contactCells() {
-  const f = fui.front, s = fui.side, mem = f.memory[s], { nb, N } = f.map;
-  const c = new Uint8Array(N);
-  for (let i = 0; i < N; i++) {
-    if (f.owner[i] !== s) continue;
-    for (let d = 0; d < 6; d++) { const j = nb[i * 6 + d]; if (j >= 0 && mem.owner[j] === 1 - s) { c[i] = 1; break; } }
-  }
-  return c;
-}
-
-// La case la plus pertinente près du point p pour l'outil :
-// - vecteur : la plus garnie, de préférence au contact (c'est elle qui poussera) ;
-// - réserves : une case ravitaillée, de préférence au contact ;
-// - ligne et repli (cible) : simplement la plus proche dans nos lignes.
-function pickCell(p, purpose) {
-  const f = fui.front, s = fui.side, { x, y } = f.centers;
-  const R = reach();
-  const contact = purpose === 'push' || purpose === 'reserve' ? contactCells() : null;
-  let best = -1, bs = -Infinity;
-  for (const radius of [R, R * 2]) {
-    for (let i = 0; i < f.map.N; i++) {
-      if (f.owner[i] !== s) continue;
-      if (purpose === 'reserve' && !f.supplied[s][i]) continue;
-      const d = Math.hypot(x[i] - p.x, y[i] - p.y);
-      if (d > radius) continue;
-      const near = Math.exp(-((d / radius) ** 2));
-      let score;
-      if (purpose === 'push') score = (f.dens[i] + 2) * (contact[i] ? 1.8 : 1) * near;
-      else if (purpose === 'reserve') score = (contact[i] ? 1.6 : 1) * near;
-      else score = -d;
-      if (score > bs) { bs = score; best = i; }
-    }
-    if (best >= 0) break;
-  }
-  return best;
-}
+// La case la plus pertinente autour du doigt (voir frontinput.js).
+const pickNear = (p, purpose) => pickCell(fui.front, fui.side, p, purpose, reach());
 
 const cellPoint = (i) => ({ x: fui.front.centers.x[i], y: fui.front.centers.y[i] });
 
@@ -386,7 +343,7 @@ function onTap(p) {
     return refreshFront();
   }
   if (tool === 'reserve') {
-    const i = pickCell(p, 'reserve');
+    const i = pickNear(p, 'reserve');
     if (i < 0) { setHint('Touchez vos lignes ravitaillées.', true); return; }
     const r = deployReserve(f, s, i, f.cfg.chunk);
     if (!fail(r)) {
@@ -400,7 +357,7 @@ function onTap(p) {
   // Ordres à deux appuis.
   if (!fui.pending) {
     const purpose = tool === 'line' ? 'near' : 'push';
-    const i = pickCell(p, purpose);
+    const i = pickNear(p, purpose);
     if (i < 0) { setHint('Touchez vos lignes.', true); return; }
     fui.pending = { cell: i, point: tool === 'line' ? { x: p.x, y: p.y } : cellPoint(i) };
     if (tool === 'line' && f.owner[cellAtPoint(f, p)] !== s) fui.pending.point = cellPoint(i);
@@ -413,12 +370,12 @@ function onTap(p) {
   let r;
   if (tool === 'line') {
     let b = { x: p.x, y: p.y };
-    if (f.owner[cellAtPoint(f, b)] !== s) { const j = pickCell(p, 'near'); if (j >= 0) b = cellPoint(j); }
+    if (f.owner[cellAtPoint(f, b)] !== s) { const j = pickNear(p, 'near'); if (j >= 0) b = cellPoint(j); }
     r = addLine(f, s, a.point, b);
     if (!fail(r)) placed(`Ligne de défense : ${r.cells.length} cases se retranchent pendant la journée.`);
   } else {
     let to = { x: p.x, y: p.y };
-    if (tool === 'retreat' && f.owner[cellAtPoint(f, to)] !== s) { const j = pickCell(p, 'near'); if (j >= 0) to = cellPoint(j); }
+    if (tool === 'retreat' && f.owner[cellAtPoint(f, to)] !== s) { const j = pickNear(p, 'near'); if (j >= 0) to = cellPoint(j); }
     r = addVector(f, s, tool, a.cell, to);
     if (!fail(r)) placed(`${VECTOR_TYPES[tool].label} : environ ${fmtMen(men(vectorCatchment(f, r)))} engagés.`);
   }
@@ -433,20 +390,7 @@ function probeAt(p) {
   if (i < 0) { fui.probe = null; setHint(TOOLS_HELP()); return drawFront(); }
   const R = 3;
   const omni = viewer() === null;
-  const mem = f.memory[s];
-  const know = (j) => (omni || f.owner[j] === s ? f.owner[j] : mem.owner[j]);
-  const side = know(i);
-  let sum = 0, seen = Infinity, visible = false;
-  for (let j = 0; j < f.map.N; j++) {
-    if (know(j) !== side || side < 0) continue;
-    if (Math.hypot(f.centers.x[j] - p.x, f.centers.y[j] - p.y) > R) continue;
-    if (omni || side === s) sum += f.dens[j];
-    else {
-      sum += mem.est[j];
-      if (f.vision[s][j]) visible = true;
-      else seen = Math.min(seen, f.clock - mem.seen[j]);
-    }
-  }
+  const { side, sum, visible, age: seen } = areaReport(f, s, p, i, R, omni);
   fui.probe = { x: p.x, y: p.y, r: R };
   const terrain = describeCell(f.map, i);
   let text;
@@ -537,8 +481,10 @@ function startLoop() {
     while (fui.acc >= T) {
       if (fui.ending) { fui.acc = T; return endOfDay(); }
       fui.acc -= T;
-      stepTick(f);
+      const tick = f.tick;
+      const events = stepTick(f);
       fui.r.snapshot(viewer());
+      tickSounds(events, tick, T);
       if (f.phase !== 'resolve') fui.ending = true;
       if (fui.skip) break; // une image par tick, même en accéléré
     }
@@ -546,6 +492,37 @@ function startLoop() {
     renderClock();
   };
   fui.loop = requestAnimationFrame(frame);
+}
+
+// Panoramique et volume d'un point de la carte (unités de grille) selon sa place à l'écran.
+function frontLocate(x, y) {
+  const r = fui.r, c = r.cam;
+  const sx = (x * CELL - c.x) * c.s, sy = (y * CELL - c.y) * c.s;
+  const off = Math.max(0, -sx, sx - r.vw, -sy, sy - r.vh) / Math.max(r.vw, r.vh, 1);
+  return { pan: Math.max(-0.8, Math.min(0.8, (sx / (r.vw || 1)) * 1.6 - 0.8)), gain: 1 / (1 + 2.5 * off) };
+}
+
+// Sons d'un tick : fusillades des secteurs au contact (là où l'on a des troupes ou une vue), barrages du matin
+// (les nôtres, et ceux de l'ennemi qui tombent sous nos yeux), villes qui tombent, encerclements.
+// Rien en accéléré : « Passer » est silencieux.
+function tickSounds(events, tick, T) {
+  if (!sound.live || fui.skip || stillMotion()) return;
+  const f = fui.front, s = fui.side, items = [];
+  for (const sp of combatSpots(f, s)) items.push({ k: 'fire', n: 1 + sp.loss * 0.5, ...frontLocate(sp.x, sp.y) });
+  if (tick < f.cfg.barrageTicks && f.phase === 'resolve') {
+    for (const side of [0, 1]) {
+      for (const b of f.barrages[side]) {
+        const i = cellAtPoint(f, b);
+        if (side !== s && !(i >= 0 && (f.owner[i] === s || f.vision[s][i]))) continue;
+        items.push({ k: 'barrage', ...frontLocate(b.x, b.y) });
+      }
+    }
+  }
+  for (const e of events) {
+    if (e.kind === 'capture' && f.map.towns.some((t) => t.i === e.i)) items.push({ k: 'town', ...frontLocate(f.centers.x[e.i], f.centers.y[e.i]) });
+    else if (e.kind === 'pocket' && (e.side === s || f.pockets[e.side].some((p) => p.id === e.id && p.troops >= 20))) items.push({ k: 'pocket', pan: 0, gain: 0.8 });
+  }
+  sound.front(items, T / 1000);
 }
 
 function stopLoop() {
@@ -559,6 +536,7 @@ function endOfDay() {
   fui.skip = false;
   resnap();
   refreshFront();
+  sound.ui('bell');
   showDayReport();
 }
 

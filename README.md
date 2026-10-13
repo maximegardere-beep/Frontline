@@ -19,14 +19,17 @@ Aucune dépendance. Node 18+ suffit.
 
 ```sh
 npm start          # serveur local sur http://localhost:8080
-npm test           # tests du moteur (carte, combat, batailles IA contre IA, campagne)
+npm test           # tests : moteurs tactique et stratégique, saisie du front, page, fichier unique
 node tools/balance.mjs 600        # équilibre des camps sur 600 batailles IA contre IA
 node tools/campaign-sim.mjs 200   # difficulté de la campagne, l'IA jouant le joueur
+node tools/front-sim.mjs 120      # front stratégique : 120 batailles IA contre IA (attaquant, camps)
+node tools/front-bench.mjs        # front stratégique : banc de calibrage (percée, attaque frontale, poches)
 node tools/bundle.mjs   # génère dist/frontline.html, un fichier unique jouable hors ligne
 ```
 
 Les modules ES nécessitent un serveur HTTP : ouvrir `index.html` directement depuis le disque ne fonctionne pas,
-mais `dist/frontline.html` si.
+mais `dist/frontline.html` si. `front-preview.html` montre une bataille du front stratégique IA contre IA, en
+direct (outil de développement).
 
 ## Commandes
 
@@ -41,6 +44,41 @@ mais `dist/frontline.html` si.
 | Panneaux Unité / Troupes / Journal | colonne de droite | onglets en bas ; toucher l'onglet actif replie le tiroir |
 
 Raccourcis clavier : `Tab` unité suivante, `E` retrancher, `B` barrage, `H` annuler, `D` mode directives, `M` son, `Entrée` exécuter.
+
+## Front stratégique
+
+Depuis le menu (encadré « Front stratégique », ou le lien sous le titre), choisir son camp. Le rôle, attaquant ou
+défenseur, est tiré de la graine et annoncé au briefing, avec l'objectif : les villes marquées ★.
+
+- **La carte** : chaque camp est une masse de troupes (bleue pour la Wehrmacht, rouge pour l'Armée rouge), plus
+  sombre où elle est dense ; le trait noir est le front. Hors de vue, l'ennemi n'est qu'une estimation estompée.
+- **Le matin**, le jeu attend vos ordres. Choisir un outil en bas de la carte, puis toucher le départ et la cible :
+  le jeu prend lui-même la case la plus pertinente autour du doigt (on peut déplacer la carte entre les deux appuis).
+
+| Outil | Gestes | Effet |
+|---|---|---|
+| Infanterie (`1`) | départ, cible | couloir large, lent, tenace |
+| Blindés (`2`) | départ, cible | percée étroite, rapide et profonde ; s'enlise sous la pluie ; 2 par jour |
+| Repli (`3`) | secteur, point de repli | les troupes décrochent avec moins de pertes |
+| Ligne (`4`) | une extrémité, l'autre | les cases le long du trait se retranchent pendant la journée ; 2 par jour |
+| Barrage (`5`) | la zone | pilonnée au lever du jour, même dans le brouillard ; 12 cases au plus de vos lignes |
+| Réserves (`6`) | un appui par renfort | 800 hommes montent en ligne autour du point ; `U` annule le dernier |
+
+  Quatre vecteurs par jour au plus (infanterie, blindés et replis confondus). Un vecteur draine les troupes
+  autour de son départ : là où il prend, le front se dégarnit. Sans ordre, les troupes colmatent d'elles-mêmes
+  les secteurs menacés. L'onglet Ordres liste les ordres du jour (✕ pour en retirer un) et propose de reprendre
+  ceux de la veille.
+- **Toucher la carte** sans outil : vos troupes comptées dans la zone, l'ennemi estimé en fourchette
+  (« 1 000 à 1 800 hommes »).
+- **Poches** : des troupes coupées de leur bord de carte fondent d'environ 30 % par jour. Chaque matin, pour
+  chacune des vôtres : statu quo, Festung (se resserrer et tenir, en fondant moins vite) ou percée d'évasion
+  (toucher ensuite sa direction).
+- **La journée** se déroule seule en une vingtaine de secondes, de 6 h à 20 h ; « Passer › » l'abrège
+  (`Entrée`). On entend les fusillades des secteurs au contact, les barrages du matin, les villes qui tombent.
+- **Le soir**, un bilan : vos pertes, celles de l'ennemi estimées, le terrain, l'objectif, les renforts et la
+  météo du lendemain.
+- **Victoire** au soir du 10e jour : l'attaquant gagne s'il tient assez de villes ★, sinon le défenseur a tenu.
+  Un camp qui tombe sous 12 % de ses effectifs ou de son terrain, ou qui perd toutes les villes, a perdu sur-le-champ.
 
 ## Rendu : terrain continu sur grille
 
@@ -228,7 +266,12 @@ dernier mouvement observé : c'est la base pour anticiper et placer ses barrages
 | `src/fx.js` | Effets de combat (tirs, explosions, fumée) et traces durables (cratères, ornières, épaves) |
 | `src/audio.js` | Sons synthétisés (Web Audio) : combat, mouvements, fond sonore, interface |
 | `src/render.js` | Rendu Canvas : terrain continu, caméra (zoom, déplacement), pions, directives |
-| `src/main.js` | Interface, gestes tactiles, animation |
+| `src/main.js` | Interface, gestes tactiles, animation, menu |
+| `src/front.js` | Front stratégique : état, ordres, journée en ticks, poches, brouillard, victoire |
+| `src/frontai.js` | IA du front (ne lit que sa mémoire du brouillard) |
+| `src/frontinput.js` | Saisie du front sans DOM : case autour du doigt, estimation au toucher, foyers de combat |
+| `src/frontrender.js` | Rendu du front : masses fondues, ligne de front, ordres, poches |
+| `src/frontui.js` | Interface du front : briefing, outils, journée animée, bilans, sons |
 
-Le moteur (`rng` → `campaign`) ne dépend pas du navigateur : il est testé sous Node et peut servir
+Les moteurs (`rng` → `campaign`, `front`, `frontai`, `frontinput`) ne dépendent pas du navigateur : il est testé sous Node et peut servir
 de base à un portage (Godot, Unity…) ou à un mode multijoueur. Voir `DESIGN.md` pour les pistes.

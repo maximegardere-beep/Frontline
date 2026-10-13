@@ -95,6 +95,7 @@ function showMenu() {
     <p class="eyebrow">Front de l'Est · été 1943</p>
     <h1 class="title-xl">Frontline</h1>
     <p class="lede">Vous commandez un groupement tactique pendant cinq batailles, sur des cartes à chaque fois différentes. Tracez votre plan, anticipez celui de l'adversaire, puis regardez-le se dérouler sans pouvoir intervenir.</p>
+    <button class="link-front" id="to-front">Nouveau : le Front stratégique, dix jours sur tout un secteur ↓</button>
     <div class="factions">
       ${['DE', 'SU'].map((s) => `
         <button class="faction faction-${s}" data-side="${s}">
@@ -104,7 +105,7 @@ function showMenu() {
           <span class="faction-text">${FACTION_TEXT[s]}</span>
         </button>`).join('')}
     </div>
-    <section class="mode-front">
+    <section class="mode-front" id="mode-front">
       <h2>Front stratégique · une bataille de dix jours</h2>
       <p class="lede">Commandez tout un secteur : des masses de troupes et une ligne de front continue. Chaque matin, tracez vos poussées, lignes de défense et barrages ; puis la journée se déroule seule.</p>
       <div class="front-pick">
@@ -112,7 +113,7 @@ function showMenu() {
       </div>
     </section>
     <div class="row-between">
-      <label class="seed" for="seed">Graine de campagne <input id="seed" value="${seed}" maxlength="12" autocomplete="off"></label>
+      <label class="seed" for="seed">Graine <input id="seed" value="${seed}" maxlength="12" autocomplete="off"></label>
       ${frontActive() ? '<button class="btn btn-primary" id="back">Retour au front</button>' : ui.inGame ? '<button class="btn btn-primary" id="back">Retour à la bataille</button>' : ''}
       ${!ui.inGame && saved && !campaignOver(saved) ? `<button class="btn" id="resume">Reprendre (${SIDES[saved.playerSide].name}, bataille ${saved.index + 1}/${CAMPAIGN_LENGTH})</button>` : ''}
     </div>
@@ -127,6 +128,7 @@ function showMenu() {
       showBriefing();
     }));
     $('back')?.addEventListener('click', hideDossier);
+    $('to-front').addEventListener('click', () => $('mode-front').scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' }));
     document.querySelectorAll('[data-front]').forEach((b) => b.addEventListener('click', () => {
       ui.inGame = false;
       ui.weather.set('clear', 'day');

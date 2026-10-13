@@ -100,7 +100,7 @@ Chaque niveau au-delà de Recrue : +1 PV et +1 dé. Vétéran ou mieux : +1 retr
 (et +1 vision pour la reconnaissance). Élite : +1 mouvement, +1 portée (artillerie, blindés), touche à −1,
 et le matériel d'élite (Tigre, T-34/85, Katioucha, Panzergrenadiers, Gardes).
 
-## Frontline stratégique (jouable, finitions en cours)
+## Frontline stratégique (v1 jouable)
 
 Mode séparé au menu : un front continu à grande échelle, en WEGO. Plus d'unités discrètes : chaque case d'une
 micro-grille (96 × 64) porte une densité de troupes. Le matin, le jeu est en pause et chaque camp donne ses ordres
@@ -134,7 +134,7 @@ sans voir ceux de l'autre ; la journée s'exécute seule, en 30 ticks. Le mode t
    équilibrage IA contre IA (fait, voir ci-dessous).
 6. Rendu en masses fondues (champ calculé par tick, interpolé entre deux ticks pour l'iPhone) (fait, voir ci-dessous).
 7. Interface : menu, briefing, outils d'ordres, estimation au toucher, bilan quotidien, iPhone (fait, voir ci-dessous).
-8. Sons, tests, documentation, publication.
+8. Sons, tests, documentation, publication (fait, voir ci-dessous).
 
 ### Calibrage de la physique (`tools/front-bench.mjs`)
 
@@ -266,6 +266,24 @@ partagés. Entrée « Front stratégique » au menu, sous les deux camps du mode
 - Fin : rapport final avec les pertes réelles des deux camps, puis le brouillard est levé (vue omnisciente).
 - Mesures : ~53 images/s pendant la journée en émulation iPhone (Chromium), parcours complet testé au toucher
   (414 × 715) et à la souris, en modules et dans le fichier unique.
+
+### Sons, tests, publication (étape 8)
+
+- Sons (`AudioBoard.front`, appelé à chaque tick) : fusillades et canons des trois secteurs les plus violents au
+  contact, entendus seulement là où l'on a des troupes ou une vue (`combatSpots`, pertes par blocs de 8 × 8 cases,
+  d'après `front.tickLoss`) ; sifflements et explosions des barrages pendant les ticks du matin (les nôtres, et
+  ceux de l'ennemi qui tombent sur nos lignes ou en vue) ; grosse explosion quand une ville tombe ; message radio
+  à un encerclement ; cloche au bilan du soir. Placés en stéréo selon leur position à l'écran. Silence en
+  accéléré. Budget mesuré : ~90 sources sonores par seconde pendant le barrage du matin, moins ensuite.
+- Le vent et la canonnade lointaine du mode tactique servent de fond, seulement pendant la journée.
+- Tests (`tests/frontui.test.js`) : fourchettes d'estimation, choix de la case autour du doigt, estimation au
+  toucher sans fuite du brouillard (et vraie densité en vue omnisciente), foyers de combat, poches ignorées,
+  présence dans la page de chaque élément cherché par les contrôleurs, compilation du fichier unique
+  (`tools/bundle.mjs --check` : un nom déclaré deux fois dans deux modules casse la portée unique).
+- Le bundle gère les imports sur plusieurs lignes ; `PALETTE` est désormais une vraie constante exportée (un
+  alias `C as PALETTE` disparaissait à l'assemblage).
+- Menu : lien sous le titre vers l'encadré du front stratégique (sous les deux camps du mode tactique, il était
+  hors de l'écran sur iPhone).
 
 ### Plus tard : batailles locales
 

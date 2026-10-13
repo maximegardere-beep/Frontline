@@ -1,7 +1,11 @@
 // Assemble le jeu en un seul fichier HTML autonome (dist/frontline.html) : CSS et modules JS inclus.
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+// Les modules sont concaténés dans une seule portée : deux déclarations du même nom au premier niveau la cassent.
+// --check : n'écrit rien, vérifie seulement que le script assemblé se compile (utilisé par les tests).
+import { readFile, writeFile, mkdir, mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
 
-const ORDER = ['rng', 'hex', 'names', 'conditions', 'terrain', 'mapgen', 'units', 'path', 'combat', 'game', 'ai', 'campaign', 'fx', 'audio', 'weather', 'render', 'front', 'frontai', 'frontrender', 'frontui', 'main'];
+const ORDER = ['rng', 'hex', 'names', 'conditions', 'terrain', 'mapgen', 'units', 'path', 'combat', 'game', 'ai', 'campaign', 'fx', 'audio', 'weather', 'render', 'front', 'frontai', 'frontinput', 'frontrender', 'frontui', 'main'];
 const root = new URL('..', import.meta.url).pathname;
 
 let js = '';
@@ -13,6 +17,15 @@ for (const name of ORDER) {
     .replace(/^export (?=(const|function|class|let) )/gm, '');
 }
 js = js.replace("await import('/src/ai.js')", '({ planSide })');
+
+if (process.argv.includes('--check')) {
+  const file = `${await mkdtemp(`${tmpdir()}/frontline-`)}/bundle.mjs`;
+  await writeFile(file, js);
+  const r = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' });
+  if (r.status !== 0) { console.error(r.stderr); process.exit(1); }
+  console.log('bundle ok');
+  process.exit(0);
+}
 
 const html = await readFile(`${root}index.html`, 'utf8');
 const css = await readFile(`${root}style.css`, 'utf8');

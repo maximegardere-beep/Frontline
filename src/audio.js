@@ -188,6 +188,34 @@ class AudioBoard {
     }
   }
 
+  // Front stratégique : sons d'un tick, étalés sur sa durée (dur, en s). items : [{ k, pan, gain, n }]
+  // - fire : fusillade et canons d'un secteur au contact, n ≈ intensité (coups de fusil) ;
+  // - barrage : sifflements et explosions d'un barrage de zone ;
+  // - town : une ville tombe (grosse explosion, incendie) ; pocket : message radio d'encerclement.
+  front(items, dur) {
+    if (!this.live) return;
+    const t0 = this.ctx.currentTime + 0.03;
+    const at = (k = 1) => t0 + Math.random() * dur * k;
+    for (const s of items) {
+      const dest = this.out(s.pan, s.gain);
+      if (s.k === 'fire') {
+        const n = Math.min(8, Math.round(s.n)); // sobre : jusqu'à trois foyers par tick, sur iPhone
+        for (let i = 0; i < n; i++) this.rifle(at(), dest, true);
+        for (let i = 0; i < Math.min(2, Math.floor(s.n / 4)); i++) this.cannon(at(), dest, true, Math.random() < 0.3);
+      } else if (s.k === 'barrage') {
+        for (let i = 0; i < 2; i++) {
+          const t = at(0.6);
+          this.whistle(t, 0.45, dest);
+          this.blast(t + 0.45, 12 + Math.random() * 8, dest, false);
+        }
+      } else if (s.k === 'town') this.blast(t0, 24, dest, true);
+      else if (s.k === 'pocket') {
+        this.burst(t0, { type: 'bandpass', f0: 1600, q: 0.8, peak: 0.1, attack: 0.01, decay: 0.18 }, dest);
+        for (let i = 0; i < 3; i++) this.tone(t0 + 0.16 + i * 0.11, { wave: 'square', f0: 700, peak: 0.03, attack: 0.005, decay: 0.06 }, dest);
+      }
+    }
+  }
+
   // ---------- Mouvements ----------
 
   // groups : { tanks: [{ x, y }], foot: [{ x, y }] } — unités visibles qui se déplacent ; dur en secondes.

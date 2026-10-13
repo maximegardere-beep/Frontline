@@ -302,5 +302,6 @@ export function frontTick(front) {
     }
   }
   for (let j = 0; j < N; j++) if (!pressed[j] && breach[j] > 0) breach[j] = breach[j] * R.BREACH_DECAY < 0.01 ? 0 : breach[j] * R.BREACH_DECAY;
+  front.tickLoss = loss; // pertes par case de ce tick (sons du front)
   return events;
 }

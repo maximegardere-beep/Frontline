@@ -13,6 +13,7 @@ import { createRng } from './rng.js';
 import { makeNoise } from './mapgen.js';
 import { FRONT_KINDS } from './terrain.js';
 import { FRONT_WEATHER, POCKET_MODES, pocketName } from './front.js';
+import { MIN_POCKET } from './frontinput.js';
 
 export const CELL = 9; // rayon d'une case de la micro-grille, en pixels monde
 
@@ -21,8 +22,7 @@ const SIDE_RGB = [[52, 84, 138], [178, 42, 30]]; // Wehrmacht, Armée rouge
 const SIDE_LINE = ['#26303d', '#4a1610'];
 const ORDER_INK = '#ffd23f'; // ordres du joueur
 const ORDER_HALO = 'rgba(24, 20, 10, 0.8)';
-// Une poche de moins de 200 hommes (enclave de montagne, débris) ne mérite ni contour ni étiquette.
-export const MIN_POCKET = 20;
+
 
 // Poids de lissage d'un point de la carte : la case sous le point et ses voisines (noyau gaussien).
 function kernel(map, x, y, sigma, out) {
