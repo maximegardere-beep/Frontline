@@ -128,7 +128,7 @@ sans voir ceux de l'autre ; la journée s'exécute seule, en 30 ticks. Le mode t
 1. Moteur mis à l'abri tel quel (fait).
 2. Recalibrage de la physique avec un banc de mesure (cases gagnées par percée, coût d'une attaque frontale,
    fréquence des encerclements) ; rôles attaquant et défenseur (fait, voir ci-dessous).
-3. Nouveaux ordres et choix du joueur pour ses poches.
+3. Nouveaux ordres et choix du joueur pour ses poches (fait, voir ci-dessous).
 4. Météo du jour et biomes sur la micro-grille.
 5. IA (`frontai.js`) : défense élastique, percées sur les points faibles estimés, réserves, barrages, poches ;
    équilibrage IA contre IA.
@@ -167,6 +167,21 @@ Résultats sur 8 cartes (cibles du cahier des charges entre parenthèses) :
 | Poussée d'infanterie sur point faible | 6 cases par jour (3 à 6) |
 | Traverser 7 cases de zone retranchée | 16 ticks sur point faible, 27 sur secteur fortifié (environ ½ journée de plus) |
 | Tenaille | les bras se rejoignent au 2e jour ; poche de 2 000 à 4 500 hommes |
+
+### Ordres (étape 3)
+
+| Ordre | Saisie | Effet | Limite par jour |
+|---|---|---|---|
+| Vecteur infanterie / blindés | départ puis cible | la densité coule le long du couloir et pousse l'ennemi | 4 vecteurs, dont 2 blindés |
+| Repli ordonné | départ puis point de ses lignes | les troupes reculent sans pousser ; usure et pertes d'assaut divisées par 3, terrain cédé plus vite (le terrain n'est perdu que si l'ennemi l'occupe) | compte dans les 4 vecteurs |
+| Ligne de défense | deux points | bande de cases amies retranchée au fil de la journée (plein bonus de +40 % au soir), qui attire les troupes voisines | 2 lignes de 30 cases |
+| Barrage de zone | un point, même dans le brouillard | cercle de 3 cases martelé les 6 premiers ticks : environ 20 % de la densité ennemie et ses fortifications | 2 (attaquant : 3), à 12 cases au plus de ses lignes |
+| Réserves | un point de ses lignes ravitaillées | renforts répartis autour du point | le pool logistique |
+| Poche | un choix par poche | statu quo ; Festung (contraction, défense ×1,4, usure infligée ×2,5, et 40 % de pertes en moins par encerclement) ; percée d'évasion vers un point, relancée chaque matin | choix en vigueur tant qu'on ne le change pas |
+
+Mesures : repli face à une percée blindée, 35 % de pertes en moins qu'en tenant ; barrage, 19 % de densité
+détruite dans la zone ; ligne, 10 % de troupes en plus sur les cases tracées ; Festung, la poche dure nettement plus
+longtemps ; percée d'évasion, poche dégagée en deux jours à une dizaine de cases des lignes amies.
 
 ### Plus tard : batailles locales
 

@@ -101,6 +101,7 @@ export const FRONT_RULES = {
   THREAT: 0.15, // besoin supplémentaire par unité de densité ennemie au contact
   EMPTY: 0.3, // en dessous : case considérée vide
   HOLD_MIN: 2, // densité minimale pour réoccuper une case vide sans ordre
+  LINE_NEED: 0.8, // besoin supplémentaire des cases d'une ligne de défense
 };
 
 // Champs d'ordres d'un camp (calculés par front.js) : w (part engagée sur un vecteur), dx, dy (direction),
@@ -110,6 +111,7 @@ export function emptyField(N) {
   return {
     w: new Float32Array(N), dx: new Float32Array(N), dy: new Float32Array(N),
     speed: new Float32Array(N), atk: new Float32Array(N), fort: new Float32Array(N).fill(1), skirm: new Float32Array(N).fill(1),
+    cover: new Float32Array(N).fill(1), // usure subie (repli ordonné : < 1)
   };
 }
 
@@ -135,6 +137,8 @@ export function frontNeed(front, s) {
   for (let i = 0; i < N; i++) {
     if (owner[i] !== s) continue;
     need[i] = R.REAR_NEED + R.FRONT_NEED * 0.55 ** dist[i] + R.THREAT * threat[i];
+    // Ligne de défense : les cases tracées attirent les troupes voisines.
+    if (front.lineMask?.[i]) need[i] *= 1 + R.LINE_NEED;
   }
   return { need, dist, threat };
 }
@@ -210,7 +214,7 @@ export function frontTick(front) {
     for (let d = 0; d < 6; d++) {
       const j = nb[i * 6 + d];
       if (j < 0 || owner[j] !== o) continue;
-      loss[j] += (R.SKIRMISH * Math.sqrt(dens[i] * dens[j]) * (quality[s] / quality[o]) * S.skirm[i]) / (map.def[j] * field[o].fort[j]);
+      loss[j] += (R.SKIRMISH * Math.sqrt(dens[i] * dens[j]) * (quality[s] / quality[o]) * S.skirm[i] * field[o].cover[j]) / (map.def[j] * field[o].fort[j]);
     }
   }
 
@@ -219,7 +223,8 @@ export function frontTick(front) {
   for (let j = 0; j < N; j++) {
     if (!push[j]) continue;
     const F = push[j], D = defense(j);
-    loss[j] += (R.ASSAULT * F) / (map.def[j] * field[owner[j]].fort[j]);
+    // Une troupe qui décroche en bon ordre (repli) subit moins de pertes d'assaut : elle cède le terrain au lieu de le tenir.
+    loss[j] += (R.ASSAULT * F * field[owner[j]].cover[j]) / (map.def[j] * field[owner[j]].fort[j]);
     const riposte = R.ASSAULT * R.DEF_FIRE * D * Math.sqrt(Math.min(1, F / Math.max(D, 1e-6)));
     for (let k = 0; k < edges.length; k += 3) if (edges[k + 1] === j) loss[edges[k]] += riposte * (edges[k + 2] / F);
   }
@@ -276,7 +281,7 @@ export function frontTick(front) {
       if (F > 0.3 && ratio > R.BREAK) {
         breach[j] += R.BREACH * (ratio - R.BREAK);
         pressed[j] = 1;
-        if (breach[j] >= (map.def[j] * field[o].fort[j]) ** R.FORT_EXP) {
+        if (breach[j] >= (map.def[j] * field[o].fort[j]) ** R.FORT_EXP * field[o].cover[j]) {
           breach[j] = 0;
           tryCapture(j, s, att.map(([i, v]) => [i, v / F]));
           front.stats.byBreach++;

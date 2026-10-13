@@ -6,7 +6,7 @@
 
 import { createRng, hashString } from './rng.js';
 import { generateFrontMap, makeNoise } from './mapgen.js';
-import { cellCenters } from './hex.js';
+import { cellCenters, pixelToHex } from './hex.js';
 import { MOUNTAIN } from './terrain.js';
 import { findPockets, bfsDistance } from './path.js';
 import { emptyField, frontNeed, frontTick } from './combat.js';
@@ -23,11 +23,22 @@ export const FRONT_SETUP = {
   reinforce: [240, 280], // renforts quotidiens, au prorata du bord de carte ravitaillé
   townBonus: 25, // renforts quotidiens par ville tenue
   quality: [1.15, 1],
-  maxVectors: 4,
+  maxVectors: 4, // vecteurs par jour (infanterie, blindés, repli)
   maxArmor: 2,
+  maxLines: 2, // lignes de défense par jour
+  lineLen: 30, // longueur maximale d'une ligne, en cases
+  lineWidth: 1.8, // demi-largeur de la bande retranchée (unités de grille ; deux cases voisines sont à 1,73)
+  barrages: [2, 2], // barrages de zone par jour (l'attaquant en a un de plus)
+  barrageRadius: 3, // rayon du cercle, en cases
+  barrageRange: 12, // distance maximale à ses propres lignes
+  barrageTicks: 6, // le barrage martèle la zone pendant les premiers ticks de la journée
+  barrageRate: 0.04, // part de la densité ennemie détruite par tick dans la zone (~22 % en 6 ticks)
+  barrageWorks: 0.12, // retranchement détruit par tick dans la zone
+  retreatCover: 0.33, // usure subie par les troupes qui décrochent en bon ordre
   chunk: 80, // densité déposée par clic de déploiement
   vision: 5, // portée de reconnaissance, en cases, depuis toute case occupée
   drain: 0.012, // malus logistique d'une poche : part de sa densité perdue à chaque tick (~30 % par jour)
+  festungDrain: 0.6, // une poche en Festung, resserrée et rationnée, perd ses troupes moins vite
   men: 10, // hommes par unité de densité (affichage)
   // Rôles : l'attaquant a plus de réserves et de renforts ; le défenseur part retranché.
   attackReserve: 1.8, // multiplicateur du pool logistique initial de l'attaquant
@@ -43,6 +54,8 @@ export const FRONT_SETUP = {
 export const VECTOR_TYPES = {
   infantry: { label: 'Infanterie', sigma: 3.2, catch: 5.5, speed: 0.3, atk: 1.2, maxLen: 22 },
   armor: { label: 'Blindés', sigma: 1.8, catch: 6.5, speed: 0.7, atk: 1.8, maxLen: 42 },
+  // Repli ordonné : vers l'arrière, sans pousser l'ennemi ; le terrain cédé n'est perdu que s'il vient l'occuper.
+  retreat: { label: 'Repli', sigma: 2.8, catch: 5, speed: 0.3, atk: 0, maxLen: 20, retreat: true },
 };
 
 // Poches : comportements possibles (statu quo, forteresse, percée d'évasion).
@@ -82,6 +95,9 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
     entrench: new Float32Array(N), // 0 à 1 : retranchement de chaque case (défense × 1 + entrenchDef × e)
     orders: [[], []],
     lastOrders: [[], []],
+    lines: [[], []], // lignes de défense du jour
+    barrages: [[], []], // barrages de zone du jour
+    lineMask: new Uint8Array(N), // cases couvertes par une ligne de défense aujourd'hui
     deployments: [[], []],
     supplied: [new Uint8Array(N), new Uint8Array(N)],
     pockets: [[], []],
@@ -187,9 +203,100 @@ export function addVector(front, s, type, fromI, to) {
   const L = len(from, target);
   if (L < 2) return { error: 'Vecteur trop court.' };
   if (L > T.maxLen) target = { x: from.x + ((to.x - from.x) * T.maxLen) / L, y: from.y + ((to.y - from.y) * T.maxLen) / L };
+  if (T.retreat) {
+    const end = cellAtPoint(front, target);
+    if (end < 0 || front.owner[end] !== s) return { error: 'Un repli se fait vers vos propres lignes.' };
+  }
   const v = { id: nextVectorId++, side: s, type, fromI, from, to: target };
   front.orders[s].push(v);
   return v;
+}
+
+// Case la plus proche d'un point de la carte (coordonnées de grille).
+export function cellAtPoint(front, p) {
+  const h = pixelToHex(p.x, p.y, 1);
+  const { W, H } = front.map;
+  if (h.col < 0 || h.row < 0 || h.col >= W || h.row >= H) return -1;
+  return h.row * W + h.col;
+}
+
+// Distance (grille) du segment [a, b] au point (x, y).
+function segDist(a, b, x, y) {
+  const vx = b.x - a.x, vy = b.y - a.y, l2 = vx * vx + vy * vy || 1;
+  const t = Math.max(0, Math.min(1, ((x - a.x) * vx + (y - a.y) * vy) / l2));
+  return Math.hypot(x - (a.x + t * vx), y - (a.y + t * vy));
+}
+
+// Ligne de défense : les cases amies le long du trait se retranchent pendant la journée (plein bonus au soir)
+// et attirent les troupes voisines.
+export function addLine(front, s, a, b) {
+  if (front.phase !== 'plan') return { error: 'Les ordres se donnent le matin.' };
+  if (front.lines[s].length >= front.cfg.maxLines) return { error: `${front.cfg.maxLines} lignes de défense au plus par journée.` };
+  let L = len(a, b);
+  if (L < 3) return { error: 'Ligne trop courte.' };
+  if (L > front.cfg.lineLen) { b = { x: a.x + ((b.x - a.x) * front.cfg.lineLen) / L, y: a.y + ((b.y - a.y) * front.cfg.lineLen) / L }; L = front.cfg.lineLen; }
+  const cells = [];
+  let foreign = 0;
+  for (let i = 0; i < front.map.N; i++) {
+    if (segDist(a, b, front.centers.x[i], front.centers.y[i]) > front.cfg.lineWidth) continue;
+    if (front.owner[i] === s) cells.push(i);
+    else if (front.owner[i] >= 0) foreign++;
+  }
+  if (cells.length < foreign) return { error: 'Une ligne de défense se trace dans vos lignes.' };
+  const line = { id: nextVectorId++, side: s, a: { ...a }, b: { ...b }, cells };
+  front.lines[s].push(line);
+  return line;
+}
+
+// Barrage de zone : un cercle martelé pendant les premiers ticks de la journée, même dans le brouillard.
+export function addBarrage(front, s, at) {
+  if (front.phase !== 'plan') return { error: 'Les ordres se donnent le matin.' };
+  const max = front.cfg.barrages[s] + (s === front.attacker ? 1 : 0);
+  if (front.barrages[s].length >= max) return { error: `${max} barrages au plus par journée.` };
+  let near = Infinity;
+  for (let i = 0; i < front.map.N; i++) {
+    if (front.owner[i] !== s) continue;
+    near = Math.min(near, Math.hypot(front.centers.x[i] - at.x, front.centers.y[i] - at.y));
+  }
+  if (near > front.cfg.barrageRange) return { error: `Hors de portée : ${front.cfg.barrageRange} cases au plus de vos lignes.` };
+  const b = { id: nextVectorId++, side: s, x: at.x, y: at.y, r: front.cfg.barrageRadius };
+  front.barrages[s].push(b);
+  return b;
+}
+
+export function removeOrder(front, s, id) {
+  front.orders[s] = front.orders[s].filter((v) => v.id !== id);
+  front.lines[s] = front.lines[s].filter((v) => v.id !== id);
+  front.barrages[s] = front.barrages[s].filter((v) => v.id !== id);
+}
+
+// Comportement d'une poche, choisi le matin (par le joueur pour les siennes, par l'IA pour les autres).
+// mode : 'hold' (statu quo), 'festung' (contraction), 'breakout' (percée d'évasion vers target). Il reste en vigueur
+// tant qu'on ne le change pas ; la percée est relancée chaque matin vers son point de sortie.
+export function setPocketMode(front, s, id, mode, target = null) {
+  const p = front.pockets[s].find((x) => x.id === id);
+  if (!p) return { error: 'Poche introuvable.' };
+  if (!POCKET_MODES[mode]) return { error: 'Comportement inconnu.' };
+  if (mode === 'breakout' && !target) return { error: 'Indiquez la direction de la percée.' };
+  p.info.mode = mode;
+  p.mode = mode;
+  p.info.target = mode === 'breakout' ? { ...target } : null;
+  front.orders[s] = front.orders[s].filter((v) => v.pocket !== p.id);
+  if (mode === 'breakout') front.orders[s].push(breakoutVector(front, p));
+  return p;
+}
+
+function breakoutVector(front, p) {
+  const t = p.info.target;
+  let from = p.cells[0], bd = Infinity;
+  for (const i of p.cells) {
+    const d = Math.hypot(front.centers.x[i] - t.x, front.centers.y[i] - t.y);
+    if (d < bd) { bd = d; from = i; }
+  }
+  const o = { x: front.centers.x[from], y: front.centers.y[from] };
+  const L = Math.max(2, len(o, t));
+  const to = L > VECTOR_TYPES.armor.maxLen ? { x: o.x + ((t.x - o.x) * VECTOR_TYPES.armor.maxLen) / L, y: o.y + ((t.y - o.y) * VECTOR_TYPES.armor.maxLen) / L } : t;
+  return { id: nextVectorId++, side: p.side, type: 'armor', fromI: from, from: o, to, pocket: p.id, pocketCells: new Set(p.cells) };
 }
 
 export function removeVector(front, s, id) {
@@ -259,7 +366,8 @@ export function rebuildFields(front, s) {
   const { N } = map;
   const F = front.field[s];
   const wsum = new Float32Array(N);
-  F.w.fill(0); F.dx.fill(0); F.dy.fill(0); F.speed.fill(0); F.atk.fill(0); F.skirm.fill(1);
+  F.w.fill(0); F.dx.fill(0); F.dy.fill(0); F.speed.fill(0); F.atk.fill(0); F.skirm.fill(1); F.cover.fill(1);
+  const rsum = new Float32Array(N); // part de chaque case engagée dans un repli ordonné
   // Retranchement : bonus de défense des cases fortifiées (défenseur au départ, puis lignes de défense).
   for (let i = 0; i < N; i++) F.fort[i] = owner[i] === s ? 1 + front.cfg.entrenchDef * front.entrench[i] : 1;
   const add = (i, w, dx, dy, speed, atk) => {
@@ -279,7 +387,7 @@ export function rebuildFields(front, s) {
       const rx = centers.x[i] - v.from.x, ry = centers.y[i] - v.from.y;
       const t = (rx * ux + ry * uy) / L;
       if (t > 1) continue;
-      if (v.pocket?.has(i)) {
+      if (v.pocketCells?.has(i)) {
         // Percée d'évasion : toute la poche converge vers le point de rupture, quitte à dégarnir ses flancs.
         const d = Math.hypot(rx, ry);
         if (d > 1.2) { add(i, 0.85, -rx, -ry, 0.3, 0.4); continue; }
@@ -290,14 +398,18 @@ export function rebuildFields(front, s) {
         if (w < 0.02) continue;
         const pull = -Math.sign(perp) * Math.min(1, Math.abs(perp) / T.sigma) * 0.9;
         add(i, w, ux - uy * pull, uy + ux * pull, T.speed, T.atk);
+        if (T.retreat) rsum[i] += w;
       } else {
         const d = Math.hypot(rx, ry);
         const w = Math.exp(-((d / T.catch) ** 2));
         if (w < 0.02) continue;
         add(i, w, -rx / (d || 1) * 0.8 + ux * 0.4, -ry / (d || 1) * 0.8 + uy * 0.4, T.speed, T.atk);
+        if (T.retreat) rsum[i] += w;
       }
     }
   }
+  // Repli ordonné : les troupes qui décrochent en bon ordre subissent moins d'usure.
+  for (let i = 0; i < N; i++) if (rsum[i] > 0.3) F.cover[i] = front.cfg.retreatCover;
   for (let i = 0; i < N; i++) {
     const w = wsum[i];
     if (!w) continue;
@@ -405,6 +517,13 @@ function updateMemory(front) {
 export function beginDay(front) {
   if (front.phase !== 'plan') return;
   for (const s of [0, 1]) if (s !== front.playerSide) front.planAI?.(front, s);
+  for (const s of [0, 1]) {
+    for (const p of front.pockets[s]) {
+      if (p.info.mode === 'breakout' && p.info.target && !front.orders[s].some((v) => v.pocket === p.id)) front.orders[s].push(breakoutVector(front, p));
+    }
+  }
+  front.lineMask.fill(0);
+  for (const s of [0, 1]) for (const l of front.lines[s]) for (const i of l.cells) front.lineMask[i] = 1;
   front.phase = 'resolve';
   front.tick = 0;
   front.dayStart = { troops: [troops(front, 0), troops(front, 1)], territory: [territory(front, 0), territory(front, 1)], losses: front.stats.losses.slice() };
@@ -413,6 +532,7 @@ export function beginDay(front) {
 // Un tick : flux et pression (combat.js), puis ravitaillement, malus des poches, brouillard, victoire.
 export function stepTick(front) {
   if (front.phase !== 'resolve') return [];
+  applyWorks(front);
   rebuildFields(front, 0);
   rebuildFields(front, 1);
   const events = frontTick(front);
@@ -427,7 +547,8 @@ export function stepTick(front) {
   for (const s of [0, 1]) {
     for (const p of front.pockets[s]) {
       let lost = 0;
-      for (const i of p.cells) { const l = front.dens[i] * front.cfg.drain; front.dens[i] -= l; lost += l; }
+      const rate = front.cfg.drain * (p.mode === 'festung' ? front.cfg.festungDrain : 1);
+      for (const i of p.cells) { const l = front.dens[i] * rate; front.dens[i] -= l; lost += l; }
       front.stats.losses[s] += lost;
       p.troops -= lost;
     }
@@ -443,6 +564,27 @@ export function stepTick(front) {
   checkFrontVictory(front);
   if (front.phase === 'resolve' && front.tick >= front.cfg.ticks) endDay(front);
   return events;
+}
+
+// Lignes de défense (retranchement qui monte au fil de la journée) et barrages de zone (premiers ticks).
+function applyWorks(front) {
+  const c = front.cfg;
+  for (const s of [0, 1]) {
+    for (const l of front.lines[s]) {
+      for (const i of l.cells) if (front.owner[i] === s) front.entrench[i] = Math.min(1, front.entrench[i] + 1 / c.ticks);
+    }
+    if (front.tick >= c.barrageTicks) continue;
+    for (const b of front.barrages[s]) {
+      for (let i = 0; i < front.map.N; i++) {
+        if (front.owner[i] !== 1 - s) continue;
+        if (Math.hypot(front.centers.x[i] - b.x, front.centers.y[i] - b.y) > b.r) continue;
+        const l = front.dens[i] * c.barrageRate;
+        front.dens[i] -= l;
+        front.stats.losses[1 - s] += l;
+        front.entrench[i] = Math.max(0, front.entrench[i] - c.barrageWorks);
+      }
+    }
+  }
 }
 
 // Résout toute la journée d'un coup (tests, simulations IA contre IA).
@@ -462,6 +604,8 @@ function endDay(front) {
     front.reserve[s] += add;
     front.lastOrders[s] = front.orders[s].filter((v) => !v.pocket);
     front.orders[s] = [];
+    front.lines[s] = [];
+    front.barrages[s] = [];
     front.deployments[s] = [];
   }
   const d = front.dayStart;

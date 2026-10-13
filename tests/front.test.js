@@ -113,3 +113,84 @@ test('fin de l\'offensive : sans villes prises, le défenseur a tenu', () => {
   assert.equal(f.result.winner, 1, f.result.reason);
   assert.match(f.result.reason, /a tenu/);
 });
+
+const pt = (f, i) => ({ x: f.centers.x[i], y: f.centers.y[i] });
+const sideFront = (f, side, row) => {
+  const { W, nb, N } = f.map;
+  let best = -1, bd = Infinity;
+  for (let i = 0; i < N; i++) {
+    if (f.owner[i] !== side) continue;
+    let c = false;
+    for (let d = 0; d < 6; d++) { const j = nb[i * 6 + d]; if (j >= 0 && f.owner[j] === 1 - side) c = true; }
+    if (!c) continue;
+    const dd = Math.abs(Math.floor(i / W) - row);
+    if (dd < bd) { bd = dd; best = i; }
+  }
+  return best;
+};
+
+test('ligne de défense : retranchement complet au soir, les troupes s\'y portent', async () => {
+  const { addLine } = await import('../src/front.js');
+  const f = createFront({ seed: 'ord', attacker: 'SU' });
+  f.reserve = [0, 0];
+  const a = pt(f, sideFront(f, 0, 20)), b = pt(f, sideFront(f, 0, 40));
+  const line = addLine(f, 0, { x: a.x - 2, y: a.y }, { x: b.x - 2, y: b.y });
+  assert.ok(!line.error && line.cells.length > 20, line.error);
+  const before = line.cells.reduce((s, i) => s + f.dens[i], 0);
+  runDay(f);
+  assert.ok(line.cells.every((i) => f.owner[i] !== 0 || f.entrench[i] > 0.95), 'retranchée au soir');
+  assert.ok(line.cells.reduce((s, i) => s + f.dens[i], 0) > before, 'renforcée');
+  const east = pt(f, 32 * f.map.W + f.map.W - 8), east2 = pt(f, 44 * f.map.W + f.map.W - 8);
+  assert.ok(addLine(f, 0, east, east2).error, 'pas de ligne en territoire ennemi');
+});
+
+test('barrage de zone : densité et fortifications ennemies entamées, portée limitée', async () => {
+  const { addBarrage } = await import('../src/front.js');
+  const f = createFront({ seed: 'ord' });
+  f.reserve = [0, 0];
+  const at = pt(f, sideFront(f, 1, 32));
+  const zone = () => { let d = 0; for (let i = 0; i < f.map.N; i++) if (f.owner[i] === 1 && Math.hypot(f.centers.x[i] - at.x, f.centers.y[i] - at.y) <= 3) d += f.dens[i]; return d; };
+  const d0 = zone();
+  assert.ok(!addBarrage(f, 0, at).error);
+  assert.ok(addBarrage(f, 0, { x: at.x + 30, y: at.y }).error, 'hors de portée');
+  beginDay(f);
+  for (let t = 0; t < 6; t++) stepTick(f);
+  assert.ok(zone() < d0 * 0.88, `densité ${d0.toFixed(0)} → ${zone().toFixed(0)}`);
+});
+
+test('repli ordonné : moins de pertes qu\'en tenant face à une percée', () => {
+  const losses = (retreat) => {
+    const f = createFront({ seed: 'ord', attacker: 'SU' });
+    f.reserve = [0, 0];
+    const su = sideFront(f, 1, 32);
+    addVector(f, 1, 'armor', su, { x: pt(f, su).x - 35, y: pt(f, su).y });
+    if (retreat) {
+      const de = sideFront(f, 0, 32);
+      assert.ok(!addVector(f, 0, 'retreat', de, { x: pt(f, de).x - 12, y: pt(f, de).y }).error);
+      assert.ok(addVector(f, 0, 'retreat', de, { x: pt(f, de).x + 20, y: pt(f, de).y }).error, 'un repli va vers ses lignes');
+    }
+    runDay(f);
+    return f.stats.losses[0];
+  };
+  const hold = losses(false), back = losses(true);
+  assert.ok(back < hold * 0.8, `repli ${back.toFixed(0)} contre ${hold.toFixed(0)}`);
+});
+
+test('poches : statu quo, Festung (fond moins vite), percée d\'évasion (dégage la poche)', async () => {
+  const { setPocketMode } = await import('../src/front.js');
+  const run = (mode) => {
+    const f = createFront({ seed: 'poche2' });
+    const { W, H } = f.map;
+    f.reserve = [0, 0];
+    for (let r = H / 2 - 3; r <= H / 2 + 3; r++) for (let c = 30; c <= 36; c++) { const i = r * W + c; if (f.owner[i] === 0) { f.owner[i] = 1; f.dens[i] = 8; } }
+    runDay(f);
+    const p = [...f.pockets[1]].sort((a, b) => b.troops - a.troops)[0];
+    if (mode !== 'hold') assert.ok(!setPocketMode(f, 1, p.id, mode, { x: f.centers.x[(H / 2) * W + W - 10], y: f.centers.y[(H / 2) * W] }).error);
+    runDay(f);
+    runDay(f);
+    return f.pockets[1].find((x) => x.id === p.id)?.troops ?? null;
+  };
+  const hold = run('hold'), festung = run('festung'), out = run('breakout');
+  assert.ok(festung > hold * 1.2, `Festung ${festung?.toFixed(0)} contre ${hold?.toFixed(0)}`);
+  assert.equal(out, null, 'la percée d\'évasion dégage la poche');
+});
