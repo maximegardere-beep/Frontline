@@ -127,7 +127,7 @@ sans voir ceux de l'autre ; la journée s'exécute seule, en 30 ticks. Le mode t
 
 1. Moteur mis à l'abri tel quel (fait).
 2. Recalibrage de la physique avec un banc de mesure (cases gagnées par percée, coût d'une attaque frontale,
-   fréquence des encerclements) ; rôles attaquant et défenseur.
+   fréquence des encerclements) ; rôles attaquant et défenseur (fait, voir ci-dessous).
 3. Nouveaux ordres et choix du joueur pour ses poches.
 4. Météo du jour et biomes sur la micro-grille.
 5. IA (`frontai.js`) : défense élastique, percées sur les points faibles estimés, réserves, barrages, poches ;
@@ -135,6 +135,38 @@ sans voir ceux de l'autre ; la journée s'exécute seule, en 30 ticks. Le mode t
 6. Rendu en masses fondues (champ calculé par tick, interpolé entre deux ticks pour l'iPhone).
 7. Interface : menu, briefing, outils d'ordres, estimation au toucher, bilan quotidien, iPhone.
 8. Sons, tests, documentation, publication.
+
+### Calibrage de la physique (`tools/front-bench.mjs`)
+
+Diagnostic de départ : un front calme perdait 10 % (Wehrmacht) et 4 % (Armée rouge) de ses troupes par jour, et
+une percée blindée ne prenait aucune case. Causes et corrections :
+
+- **Usure au contact** trop forte et à sens unique (fonction de la seule densité ennemie) : elle devient mutuelle
+  (moyenne géométrique des deux densités, rapport des qualités) et 5 fois plus faible.
+- **Colmatage élastique** trop rapide : la menace attirait toute la densité voisine, une case de contact montait à
+  88 de densité (7 au repos) en quelques ticks. Poids de la menace et vitesse du colmatage réduits ; il dégarnit
+  toujours les flancs, ce qui crée d'autres points faibles.
+- **Avance** limitée par l'écoulement, pas par le combat : vitesse des blindés 0,42 → 0,7, de l'infanterie
+  0,16 → 0,3.
+- **Jauge de brèche** : une case ne tombe plus d'un coup ; tant que la pression dépasse 1,6 fois la défense, sa
+  jauge se remplit selon le rapport des forces, et le seuil croît comme le cube de la défense (terrain, relief,
+  retranchement). Forcer une ligne fortifiée prend donc du temps, pas seulement des pertes.
+- **Rôles** : l'attaquant a 80 % de réserves et 30 % de renforts en plus ; le défenseur part retranché (défense
+  +40 %) sur 6 cases de profondeur, inégalement selon les secteurs (toujours près des villes) : il y a des points
+  faibles à découvrir. L'attaquant gagne au 10e jour s'il tient la moitié des villes du défenseur au départ.
+- **Poches** : 1,2 % de densité perdue par tick (environ 30 % par jour) au lieu de 2 %, pour laisser le temps de
+  choisir entre statu quo, Festung et percée d'évasion.
+
+Résultats sur 8 cartes (cibles du cahier des charges entre parenthèses) :
+
+| Mesure | Résultat |
+|---|---|
+| Front calme | 1,0 % et 0,9 % de pertes par jour, aucune case perdue (1 à 2 %) |
+| Percée blindée sur point faible | 12 cases par jour en médiane (10 à 15) ; 0 quand le terrain s'y oppose (hauteurs) |
+| Attaque frontale sur secteur renforcé | aucun gain, l'assaillant perd 1,7 fois plus (≤ 3 cases) |
+| Poussée d'infanterie sur point faible | 6 cases par jour (3 à 6) |
+| Traverser 7 cases de zone retranchée | 16 ticks sur point faible, 27 sur secteur fortifié (environ ½ journée de plus) |
+| Tenaille | les bras se rejoignent au 2e jour ; poche de 2 000 à 4 500 hommes |
 
 ### Plus tard : batailles locales
 

@@ -27,8 +27,13 @@ export const FRONT_SETUP = {
   maxArmor: 2,
   chunk: 80, // densité déposée par clic de déploiement
   vision: 5, // portée de reconnaissance, en cases, depuis toute case occupée
-  drain: 0.02, // malus logistique d'une poche : part de sa densité perdue à chaque tick
+  drain: 0.012, // malus logistique d'une poche : part de sa densité perdue à chaque tick (~30 % par jour)
   men: 10, // hommes par unité de densité (affichage)
+  // Rôles : l'attaquant a plus de réserves et de renforts ; le défenseur part retranché.
+  attackReserve: 1.8, // multiplicateur du pool logistique initial de l'attaquant
+  attackReinforce: 1.3, // multiplicateur de ses renforts quotidiens
+  entrenchDepth: 6, // profondeur (en cases depuis le front) du retranchement initial du défenseur
+  entrenchDef: 0.4, // bonus de défense d'une case pleinement retranchée (+40 %)
 };
 
 // Types de vecteurs. sigma : demi-largeur du couloir ; catch : rayon de ramassage autour de l'origine
@@ -36,8 +41,8 @@ export const FRONT_SETUP = {
 // qui avance à chaque tick ; atk : puissance de choc ; maxLen : longueur maximale, en cases.
 // Les blindés, rapides, drainent fort leur point de départ : si la réserve s'assèche, la percée s'arrête.
 export const VECTOR_TYPES = {
-  infantry: { label: 'Infanterie', sigma: 3.2, catch: 5.5, speed: 0.16, atk: 1, maxLen: 22 },
-  armor: { label: 'Blindés', sigma: 1.8, catch: 6.5, speed: 0.42, atk: 1.8, maxLen: 42 },
+  infantry: { label: 'Infanterie', sigma: 3.2, catch: 5.5, speed: 0.3, atk: 1.2, maxLen: 22 },
+  armor: { label: 'Blindés', sigma: 1.8, catch: 6.5, speed: 0.7, atk: 1.8, maxLen: 42 },
 };
 
 // Poches : comportements possibles (statu quo, forteresse, percée d'évasion).
@@ -49,7 +54,8 @@ export const POCKET_MODES = {
 
 let nextVectorId = 1;
 
-export function createFront({ seed, playerSide = 'DE', biome = null, days = FRONT_SETUP.days, setup = {} } = {}) {
+// attacker : camp attaquant ('DE' ou 'SU'), fixé au briefing.
+export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = null, days = FRONT_SETUP.days, setup = {} } = {}) {
   const cfg = { ...FRONT_SETUP, ...setup, days };
   const map = generateFrontMap(seed, { biome });
   const { W, H, N } = map;
@@ -72,6 +78,8 @@ export function createFront({ seed, playerSide = 'DE', biome = null, days = FRON
     field: [emptyField(N), emptyField(N)],
     quality: cfg.quality.slice(),
     reserve: cfg.reserve.slice(),
+    attacker: sideIndex(attacker),
+    entrench: new Float32Array(N), // 0 à 1 : retranchement de chaque case (défense × 1 + entrenchDef × e)
     orders: [[], []],
     lastOrders: [[], []],
     deployments: [[], []],
@@ -80,7 +88,7 @@ export function createFront({ seed, playerSide = 'DE', biome = null, days = FRON
     pocketTag: [new Int32Array(N), new Int32Array(N)],
     pocketInfo: new Map(),
     nextPocket: 1,
-    stats: { losses: [0, 0], captured: [0, 0] },
+    stats: { losses: [0, 0], captured: [0, 0], byBreach: 0, byEmpty: 0 },
     day: 1,
     tick: 0,
     clock: 0, // ticks écoulés depuis le début (mémoire du brouillard)
@@ -102,6 +110,30 @@ export function createFront({ seed, playerSide = 'DE', biome = null, days = FRON
     for (let i = 0; i < N; i++) if (owner[i] === s) total += need[i] * map.flow[i] ** 0.5;
     for (let i = 0; i < N; i++) if (owner[i] === s) dens[i] = (cfg.troops[s] * need[i] * map.flow[i] ** 0.5) / total;
   }
+  // Rôles : l'attaquant reçoit plus de réserves ; le défenseur est retranché sur quelques cases derrière le front.
+  const att = front.attacker, def = 1 - att;
+  front.reserve[att] = Math.round(front.reserve[att] * cfg.attackReserve);
+  {
+    const seeds = [];
+    for (let i = 0; i < N; i++) {
+      if (owner[i] !== def) continue;
+      for (let d = 0; d < 6; d++) { const j = map.nb[i * 6 + d]; if (j >= 0 && owner[j] === att) { seeds.push(i); break; } }
+    }
+    const dist = bfsDistance(map.nb, N, seeds, (i) => owner[i] === def, cfg.entrenchDepth);
+    // Fortifications inégales le long du front : des secteurs solides, d'autres à peine tenus (points faibles à
+    // découvrir), et toujours les abords des villes.
+    const works = makeNoise(createRng(`works:${seed}`));
+    const nearTown = bfsDistance(map.nb, N, map.towns.map((t) => t.i), () => true, 3);
+    for (let i = 0; i < N; i++) {
+      if (owner[i] !== def || dist[i] >= cfg.entrenchDepth) continue;
+      const row = Math.floor(i / W);
+      const sector = Math.min(1, Math.max(0.1, (works(row * 0.09, 3.3, 2) - 0.3) * 2.2));
+      front.entrench[i] = nearTown[i] <= 3 ? 1 : sector;
+    }
+  }
+  // Objectif de l'attaquant : tenir au 10e jour au moins la moitié des villes que le défenseur avait au départ.
+  front.defTowns = map.towns.filter((t) => owner[t.i] === def).map((t) => t.i);
+  front.goal = Math.max(1, Math.ceil(front.defTowns.length / 2));
   front.initial = [troops(front, 0) + front.reserve[0], troops(front, 1) + front.reserve[1]];
   front.memory = [0, 1].map((s) => ({ owner: Int8Array.from(owner), est: new Float32Array(N), seen: new Int32Array(N).fill(-1) }));
   updateSupply(front);
@@ -227,7 +259,9 @@ export function rebuildFields(front, s) {
   const { N } = map;
   const F = front.field[s];
   const wsum = new Float32Array(N);
-  F.w.fill(0); F.dx.fill(0); F.dy.fill(0); F.speed.fill(0); F.atk.fill(0); F.fort.fill(1); F.skirm.fill(1);
+  F.w.fill(0); F.dx.fill(0); F.dy.fill(0); F.speed.fill(0); F.atk.fill(0); F.skirm.fill(1);
+  // Retranchement : bonus de défense des cases fortifiées (défenseur au départ, puis lignes de défense).
+  for (let i = 0; i < N; i++) F.fort[i] = owner[i] === s ? 1 + front.cfg.entrenchDef * front.entrench[i] : 1;
   const add = (i, w, dx, dy, speed, atk) => {
     const l = Math.hypot(dx, dy) || 1;
     wsum[i] += w;
@@ -278,7 +312,7 @@ export function rebuildFields(front, s) {
       const dx = p.cx - centers.x[i], dy = p.cy - centers.y[i];
       const d = Math.hypot(dx, dy);
       if (d > 1) { F.w[i] = 0.55; F.dx[i] = dx / d; F.dy[i] = dy / d; F.speed[i] = 0.12; F.atk[i] = 0.3; }
-      F.fort[i] = 1.4;
+      F.fort[i] = Math.max(F.fort[i], 1.4);
       F.skirm[i] = 2.5;
     }
   }
@@ -384,6 +418,7 @@ export function stepTick(front) {
   const events = frontTick(front);
   for (const e of events) {
     if (e.kind !== 'capture') continue;
+    front.entrench[e.i] = 0; // une case prise perd son retranchement
     const town = front.map.towns.find((t) => t.i === e.i);
     if (town) flog(front, 'town', `${FRONT_SIDES[e.side] === 'DE' ? 'La Wehrmacht' : 'L\'Armée rouge'} prend ${town.name}.`, e.side);
   }
@@ -423,7 +458,7 @@ function endDay(front) {
     const { W, H } = front.map;
     let edge = 0;
     for (let row = 0; row < H; row++) if (front.supplied[s][row * W + edgeCol(front, s)]) edge++;
-    const add = Math.round(c.reinforce[s] * (edge / H) + c.townBonus * townsHeld(front, s));
+    const add = Math.round(c.reinforce[s] * (edge / H) * (s === front.attacker ? c.attackReinforce : 1) + c.townBonus * townsHeld(front, s));
     front.reserve[s] += add;
     front.lastOrders[s] = front.orders[s].filter((v) => !v.pocket);
     front.orders[s] = [];
@@ -469,11 +504,16 @@ export function checkFrontVictory(front) {
   return null;
 }
 
-// Au terme des journées : moitié territoire, moitié villes.
+// Au terme des journées : l'attaquant gagne s'il tient au moins la moitié des villes que le défenseur avait au départ ;
+// sinon le défenseur a tenu.
+export function attackerTowns(front) {
+  return front.defTowns.filter((i) => front.owner[i] === front.attacker).length;
+}
+
 function finalVerdict(front) {
-  const score = (s) => territory(front, s) * 0.5 + (townsHeld(front, s) / Math.max(1, front.map.towns.length)) * 0.5;
-  const a = score(0), b = score(1);
-  if (Math.abs(a - b) < 0.08) return finish(front, null, 'Fin de l\'offensive : le front se fige, aucun camp n\'a pris l\'ascendant.');
-  const w = a > b ? 0 : 1;
-  finish(front, w, `Fin de l'offensive : ${w === 0 ? 'la Wehrmacht' : 'l\'Armée rouge'} tient le terrain et les villes.`);
+  const att = front.attacker, def = 1 - att;
+  const name = (s) => (s === 0 ? 'la Wehrmacht' : 'l\'Armée rouge');
+  const got = attackerTowns(front);
+  if (got >= front.goal) return finish(front, att, `Fin de l'offensive : ${name(att)} a pris ${got} ville${got > 1 ? 's' : ''} sur les ${front.goal} visées.`);
+  finish(front, def, `Fin de l'offensive : ${name(def)} a tenu, l'ennemi n'a pris que ${got} ville${got > 1 ? 's' : ''} sur les ${front.goal} visées.`);
 }

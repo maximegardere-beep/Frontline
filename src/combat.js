@@ -87,15 +87,18 @@ export function moraleCheck(map, unit, hpBefore, rng, { forced = false, isolated
 // Tout est calculé sur l'état de début de tick puis appliqué : aucun camp ne joue « avant » l'autre.
 
 export const FRONT_RULES = {
-  SKIRMISH: 0.003, // usure au contact, par tick, pour une densité 1 en terrain neutre
+  SKIRMISH: 0.0006, // usure mutuelle au contact, par tick (front calme : ~1,5 % de pertes par jour)
   ASSAULT: 0.06, // pertes infligées par unité de pression
   DEF_FIRE: 0.8, // riposte de la case assaillie
-  BREAK: 1.6, // la pression doit dépasser BREAK × la défense pour conquérir
+  BREAK: 1.6, // la pression doit dépasser BREAK × la défense pour entamer la case
+  BREACH: 0.35, // remplissage de la jauge de brèche par tick, par point de rapport pression / défense au-delà de BREAK
+  BREACH_DECAY: 0.7, // la jauge se vide quand la pression cesse
+  FORT_EXP: 3, // seuil de la jauge = (terrain × retranchement) ^ FORT_EXP : forcer une ligne fortifiée prend du temps
   ADVANCE: 0.4, // part de la densité des assaillants qui entre dans la case conquise
-  ELASTIC: 0.35, // vitesse du colmatage élastique
+  ELASTIC: 0.25, // vitesse du colmatage élastique (trop rapide, il rendait toute percée impossible)
   FRONT_NEED: 7, // besoin d'une case de front (le besoin décroît de moitié environ par case vers l'arrière)
   REAR_NEED: 0.4, // besoin d'une case d'arrière
-  THREAT: 0.5, // besoin supplémentaire par unité de densité ennemie au contact
+  THREAT: 0.15, // besoin supplémentaire par unité de densité ennemie au contact
   EMPTY: 0.3, // en dessous : case considérée vide
   HOLD_MIN: 2, // densité minimale pour réoccuper une case vide sans ordre
 };
@@ -202,11 +205,12 @@ export function frontTick(front) {
         delta[nb[i * 6 + d]] += q[d] * k;
       }
     }
-    // 2a. Escarmouche : usure lente de part et d'autre du front, freinée par le terrain du défenseur.
+    // 2a. Escarmouche : usure lente et mutuelle de part et d'autre du front. Elle dépend des deux densités face
+    // à face (moyenne géométrique), du rapport des qualités, et elle est freinée par le terrain du défenseur.
     for (let d = 0; d < 6; d++) {
       const j = nb[i * 6 + d];
       if (j < 0 || owner[j] !== o) continue;
-      loss[j] += (R.SKIRMISH * dens[i] * quality[s] * S.skirm[i]) / (map.def[j] * field[o].fort[j]);
+      loss[j] += (R.SKIRMISH * Math.sqrt(dens[i] * dens[j]) * (quality[s] / quality[o]) * S.skirm[i]) / (map.def[j] * field[o].fort[j]);
     }
   }
 
@@ -231,6 +235,9 @@ export function frontTick(front) {
   // 3. Conquêtes : pression supérieure à BREAK × défense restante, ou case vide face à une densité suffisante.
   const events = [];
   const captured = new Uint8Array(N);
+  if (!front.breach) front.breach = new Float32Array(N);
+  const breach = front.breach;
+  const pressed = new Uint8Array(N);
   const tryCapture = (j, s, attackers) => {
     const o = owner[j];
     // Les survivants refluent vers leurs propres cases voisines ; sans repli possible, ils sont perdus.
@@ -262,9 +269,19 @@ export function frontTick(front) {
         F += v;
         att.push([i, v]);
       }
-      if (F > 0.3 && F > R.BREAK * defense(j)) {
-        tryCapture(j, s, att.map(([i, v]) => [i, v / F]));
-        continue;
+      // Brèche : tant que la pression dépasse BREAK × la défense, la jauge de la case se remplit, d'autant plus vite que
+      // le rapport des forces est écrasant ; la case tombe quand elle est pleine. Fortifications et hauteurs, qui
+      // gonflent la défense, retardent ainsi la percée au lieu de seulement coûter plus cher.
+      const ratio = F / Math.max(defense(j), 1e-6);
+      if (F > 0.3 && ratio > R.BREAK) {
+        breach[j] += R.BREACH * (ratio - R.BREAK);
+        pressed[j] = 1;
+        if (breach[j] >= (map.def[j] * field[o].fort[j]) ** R.FORT_EXP) {
+          breach[j] = 0;
+          tryCapture(j, s, att.map(([i, v]) => [i, v / F]));
+          front.stats.byBreach++;
+          continue;
+        }
       }
     }
     if (dens[j] < R.EMPTY) {
@@ -273,8 +290,12 @@ export function frontTick(front) {
         const n = nb[j * 6 + d];
         if (n >= 0 && owner[n] === s && !captured[n] && dens[n] > R.HOLD_MIN && (best < 0 || dens[n] > dens[best])) best = n;
       }
-      if (best >= 0 && dens[best] * quality[s] > R.BREAK * defense(j) + R.HOLD_MIN) tryCapture(j, s, [[best, 0.6]]);
+      if (best >= 0 && dens[best] * quality[s] > R.BREAK * defense(j) + R.HOLD_MIN) {
+        tryCapture(j, s, [[best, 0.6]]);
+        front.stats.byEmpty++;
+      }
     }
   }
+  for (let j = 0; j < N; j++) if (!pressed[j] && breach[j] > 0) breach[j] = breach[j] * R.BREACH_DECAY < 0.01 ? 0 : breach[j] * R.BREACH_DECAY;
   return events;
 }
