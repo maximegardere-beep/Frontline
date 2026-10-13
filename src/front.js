@@ -23,7 +23,7 @@ export const FRONT_SETUP = {
   reserve: [600, 700], // pool logistique initial
   reinforce: [240, 280], // renforts quotidiens, au prorata du bord de carte ravitaillé
   townBonus: 25, // renforts quotidiens par ville tenue
-  quality: [1.15, 1],
+  quality: [1.25, 1], // qualité allemande : 1,15 laissait l'Armée rouge gagner 58 % des batailles IA contre IA
   maxVectors: 4, // vecteurs par jour (infanterie, blindés, repli)
   maxArmor: 2,
   maxLines: 2, // lignes de défense par jour
@@ -46,6 +46,7 @@ export const FRONT_SETUP = {
   attackReinforce: 1.3, // multiplicateur de ses renforts quotidiens
   entrenchDepth: 6, // profondeur (en cases depuis le front) du retranchement initial du défenseur
   entrenchDef: 0.4, // bonus de défense d'une case pleinement retranchée (+40 %)
+  goalShare: 0.75, // part des villes du défenseur que l'attaquant doit tenir au dernier jour (arrondie au-dessus)
 };
 
 // Types de vecteurs. sigma : demi-largeur du couloir ; catch : rayon de ramassage autour de l'origine
@@ -162,7 +163,7 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
   }
   // Objectif de l'attaquant : tenir au 10e jour au moins la moitié des villes que le défenseur avait au départ.
   front.defTowns = map.towns.filter((t) => owner[t.i] === def).map((t) => t.i);
-  front.goal = Math.max(1, Math.ceil(front.defTowns.length / 2));
+  front.goal = Math.max(1, Math.ceil(front.defTowns.length * cfg.goalShare - 1e-9));
   front.initial = [troops(front, 0) + front.reserve[0], troops(front, 1) + front.reserve[1]];
   front.memory = [0, 1].map((s) => ({ owner: Int8Array.from(owner), est: new Float32Array(N), seen: new Int32Array(N).fill(-1) }));
   map.baseFlow = map.flow;

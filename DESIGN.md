@@ -131,7 +131,7 @@ sans voir ceux de l'autre ; la journée s'exécute seule, en 30 ticks. Le mode t
 3. Nouveaux ordres et choix du joueur pour ses poches (fait, voir ci-dessous).
 4. Météo du jour et biomes sur la micro-grille (fait, voir ci-dessous).
 5. IA (`frontai.js`) : défense élastique, percées sur les points faibles estimés, réserves, barrages, poches ;
-   équilibrage IA contre IA.
+   équilibrage IA contre IA (fait, voir ci-dessous).
 6. Rendu en masses fondues (champ calculé par tick, interpolé entre deux ticks pour l'iPhone).
 7. Interface : menu, briefing, outils d'ordres, estimation au toucher, bilan quotidien, iPhone.
 8. Sons, tests, documentation, publication.
@@ -197,6 +197,31 @@ chance sur deux de garder le temps de la veille. Elle est connue au moment de do
 
 Biomes de la micro-grille (moyennes sur 8 cartes) : steppe 90 % de plaine, 5 % de forêt ; bocage 28 % de forêt ;
 Polésie 25 % de marais, presque pas de montagnes ; bourg avec une grande ville de 19 cases au centre.
+
+### IA et équilibre (étape 5)
+
+L'IA (`src/frontai.js`) ne lit de l'ennemi que sa mémoire du brouillard (propriétaire des cases vues, densité
+estimée) : un test vérifie que changer les troupes ennemies hors de vue ne change pas ses ordres. Chaque matin elle
+lit le front par secteurs de 4 lignes (ses forces contre l'estimation d'en face, terrain compris), puis :
+défense élastique (lignes derrière les secteurs menacés, réserves au prorata du déficit, repli d'un saillant
+intenable loin des villes), attaque des meilleurs rapports de forces vers la ville ennemie la plus proche (blindés,
+infanterie sous la pluie ; préparation au barrage ; réserves en tête), barrages sur les concentrations ennemies,
+et tirage pondéré pour ses poches. Réglages dans `AI_TUNING`.
+
+Outils : `tools/front-sim.mjs` (batailles IA contre IA) et `tools/front-pool.sh` (trois séries en parallèle,
+mises en commun). Une série de 40 batailles est trop bruitée : selon la graine, la même version donnait 35 % ou
+68 % de victoires à l'attaquant. Décider sur 120 batailles au moins.
+
+Corrections apportées :
+- l'objectif de l'attaquant passe de la moitié aux trois quarts des villes du défenseur (arrondi au-dessus) :
+  avec la moitié, il gagnait 75 % des batailles ;
+- le défenseur gardait ses réserves (pool passé de 650 à 1 000 pendant que son front cédait) : l'IA engage
+  désormais 85 % du pool chaque matin, au prorata du déficit des secteurs menacés ;
+- qualité allemande 1,15 → 1,25 : l'Armée rouge gagnait 58 % des batailles.
+
+Résultat sur 240 batailles (biomes, mois et rôles tournants) : attaquant 50 %, Wehrmacht 47,5 %, Armée rouge
+52,5 % ; 8,5 jours en moyenne, un tiers des batailles finit avant le terme ; environ 6 encerclements par bataille ;
+1 s de calcul par bataille sous Node.
 
 ### Plus tard : batailles locales
 

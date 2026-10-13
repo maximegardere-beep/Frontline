@@ -102,7 +102,7 @@ test('rôles : réserves de l\'attaquant, retranchement inégal du défenseur, o
     assert.ok(dug > 100, 'le défenseur est retranché');
     assert.equal(attDug, 0, 'l\'attaquant ne l\'est pas');
     assert.ok(levels.size > 3, 'fortifications inégales (points faibles)');
-    assert.equal(f.goal, Math.max(1, Math.ceil(f.defTowns.length / 2)));
+    assert.equal(f.goal, Math.max(1, Math.ceil(f.defTowns.length * FRONT_SETUP.goalShare - 1e-9)));
   }
 });
 
@@ -241,4 +241,28 @@ test('biomes de la micro-grille : steppe ouverte, bocage boisé, Polésie maréc
   let around = 0;
   for (let d = 0; d < 6; d++) if (m.kind[m.nb[city.i * 6 + d]] === 3) around++;
   assert.equal(around, 6, 'la grande ville couvre ses abords');
+});
+
+test('IA : ordres des deux rôles, sans tricher (le brouillard compte), bataille complète', async () => {
+  const { installAI, planFront } = await import('../src/frontai.js');
+  const orders = (f, s) => JSON.stringify({ v: f.orders[s].map((v) => [v.type, v.fromI, Math.round(v.to.x), Math.round(v.to.y)]), l: f.lines[s].length, b: f.barrages[s].map((b) => [Math.round(b.x), Math.round(b.y)]), r: f.reserve[s] });
+  for (const attacker of ['DE', 'SU']) {
+    const f = createFront({ seed: 'ia', playerSide: null, attacker });
+    const att = attacker === 'DE' ? 0 : 1;
+    const rng = f.rng;
+    planFront(f, att);
+    assert.ok(f.orders[att].length > 0, 'l\'attaquant donne des vecteurs');
+    assert.ok(f.reserve[att] < f.cfg.reserve[att] * f.cfg.attackReserve, 'il engage ses réserves');
+    // Même situation, mais l'ennemi change hors de vue : les ordres ne doivent pas bouger.
+    const g = createFront({ seed: 'ia', playerSide: null, attacker });
+    g.rng = rng.constructor === Object ? g.rng : g.rng;
+    const vis = g.vision[att];
+    for (let i = 0; i < g.map.N; i++) if (g.owner[i] === 1 - att && !vis[i]) g.dens[i] *= 3;
+    planFront(g, att);
+    assert.equal(orders(g, att), orders(f, att), 'les ordres ne dépendent que de ce que l\'IA voit');
+  }
+  const f = createFront({ seed: 'ia-bataille', playerSide: null, attacker: 'SU', days: 4 });
+  installAI(f);
+  while (!f.result) runDay(f);
+  assert.ok(f.result.reason.length > 0);
 });
