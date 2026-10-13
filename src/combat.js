@@ -1,7 +1,9 @@
-// Résolution du feu aux dés (d6) et tests de moral.
+// Résolution du feu aux dés (d6) et tests de moral ; et, pour le mode Frontline stratégique,
+// la physique du front : flux de densité et pression différentielle (voir frontTick en fin de fichier).
 
-import { tileAt, terrainDefense } from './terrain.js';
-import { hexDistance } from './hex.js';
+import { tileAt, terrainDefense, edgeFlow } from './terrain.js';
+import { bfsDistance } from './path.js';
+import { hexDistance, DIR_VECTORS } from './hex.js';
 import { unitStats } from './units.js';
 
 // Calcule le seuil de réussite (« touche sur X+ ») et le nombre de dés, avec le détail des modificateurs.
@@ -72,4 +74,207 @@ export function moraleCheck(map, unit, hpBefore, rng, { forced = false, isolated
   const roll = rng.d6();
   const total = roll + unit.level + mods.reduce((a, m) => a + m.v, 0);
   return { roll, total, held: roll !== 1 && total >= 5, mods };
+}
+
+// ---------- Frontline stratégique : pression différentielle ----------
+// Plus de jets de dés : chaque case porte une densité de troupes de son propriétaire. À chaque tick,
+// 1. la densité coule : le long des vecteurs d'ordres (part w de la case), sinon par colmatage élastique
+//    vers les cases de front qui en ont besoin ;
+// 2. aux contacts, chaque camp use l'autre (escarmouche) et les vecteurs poussent : la pression P d'une case
+//    ennemie est la somme des densités qui la visent ; elle inflige des pertes, subit la riposte, et si
+//    P > BREAK × défense (densité × terrain × qualité), la case est conquise, l'assaillant y entre ;
+// 3. une case vidée au contact d'une densité ennemie suffisante est réoccupée sans ordre.
+// Tout est calculé sur l'état de début de tick puis appliqué : aucun camp ne joue « avant » l'autre.
+
+export const FRONT_RULES = {
+  SKIRMISH: 0.003, // usure au contact, par tick, pour une densité 1 en terrain neutre
+  ASSAULT: 0.06, // pertes infligées par unité de pression
+  DEF_FIRE: 0.8, // riposte de la case assaillie
+  BREAK: 1.6, // la pression doit dépasser BREAK × la défense pour conquérir
+  ADVANCE: 0.4, // part de la densité des assaillants qui entre dans la case conquise
+  ELASTIC: 0.35, // vitesse du colmatage élastique
+  FRONT_NEED: 7, // besoin d'une case de front (le besoin décroît de moitié environ par case vers l'arrière)
+  REAR_NEED: 0.4, // besoin d'une case d'arrière
+  THREAT: 0.5, // besoin supplémentaire par unité de densité ennemie au contact
+  EMPTY: 0.3, // en dessous : case considérée vide
+  HOLD_MIN: 2, // densité minimale pour réoccuper une case vide sans ordre
+};
+
+// Champs d'ordres d'un camp (calculés par front.js) : w (part engagée sur un vecteur), dx, dy (direction),
+// speed (part de la densité engagée qui avance par tick), atk (puissance de choc), fort (bonus défensif),
+// skirm (multiplicateur d'usure infligée : forteresses).
+export function emptyField(N) {
+  return {
+    w: new Float32Array(N), dx: new Float32Array(N), dy: new Float32Array(N),
+    speed: new Float32Array(N), atk: new Float32Array(N), fort: new Float32Array(N).fill(1), skirm: new Float32Array(N).fill(1),
+  };
+}
+
+// Besoin de troupes de chaque case de son camp (colmatage élastique) : fort au contact, d'autant plus
+// que l'ennemi y est dense, faible à l'arrière.
+export function frontNeed(front, s) {
+  const { map, owner, dens } = front;
+  const { N, nb } = map;
+  const R = FRONT_RULES;
+  const seeds = [];
+  const threat = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    if (owner[i] !== s) continue;
+    let t = 0, contact = false;
+    for (let d = 0; d < 6; d++) {
+      const j = nb[i * 6 + d];
+      if (j >= 0 && owner[j] === 1 - s) { contact = true; t += dens[j]; }
+    }
+    if (contact) { seeds.push(i); threat[i] = t; }
+  }
+  const dist = bfsDistance(nb, N, seeds, (i) => owner[i] === s, 12);
+  const need = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    if (owner[i] !== s) continue;
+    need[i] = R.REAR_NEED + R.FRONT_NEED * 0.55 ** dist[i] + R.THREAT * threat[i];
+  }
+  return { need, dist, threat };
+}
+
+// Un tick de résolution. front : { map, owner, dens, field: [champ DE, champ SU], quality: [qDE, qSU], stats }.
+// Renvoie les événements du tick (cases conquises, troupes anéanties faute de repli).
+export function frontTick(front) {
+  const { map, owner, dens, field, quality } = front;
+  const { N, nb } = map;
+  const R = FRONT_RULES;
+  const delta = new Float32Array(N);
+  const loss = new Float32Array(N);
+  const push = new Float32Array(N); // pression des vecteurs reçue par chaque case
+  const edges = []; // poussées : [i assaillant, j visé, valeur]
+  const q = new Float32Array(6);
+  const needs = [frontNeed(front, 0), frontNeed(front, 1)];
+
+  for (let i = 0; i < N; i++) {
+    const s = owner[i];
+    if (s < 0 || dens[i] <= 1e-4) continue;
+    const S = field[s], o = 1 - s;
+    const w = S.w[i];
+    // 1a. Vecteurs : la part engagée avance dans la direction de l'ordre ; ce qui bute sur l'ennemi le pousse.
+    if (w > 0.01) {
+      let sum = 0;
+      for (let d = 0; d < 6; d++) {
+        const j = nb[i * 6 + d];
+        q[d] = 0;
+        if (j < 0 || owner[j] < 0) continue;
+        const dot = DIR_VECTORS[d].x * S.dx[i] + DIR_VECTORS[d].y * S.dy[i];
+        if (dot <= 0.05) continue;
+        q[d] = dot * dot * (owner[j] === s ? edgeFlow(map, i, j) : Math.max(0.25, map.flow[j]));
+        sum += q[d];
+      }
+      if (sum > 0) {
+        const moving = dens[i] * w * S.speed[i];
+        for (let d = 0; d < 6; d++) {
+          if (!q[d]) continue;
+          const j = nb[i * 6 + d], share = q[d] / sum;
+          if (owner[j] === s) { delta[i] -= moving * share; delta[j] += moving * share; }
+          else {
+            const v = dens[i] * w * S.atk[i] * quality[s] * share;
+            push[j] += v;
+            edges.push(i, j, v);
+          }
+        }
+      }
+    }
+    // 1b. Colmatage élastique (part non engagée) : la densité relative (densité / besoin) s'égalise.
+    const e = 1 - w;
+    const { need } = needs[s];
+    if (e > 0.01) {
+      const rho = dens[i] / need[i];
+      let out = 0;
+      for (let d = 0; d < 6; d++) {
+        const j = nb[i * 6 + d];
+        q[d] = 0;
+        if (j < 0 || owner[j] !== s) continue;
+        const gap = rho - dens[j] / need[j];
+        if (gap <= 0) continue;
+        q[d] = (R.ELASTIC / 6) * e * edgeFlow(map, i, j) * gap * Math.min(need[i], need[j]);
+        out += q[d];
+      }
+      const k = out > dens[i] * 0.45 ? (dens[i] * 0.45) / out : 1;
+      for (let d = 0; d < 6; d++) {
+        if (!q[d]) continue;
+        delta[i] -= q[d] * k;
+        delta[nb[i * 6 + d]] += q[d] * k;
+      }
+    }
+    // 2a. Escarmouche : usure lente de part et d'autre du front, freinée par le terrain du défenseur.
+    for (let d = 0; d < 6; d++) {
+      const j = nb[i * 6 + d];
+      if (j < 0 || owner[j] !== o) continue;
+      loss[j] += (R.SKIRMISH * dens[i] * quality[s] * S.skirm[i]) / (map.def[j] * field[o].fort[j]);
+    }
+  }
+
+  // 2b. Assauts : pertes du défenseur, riposte répartie sur les assaillants au prorata de leur poussée.
+  const defense = (j) => dens[j] * map.def[j] * quality[owner[j]] * field[owner[j]].fort[j];
+  for (let j = 0; j < N; j++) {
+    if (!push[j]) continue;
+    const F = push[j], D = defense(j);
+    loss[j] += (R.ASSAULT * F) / (map.def[j] * field[owner[j]].fort[j]);
+    const riposte = R.ASSAULT * R.DEF_FIRE * D * Math.sqrt(Math.min(1, F / Math.max(D, 1e-6)));
+    for (let k = 0; k < edges.length; k += 3) if (edges[k + 1] === j) loss[edges[k]] += riposte * (edges[k + 2] / F);
+  }
+
+  // Application des flux et des pertes.
+  for (let i = 0; i < N; i++) {
+    if (owner[i] < 0) continue;
+    const l = Math.min(Math.max(0, dens[i] + delta[i]), loss[i]);
+    front.stats.losses[owner[i]] += l;
+    dens[i] = Math.max(0, dens[i] + delta[i] - loss[i]);
+  }
+
+  // 3. Conquêtes : pression supérieure à BREAK × défense restante, ou case vide face à une densité suffisante.
+  const events = [];
+  const captured = new Uint8Array(N);
+  const tryCapture = (j, s, attackers) => {
+    const o = owner[j];
+    // Les survivants refluent vers leurs propres cases voisines ; sans repli possible, ils sont perdus.
+    const back = [];
+    for (let d = 0; d < 6; d++) { const n = nb[j * 6 + d]; if (n >= 0 && owner[n] === o) back.push(n); }
+    if (back.length) for (const n of back) dens[n] += dens[j] / back.length;
+    else if (dens[j] > 0) { front.stats.losses[o] += dens[j]; events.push({ kind: 'trapped', i: j, side: o, amount: dens[j] }); }
+    owner[j] = s;
+    captured[j] = 1;
+    let enter = 0;
+    for (const [i, share] of attackers) { const m = dens[i] * R.ADVANCE * share; dens[i] -= m; enter += m; }
+    dens[j] = enter;
+    front.stats.captured[s]++;
+    events.push({ kind: 'capture', i: j, side: s });
+  };
+  for (let j = 0; j < N; j++) {
+    const o = owner[j];
+    if (o < 0 || captured[j]) continue;
+    const s = 1 - o;
+    if (push[j] > 0) {
+      // Pression restante des assaillants encore en place (ils ont pu fondre sous la riposte).
+      let F = 0;
+      const att = [];
+      for (let k = 0; k < edges.length; k += 3) {
+        if (edges[k + 1] !== j) continue;
+        const i = edges[k];
+        if (owner[i] !== s || captured[i] === 2) continue;
+        const v = edges[k + 2] * Math.min(1, dens[i] / Math.max(1e-6, dens[i] + loss[i]));
+        F += v;
+        att.push([i, v]);
+      }
+      if (F > 0.3 && F > R.BREAK * defense(j)) {
+        tryCapture(j, s, att.map(([i, v]) => [i, v / F]));
+        continue;
+      }
+    }
+    if (dens[j] < R.EMPTY) {
+      let best = -1;
+      for (let d = 0; d < 6; d++) {
+        const n = nb[j * 6 + d];
+        if (n >= 0 && owner[n] === s && !captured[n] && dens[n] > R.HOLD_MIN && (best < 0 || dens[n] > dens[best])) best = n;
+      }
+      if (best >= 0 && dens[best] * quality[s] > R.BREAK * defense(j) + R.HOLD_MIN) tryCapture(j, s, [[best, 0.6]]);
+    }
+  }
+  return events;
 }

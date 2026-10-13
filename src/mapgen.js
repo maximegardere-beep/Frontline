@@ -1,8 +1,8 @@
 // Génération procédurale du champ de bataille : relief, forêts, marais, rivière, villages, fermes, routes.
 
 import { createRng } from './rng.js';
-import { neighborCoords, hexDistance } from './hex.js';
-import { tileAt, roadEdgeKey, TERRAIN } from './terrain.js';
+import { neighborCoords, hexDistance, neighborTable } from './hex.js';
+import { tileAt, roadEdgeKey, TERRAIN, FRONT_KINDS, MOUNTAIN, TOWN, cellFluidity, cellDefense } from './terrain.js';
 import { placeName } from './names.js';
 import { BIOMES } from './conditions.js';
 
@@ -257,6 +257,105 @@ export function generateMap(seed, opts = {}) {
   map.name = main?.name ? `Secteur de ${main.name}` : `Cote ${100 + rng.int(10, 290)}`;
   for (const t of map.tiles) { delete t.h; delete t.m; }
   return map;
+}
+
+// ---------- Micro-grille (mode Frontline stratégique) ----------
+// Des cases beaucoup plus petites et nombreuses (96 × 64 par défaut) simulent un espace continu : les cases ne portent
+// plus d'unités mais une densité de troupes. Tableaux plats indexés i = row * W + col.
+// Relief : 0 bas-fond, 1 plaine, 2 collines, 3 hauteurs ; quelques massifs de montagne infranchissables font goulets.
+
+export function generateFrontMap(seed, opts = {}) {
+  const W = opts.width ?? 96;
+  const H = opts.height ?? 64;
+  const N = W * H;
+  const rng = createRng(`front:${seed}`);
+  const B = { forestQ: 0.76, marshQ: 0.84, towns: [5, 7], ...(BIOMES[opts.biome] ?? {}) };
+  const heightNoise = makeNoise(rng), moistNoise = makeNoise(rng), ridgeNoise = makeNoise(rng);
+  const hs = new Float32Array(N), ms = new Float32Array(N), rs = new Float32Array(N);
+  for (let row = 0; row < H; row++) {
+    for (let col = 0; col < W; col++) {
+      const i = row * W + col, x = col + 0.5 * (row & 1), y = row * 0.866;
+      hs[i] = heightNoise(x * 0.045 + 3.1, y * 0.045 + 7.7, 5);
+      ms[i] = moistNoise(x * 0.07 + 11.3, y * 0.07 + 1.9, 4);
+      // Crêtes : bruit replié (|2n - 1|) pour des massifs allongés plutôt que des taches rondes.
+      rs[i] = 1 - Math.abs(2 * ridgeNoise(x * 0.05 + 5.5, y * 0.05 + 2.2, 3) - 1);
+    }
+  }
+  const [q1, q2, q3] = [quantile(hs, 0.25), quantile(hs, 0.7), quantile(hs, 0.9)];
+  const forestQ = quantile(ms, B.forestQ), marshQ = quantile(ms, B.marshQ);
+  const elev = new Uint8Array(N), kind = new Uint8Array(N);
+  const K = (name) => FRONT_KINDS.indexOf(name);
+  for (let i = 0; i < N; i++) {
+    elev[i] = hs[i] < q1 ? 0 : hs[i] < q2 ? 1 : hs[i] < q3 ? 2 : 3;
+    if (elev[i] === 0 && ms[i] > marshQ) kind[i] = K('marsh');
+    else if (ms[i] > forestQ && elev[i] >= 1) kind[i] = K('forest');
+  }
+  const nb = neighborTable(W, H);
+  const map = { seed, W, H, N, nb, elev, kind, flow: null, def: null, towns: [], biome: opts.biome ?? null, name: '' };
+
+  // Montagnes : sommets des hauteurs qui sont aussi sur une crête, jamais sur les bords ouest et est
+  // (chaque camp doit pouvoir se ravitailler) ; on vérifie qu'un passage ouest → est subsiste.
+  const mountainShare = opts.mountains ?? 0.035;
+  const score = new Float32Array(N);
+  for (let i = 0; i < N; i++) score[i] = elev[i] >= 2 ? hs[i] + rs[i] * 0.08 : -1;
+  for (let share = mountainShare; share > 0.004; share *= 0.6) {
+    const cut = quantile(score, 1 - share);
+    for (let i = 0; i < N; i++) {
+      const col = i % W;
+      if (kind[i] === MOUNTAIN) kind[i] = 0;
+      if (score[i] >= cut && score[i] > 0 && col > 4 && col < W - 5) kind[i] = MOUNTAIN;
+    }
+    if (crossable(map)) break;
+  }
+
+  // Villes : nœuds à tenir, espacées, hors marais et montagnes, plutôt réparties d'ouest en est.
+  const usedNames = new Set();
+  const nTowns = rng.int(...B.towns);
+  for (let t = 0; t < nTowns; t++) {
+    let best = -1, bestScore = -Infinity;
+    for (let k = 0; k < 80; k++) {
+      const i = rng.int(0, N - 1), col = i % W, row = Math.floor(i / W);
+      if (kind[i] === MOUNTAIN || kind[i] === K('marsh') || elev[i] >= 3) continue;
+      if (col < 8 || col > W - 9 || row < 4 || row > H - 5) continue;
+      const far = Math.min(Infinity, ...map.towns.map((o) => hexDistance({ col, row }, o)));
+      if (far < 14) continue;
+      const s = Math.min(far, 30) * 0.1 - elev[i] * 0.3 + rng.next() * 1.5;
+      if (s > bestScore) { bestScore = s; best = i; }
+    }
+    if (best < 0) continue;
+    const col = best % W, row = Math.floor(best / W);
+    // Une ville couvre la case et ses voisines : elle se lit sur la carte et offre un vrai point d'appui.
+    kind[best] = TOWN;
+    for (let d = 0; d < 6; d++) { const j = nb[best * 6 + d]; if (j >= 0 && kind[j] !== MOUNTAIN) kind[j] = TOWN; }
+    map.towns.push({ i: best, col, row, name: placeName(rng, usedNames) });
+  }
+  map.towns.sort((a, b) => a.col - b.col);
+  map.flow = Float32Array.from({ length: N }, (_, i) => cellFluidity(map, i));
+  map.def = Float32Array.from({ length: N }, (_, i) => cellDefense(map, i));
+  const mid = map.towns.reduce((b, t) => (Math.abs(t.col - W / 2) < Math.abs((b?.col ?? -1e9) - W / 2) ? t : b), null);
+  map.name = mid ? `Front de ${mid.name}` : `Secteur ${100 + rng.int(10, 290)}`;
+  return map;
+}
+
+// Un passage praticable relie-t-il le bord ouest au bord est ? (garantie contre les chaînes de montagnes continues)
+function crossable(map) {
+  const { W, N, nb, kind } = map;
+  const seen = new Uint8Array(N);
+  const stack = [];
+  for (let i = 0; i < N; i += W) if (kind[i] !== MOUNTAIN) { seen[i] = 1; stack.push(i); }
+  let reached = 0;
+  while (stack.length) {
+    const i = stack.pop();
+    if (i % W === W - 1) reached++;
+    for (let d = 0; d < 6; d++) {
+      const j = nb[i * 6 + d];
+      if (j >= 0 && !seen[j] && kind[j] !== MOUNTAIN) { seen[j] = 1; stack.push(j); }
+    }
+  }
+  // Exige aussi qu'aucune grande poche de terrain ne soit isolée par les montagnes.
+  let open = 0, linked = 0;
+  for (let i = 0; i < N; i++) if (kind[i] !== MOUNTAIN) { open++; if (seen[i]) linked++; }
+  return reached > 0 && linked >= open * 0.995;
 }
 
 export { TERRAIN };

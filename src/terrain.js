@@ -78,3 +78,42 @@ export function hasLOS(map, a, b) {
   }
   return true;
 }
+
+// ---------- Micro-grille (mode Frontline stratégique) ----------
+// Le terrain n'arrête plus des unités : il freine ou canalise un fluide de troupes.
+// flow : fluidité (part du flux qui passe), def : multiplicateur de la densité défensive. Montagne : infranchissable.
+export const FRONT_KINDS = ['plain', 'forest', 'marsh', 'town', 'mountain'];
+export const FRONT_TERRAIN = {
+  plain: { label: 'Steppe', flow: 1, def: 1 },
+  forest: { label: 'Forêt', flow: 0.6, def: 1.35 },
+  marsh: { label: 'Marais', flow: 0.35, def: 1.1 },
+  town: { label: 'Ville', flow: 0.8, def: 1.7 },
+  mountain: { label: 'Montagne', flow: 0, def: 1 },
+};
+// Collines (altitude 2) et hauteurs (3) : la pression avance moins vite et se brise plus facilement.
+const ELEV_FLOW = [1, 1, 0.6, 0.45];
+const ELEV_DEF = [0.95, 1, 1.3, 1.5];
+
+export const MOUNTAIN = FRONT_KINDS.indexOf('mountain');
+export const TOWN = FRONT_KINDS.indexOf('town');
+
+// Fluidité de la case i (0 = bloquée), à précalculer une fois par carte.
+export function cellFluidity(map, i) {
+  return FRONT_TERRAIN[FRONT_KINDS[map.kind[i]]].flow * ELEV_FLOW[map.elev[i]];
+}
+
+export function cellDefense(map, i) {
+  return FRONT_TERRAIN[FRONT_KINDS[map.kind[i]]].def * ELEV_DEF[map.elev[i]];
+}
+
+// Passage de i vers j : fluidité de la case d'arrivée, réduite en montée.
+export function edgeFlow(map, i, j) {
+  const climb = Math.max(0, map.elev[j] - map.elev[i]);
+  return map.flow[j] / (1 + 0.5 * climb);
+}
+
+export function describeCell(map, i) {
+  const k = FRONT_KINDS[map.kind[i]];
+  const town = k === 'town' ? map.towns.find((t) => t.i === i) : null;
+  return [town ? `${FRONT_TERRAIN[k].label} de ${town.name}` : FRONT_TERRAIN[k].label, ELEV_LABELS[map.elev[i]]].join(' · ');
+}

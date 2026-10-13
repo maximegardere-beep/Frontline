@@ -76,3 +76,37 @@ export function edgeCorners(d) {
 }
 
 export const sameHex = (a, b) => a && b && a.col === b.col && a.row === b.row;
+
+// ---------- Micro-grille (mode Frontline stratégique) ----------
+// Des milliers de petites cases indexées i = row * W + col : tables plates plutôt qu'objets, pour simuler vite.
+
+// Vecteurs unitaires des 6 directions (E, NE, NO, O, SO, SE), axe y vers le bas.
+export const DIR_VECTORS = [0, 1, 2, 3, 4, 5].map((k) => ({ x: Math.cos((-Math.PI / 3) * k), y: Math.sin((-Math.PI / 3) * k) }));
+
+// Voisins de chaque case : nb[i * 6 + d] = indice du voisin dans la direction d, ou -1 hors carte.
+export function neighborTable(W, H) {
+  const nb = new Int32Array(W * H * 6).fill(-1);
+  for (let row = 0; row < H; row++) {
+    for (let col = 0; col < W; col++) {
+      const t = row & 1 ? NB_ODD : NB_EVEN;
+      for (let d = 0; d < 6; d++) {
+        const c = col + t[d][0], r = row + t[d][1];
+        if (c >= 0 && r >= 0 && c < W && r < H) nb[(row * W + col) * 6 + d] = r * W + c;
+      }
+    }
+  }
+  return nb;
+}
+
+// Centres des cases pour une taille d'hexagone donnée (1 = unités de grille, pratique pour la géométrie des ordres).
+export function cellCenters(W, H, size = 1) {
+  const x = new Float32Array(W * H), y = new Float32Array(W * H);
+  for (let row = 0; row < H; row++) {
+    for (let col = 0; col < W; col++) {
+      const p = hexToPixel(col, row, size);
+      x[row * W + col] = p.x;
+      y[row * W + col] = p.y;
+    }
+  }
+  return { x, y };
+}
