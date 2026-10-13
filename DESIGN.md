@@ -132,7 +132,7 @@ sans voir ceux de l'autre ; la journée s'exécute seule, en 30 ticks. Le mode t
 4. Météo du jour et biomes sur la micro-grille (fait, voir ci-dessous).
 5. IA (`frontai.js`) : défense élastique, percées sur les points faibles estimés, réserves, barrages, poches ;
    équilibrage IA contre IA (fait, voir ci-dessous).
-6. Rendu en masses fondues (champ calculé par tick, interpolé entre deux ticks pour l'iPhone).
+6. Rendu en masses fondues (champ calculé par tick, interpolé entre deux ticks pour l'iPhone) (fait, voir ci-dessous).
 7. Interface : menu, briefing, outils d'ordres, estimation au toucher, bilan quotidien, iPhone.
 8. Sons, tests, documentation, publication.
 
@@ -222,6 +222,23 @@ Corrections apportées :
 Résultat sur 240 batailles (biomes, mois et rôles tournants) : attaquant 50 %, Wehrmacht 47,5 %, Armée rouge
 52,5 % ; 8,5 jours en moyenne, un tiers des batailles finit avant le terme ; environ 6 encerclements par bataille ;
 1 s de calcul par bataille sous Node.
+
+### Rendu (étape 6)
+
+`src/frontrender.js` (hérite de la caméra du rendu tactique) ; page d'aperçu `front-preview.html` : bataille IA
+contre IA en direct, vue allemande, soviétique ou omnisciente (`?seed=…&biome=…&season=…&att=SU`).
+
+- Terrain précalculé : le générateur garde l'altitude continue (`map.relief`), alignée sur les niveaux du jeu,
+  d'où un relief sans plateaux en escalier ; forêts, marais, montagnes hachurées, villes ; voile blanc les jours
+  de neige.
+- Masses : chaque camp est une teinte de territoire renforcée par sa densité (lissée par noyau gaussien sur la
+  micro-grille), avec des courbes de concentration qui fusionnent ; la ligne de front est la courbe de partage,
+  épaisse et sombre. L'ennemi est dessiné d'après la mémoire du joueur (densité estimée), plus pâle hors de vue.
+  Les montagnes prennent le camp des cases praticables voisines, sinon la ligne de partage les cernait.
+- Animation : un instantané lissé par tick ; les masses et la ligne de front sont interpolées entre deux ticks,
+  les courbes de concentration et les contours de poches sont recalculés une fois par tick.
+- Coût (Chromium, ordinateur) : 20 ms par image (contours de poches mis en cache : 62 ms auparavant), 20 à 30 ms
+  par tick pour le moteur et l'instantané.
 
 ### Plus tard : batailles locales
 

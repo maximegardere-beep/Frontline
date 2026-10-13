@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Frontline · aperçu du front</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;700&family=IBM+Plex+Sans+Condensed:wght@400;600&display=swap">
+<style>
+  :root { color-scheme: dark; --desk: #22261c; --text: #e8e2cb; --muted: #a3a288; --line: rgba(233, 227, 205, 0.13); }
+  html, body { height: 100%; margin: 0; background: var(--desk); color: var(--text); font: 14px "IBM Plex Sans Condensed", "Arial Narrow", sans-serif; overflow: hidden; }
+  .app { height: 100%; display: flex; flex-direction: column; }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 8px 16px; border-bottom: 1px solid var(--line); }
+  .bar b { font: 700 13px "IBM Plex Mono", monospace; }
+  .bar button { font: inherit; color: var(--text); background: #383e2e; border: 1px solid var(--line); border-radius: 3px; padding: 6px 10px; cursor: pointer; }
+  .bar button[aria-pressed="true"] { border-color: #c9a24a; }
+  .board { position: relative; flex: 1; min-height: 0; }
+  canvas { position: absolute; inset: 0; touch-action: none; }
+  #log { position: absolute; left: 10px; bottom: 10px; max-width: min(520px, 90%); background: rgba(27, 31, 22, 0.85); padding: 6px 10px; border-radius: 3px; font: 12px "IBM Plex Mono", monospace; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="bar">
+    <b id="status"></b>
+    <span>Vue :</span>
+    <button data-view="0">Wehrmacht</button>
+    <button data-view="1">Armée rouge</button>
+    <button data-view="null">Omnisciente</button>
+    <button id="pause">Pause</button>
+    <button id="fast">×4</button>
+  </div>
+  <div class="board"><canvas id="map"></canvas><div id="log"></div></div>
+</div>
+<script type="module" src="src/frontpreview.js"></script>
+</body>
+</html>

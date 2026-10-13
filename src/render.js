@@ -1265,3 +1265,6 @@ export class Renderer {
     ctx.restore();
   }
 }
+
+// Outils partagés avec le rendu du front stratégique (frontrender.js).
+export { splineTo, blobPath, contourSegments, strokeSegments, ELEV_STOPS, WINTER_STOPS, C as PALETTE };

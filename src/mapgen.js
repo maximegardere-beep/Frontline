@@ -299,7 +299,19 @@ export function generateFrontMap(seed, opts = {}) {
     else if (ms[i] > forestQ && elev[i] >= 1) kind[i] = K('forest');
   }
   const nb = neighborTable(W, H);
-  const map = { seed, W, H, N, nb, elev, kind, flow: null, def: null, towns: [], biome: opts.biome ?? null, name: '' };
+  // Relief continu pour le rendu : l'altitude de bruit, ramenée à l'échelle des niveaux (k + 0,5 aux seuils),
+  // si bien que le relief dessiné reste cohérent avec les niveaux du jeu.
+  const relief = new Float32Array(N);
+  const lo = quantile(hs, 0), hi = quantile(hs, 0.999);
+  const knots = [[lo, -0.3], [q1, 0.5], [q2, 1.5], [q3, 2.5], [hi, 3.4]];
+  for (let i = 0; i < N; i++) {
+    const v = hs[i];
+    let k = 0;
+    while (k < knots.length - 2 && v > knots[k + 1][0]) k++;
+    const [x0, y0] = knots[k], [x1, y1] = knots[k + 1];
+    relief[i] = y0 + ((v - x0) / Math.max(1e-6, x1 - x0)) * (y1 - y0);
+  }
+  const map = { seed, W, H, N, nb, elev, kind, relief, flow: null, def: null, towns: [], biome: opts.biome ?? null, name: '' };
 
   // Montagnes : sommets des hauteurs qui sont aussi sur une crête, jamais sur les bords ouest et est
   // (chaque camp doit pouvoir se ravitailler) ; on vérifie qu'un passage ouest → est subsiste.
