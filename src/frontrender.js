@@ -19,6 +19,10 @@ export const CELL = 9; // rayon d'une case de la micro-grille, en pixels monde
 const K = Object.fromEntries(FRONT_KINDS.map((k, i) => [k, i]));
 const SIDE_RGB = [[52, 84, 138], [178, 42, 30]]; // Wehrmacht, Armée rouge
 const SIDE_LINE = ['#26303d', '#4a1610'];
+const ORDER_INK = '#ffd23f'; // ordres du joueur
+const ORDER_HALO = 'rgba(24, 20, 10, 0.8)';
+// Une poche de moins de 200 hommes (enclave de montagne, débris) ne mérite ni contour ni étiquette.
+export const MIN_POCKET = 20;
 
 // Poids de lissage d'un point de la carte : la case sous le point et ses voisines (noyau gaussien).
 function kernel(map, x, y, sigma, out) {
@@ -69,7 +73,7 @@ function makeSampler(map, worldW, worldH, step, sigma) {
   };
 }
 
-const lerp = (a, b, t) => a + (b - a) * t;
+const mixTo = (a, b, t) => a + (b - a) * t;
 
 export class FrontRenderer extends Renderer {
   setMap(front) {
@@ -296,6 +300,7 @@ export class FrontRenderer extends Renderer {
     const f = this.front;
     for (const s of [0, 1]) {
       for (const p of f.pockets[s]) {
+        if (p.troops < MIN_POCKET) continue;
         if (viewer !== null && s !== viewer && !p.cells.some((i) => f.vision[viewer][i])) continue;
         const set = new Uint8Array(this.map.N);
         for (const i of p.cells) set[i] = 1;
@@ -318,11 +323,11 @@ export class FrontRenderer extends Renderer {
     const px = this.massImg.data;
     const o = new Float32Array(n), dA = new Float32Array(n), dB = new Float32Array(n);
     for (let s = 0; s < n; s++) {
-      o[s] = lerp(a.owner[s], b.owner[s], t);
-      dA[s] = lerp(a.dA[s], b.dA[s], t);
-      dB[s] = lerp(a.dB[s], b.dB[s], t);
-      const open = lerp(a.open[s], b.open[s], t);
-      const vis = lerp(a.vis[s], b.vis[s], t);
+      o[s] = mixTo(a.owner[s], b.owner[s], t);
+      dA[s] = mixTo(a.dA[s], b.dA[s], t);
+      dB[s] = mixTo(a.dB[s], b.dB[s], t);
+      const open = mixTo(a.open[s], b.open[s], t);
+      const vis = mixTo(a.vis[s], b.vis[s], t);
       const de = o[s] >= 0.5;
       const d = de ? dA[s] / Math.max(0.05, o[s]) : dB[s] / Math.max(0.05, 1 - o[s]);
       const rgb = SIDE_RGB[de ? 0 : 1];
@@ -396,9 +401,22 @@ export class FrontRenderer extends Renderer {
       const p = this.center(view.origin);
       ctx.beginPath();
       ctx.arc(p.x, p.y, CELL * 1.6, 0, Math.PI * 2);
-      ctx.strokeStyle = PALETTE.pencil;
+      ctx.strokeStyle = ORDER_INK;
       ctx.lineWidth = 2;
       ctx.setLineDash([3, 3]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    // Zone d'estimation touchée par le joueur.
+    if (view.probe) {
+      const c = this.toWorld(view.probe);
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, view.probe.r * CELL, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(250, 240, 210, 0.12)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(250, 240, 210, 0.85)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([2, 3]);
       ctx.stroke();
       ctx.setLineDash([]);
     }
@@ -450,17 +468,28 @@ export class FrontRenderer extends Renderer {
   }
 
   // orders : { vectors, lines, barrages } d'un camp (ou un seul élément d'aperçu).
+  // Encre jaune cernée de sombre : lisible sur la masse bleue comme sur la rouge, distincte du trait de front.
   drawFrontOrders(orders, viewer, alpha = 1) {
     const { ctx } = this;
-    const pencil = PALETTE.pencil;
     ctx.save();
     ctx.globalAlpha = alpha;
+    this.paintOrders(orders, ORDER_HALO, 2.4);
+    this.paintOrders(orders, ORDER_INK, 0);
+    ctx.restore();
+  }
+
+  // Un passage du dessin des ordres : halo (extra > 0, traits élargis) ou encre.
+  paintOrders(orders, ink, extra) {
+    const { ctx } = this;
+    const halo = extra > 0;
+    ctx.strokeStyle = ink;
+    ctx.fillStyle = ink;
+    const fill = () => { if (halo) { ctx.lineWidth = extra; ctx.stroke(); } ctx.fill(); };
     for (const b of orders.barrages ?? []) {
       const c = this.toWorld(b);
       const r = b.r * CELL;
-      ctx.strokeStyle = pencil;
-      ctx.lineWidth = 2;
-      ctx.setLineDash([4, 3]);
+      ctx.lineWidth = 2 + extra;
+      ctx.setLineDash(halo ? [] : [4, 3]);
       ctx.beginPath();
       ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
       ctx.stroke();
@@ -481,9 +510,7 @@ export class FrontRenderer extends Renderer {
       const ux = (b.x - a.x) / L, uy = (b.y - a.y) / L;
       let nx = -uy, ny = ux;
       if ((l.side === 0 && nx < 0) || (l.side === 1 && nx > 0)) { nx = -nx; ny = -ny; }
-      ctx.strokeStyle = pencil;
-      ctx.fillStyle = pencil;
-      ctx.lineWidth = 2.6;
+      ctx.lineWidth = 2.6 + extra;
       ctx.beginPath();
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
@@ -494,16 +521,15 @@ export class FrontRenderer extends Renderer {
         ctx.moveTo(x - ux * 3, y - uy * 3);
         ctx.lineTo(x + nx * 5, y + ny * 5);
         ctx.lineTo(x + ux * 3, y + uy * 3);
-        ctx.fill();
+        ctx.closePath();
+        fill();
       }
     }
     for (const v of orders.vectors ?? []) {
       const a = this.toWorld(v.from), b = this.toWorld(v.to);
       const armor = v.type === 'armor', retreat = v.type === 'retreat';
-      ctx.strokeStyle = pencil;
-      ctx.fillStyle = pencil;
-      ctx.lineWidth = armor ? 5 : 3;
-      ctx.setLineDash(retreat || v.pocket ? [8, 5] : []);
+      ctx.lineWidth = (armor ? 5 : 3) + extra;
+      ctx.setLineDash((retreat || v.pocket) && !halo ? [8, 5] : []);
       // Flèche légèrement courbe, comme tracée à main levée.
       const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
       const L = Math.hypot(b.x - a.x, b.y - a.y) || 1;
@@ -513,13 +539,14 @@ export class FrontRenderer extends Renderer {
       splineTo(ctx, pts);
       ctx.stroke();
       ctx.setLineDash([]);
-      if (armor) {
+      if (armor && !halo) {
         // Double trait des blindés.
-        ctx.strokeStyle = 'rgba(250, 240, 220, 0.85)';
+        ctx.strokeStyle = ORDER_HALO;
         ctx.lineWidth = 1.4;
         ctx.beginPath();
         splineTo(ctx, pts);
         ctx.stroke();
+        ctx.strokeStyle = ink;
       }
       const ang = Math.atan2(b.y - pts[1].y, b.x - pts[1].x);
       const size = armor ? 16 : 12;
@@ -527,9 +554,9 @@ export class FrontRenderer extends Renderer {
       ctx.moveTo(b.x + Math.cos(ang) * 4, b.y + Math.sin(ang) * 4);
       ctx.lineTo(b.x + Math.cos(ang + 2.6) * size, b.y + Math.sin(ang + 2.6) * size);
       ctx.lineTo(b.x + Math.cos(ang - 2.6) * size, b.y + Math.sin(ang - 2.6) * size);
-      ctx.fill();
+      ctx.closePath();
+      fill();
     }
-    ctx.restore();
   }
 }
 

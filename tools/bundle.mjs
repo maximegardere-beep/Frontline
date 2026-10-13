@@ -1,14 +1,14 @@
 // Assemble le jeu en un seul fichier HTML autonome (dist/frontline.html) : CSS et modules JS inclus.
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 
-const ORDER = ['rng', 'hex', 'names', 'conditions', 'terrain', 'mapgen', 'units', 'path', 'combat', 'game', 'ai', 'campaign', 'fx', 'audio', 'weather', 'render', 'main'];
+const ORDER = ['rng', 'hex', 'names', 'conditions', 'terrain', 'mapgen', 'units', 'path', 'combat', 'game', 'ai', 'campaign', 'fx', 'audio', 'weather', 'render', 'front', 'frontai', 'frontrender', 'frontui', 'main'];
 const root = new URL('..', import.meta.url).pathname;
 
 let js = '';
 for (const name of ORDER) {
   const src = await readFile(`${root}src/${name}.js`, 'utf8');
   js += `\n// ===== ${name}.js =====\n` + src
-    .replace(/^import .*?;\s*$/gm, '')
+    .replace(/^import\s[^;]*;[ \t]*$/gm, '') // imports sur une ou plusieurs lignes
     .replace(/^export \{[^}]*\};?\s*$/gm, '')
     .replace(/^export (?=(const|function|class|let) )/gm, '');
 }

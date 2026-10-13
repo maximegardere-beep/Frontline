@@ -507,7 +507,7 @@ function updateSupply(front) {
     for (const p of front.pockets[s]) {
       if (out.some((o) => o.id === p.id)) continue;
       const relieved = p.cells.some((i) => front.owner[i] === s && supplied[i]);
-      if (p.troops > 5) flog(front, 'pocket', relieved ? `La poche ${pocketName(front, p)} est dégagée.` : `La poche ${pocketName(front, p)} est réduite.`, s);
+      if (p.troops >= 20) flog(front, 'pocket', relieved ? `La poche ${pocketName(front, p)} est dégagée.` : `La poche ${pocketName(front, p)} est réduite.`, s);
       front.pocketInfo.delete(p.id);
     }
     front.pocketTag[s] = next;
@@ -603,7 +603,8 @@ export function stepTick(front) {
   }
   for (const p of fresh) {
     if (p.side !== front.playerSide) front.pocketAI?.(front, p);
-    flog(front, 'pocket', `Encerclement : ${Math.round(p.troops * front.cfg.men).toLocaleString('fr-FR')} hommes pris dans la poche ${pocketName(front, p)}${p.info.mode !== 'hold' ? ` (${POCKET_MODES[p.info.mode]})` : ''}.`, p.side);
+    // Les miettes (enclaves vides, quelques hommes isolés) ne font pas une poche digne du journal.
+    if (p.troops >= 20) flog(front, 'pocket', `Encerclement : ${Math.round(p.troops * front.cfg.men).toLocaleString('fr-FR')} hommes pris dans la poche ${pocketName(front, p)}${p.info.mode !== 'hold' ? ` (${POCKET_MODES[p.info.mode]})` : ''}.`, p.side);
     events.push({ kind: 'pocket', side: p.side, id: p.id });
   }
   front.clock++;

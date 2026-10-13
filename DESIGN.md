@@ -100,7 +100,7 @@ Chaque niveau au-delà de Recrue : +1 PV et +1 dé. Vétéran ou mieux : +1 retr
 (et +1 vision pour la reconnaissance). Élite : +1 mouvement, +1 portée (artillerie, blindés), touche à −1,
 et le matériel d'élite (Tigre, T-34/85, Katioucha, Panzergrenadiers, Gardes).
 
-## Frontline stratégique (mode en préparation)
+## Frontline stratégique (jouable, finitions en cours)
 
 Mode séparé au menu : un front continu à grande échelle, en WEGO. Plus d'unités discrètes : chaque case d'une
 micro-grille (96 × 64) porte une densité de troupes. Le matin, le jeu est en pause et chaque camp donne ses ordres
@@ -111,7 +111,7 @@ sans voir ceux de l'autre ; la journée s'exécute seule, en 30 ticks. Le mode t
 | Sujet | Décision |
 |---|---|
 | Intégration | Mode séparé au menu ; le mode tactique n'est pas modifié |
-| Rendu | Masses fondues aux couleurs des camps, plus foncées où la densité est forte ; ligne de contact épaisse ; flèches d'ordres au crayon rouge, sur le relief continu |
+| Rendu | Masses fondues aux couleurs des camps, plus foncées où la densité est forte ; ligne de contact épaisse ; flèches d'ordres à l'encre jaune cernée de sombre (le crayon rouge se perdait sur la masse soviétique), sur le relief continu |
 | Saisie des ordres | Toucher le départ puis la cible ; le jeu retient la case la plus pertinente autour du doigt, sans viser une case précise |
 | Rythme | Front mobile : une percée concentrée sur un point faible avance de 10 à 15 cases par jour ; une attaque frontale sur un secteur dense s'use |
 | Ordres | Vecteurs infanterie et blindés, déploiement des réserves, ligne de défense, barrage d'artillerie de zone, repli ordonné |
@@ -133,7 +133,7 @@ sans voir ceux de l'autre ; la journée s'exécute seule, en 30 ticks. Le mode t
 5. IA (`frontai.js`) : défense élastique, percées sur les points faibles estimés, réserves, barrages, poches ;
    équilibrage IA contre IA (fait, voir ci-dessous).
 6. Rendu en masses fondues (champ calculé par tick, interpolé entre deux ticks pour l'iPhone) (fait, voir ci-dessous).
-7. Interface : menu, briefing, outils d'ordres, estimation au toucher, bilan quotidien, iPhone.
+7. Interface : menu, briefing, outils d'ordres, estimation au toucher, bilan quotidien, iPhone (fait, voir ci-dessous).
 8. Sons, tests, documentation, publication.
 
 ### Calibrage de la physique (`tools/front-bench.mjs`)
@@ -239,6 +239,33 @@ contre IA en direct, vue allemande, soviétique ou omnisciente (`?seed=…&biome
   les courbes de concentration et les contours de poches sont recalculés une fois par tick.
 - Coût (Chromium, ordinateur) : 20 ms par image (contours de poches mis en cache : 62 ms auparavant), 20 à 30 ms
   par tick pour le moteur et l'instantané.
+
+### Interface (étape 7)
+
+`src/frontui.js`, seconde vue (`#front-app`) à côté de la vue tactique ; les dossiers papier (`#overlay`) sont
+partagés. Entrée « Front stratégique » au menu, sous les deux camps du mode tactique, avec la même graine.
+
+- Briefing : rôle tiré de la graine (attaquant ou défenseur), objectif en villes ★, forces, renseignement en
+  fourchette, biome, mois et météo du jour.
+- Matin : barre de six outils en bas de carte (infanterie, blindés, repli, ligne, barrage, réserves), chacun avec
+  ce qu'il en reste pour la journée ; raccourcis 1 à 6, Échap, Entrée. Deux appuis pour les vecteurs et les
+  lignes (on peut déplacer la carte entre les deux), un seul pour le barrage et les réserves (l'outil réserves
+  reste actif : un appui, 800 hommes). Le jeu choisit la case autour du doigt (rayon ~32 px d'écran) : la plus
+  garnie au contact pour un vecteur, une case ravitaillée au contact pour les réserves, la plus proche dans nos
+  lignes pour une ligne ou la cible d'un repli. À la souris, aperçu de l'ordre en cours sous le pointeur.
+- Onglet Ordres : ordres du jour avec les troupes engagées (≈), suppression, « Reprendre les ordres de la
+  veille », annulation du dernier renfort, et pour chaque poche de plus de 200 hommes les trois comportements
+  (la percée demande de toucher sa direction). Point rouge sur l'onglet quand une poche attend.
+- Sans outil, toucher la carte : nos troupes comptées dans un rayon de 3 cases, l'ennemi estimé en fourchette
+  (avec l'âge de l'observation hors de vue).
+- Journée : ~20 s (30 ticks de 667 ms), horloge de 6 h à 20 h en haut à gauche, bouton discret « Passer › »
+  (ticks restants à 45 ms, une image par tick). Le menu met la journée en pause.
+- Bilan du soir : nos pertes exactes, celles de l'ennemi en fourchette, terrain gagné ou cédé, objectif, villes
+  prises et encerclements, renforts, météo du lendemain, poches en attente. Le journal masque le bilan chiffré
+  du moteur (il donnerait les pertes ennemies exactes).
+- Fin : rapport final avec les pertes réelles des deux camps, puis le brouillard est levé (vue omnisciente).
+- Mesures : ~53 images/s pendant la journée en émulation iPhone (Chromium), parcours complet testé au toucher
+  (414 × 715) et à la souris, en modules et dans le fichier unique.
 
 ### Plus tard : batailles locales
 

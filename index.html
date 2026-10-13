@@ -15,7 +15,7 @@
 </head>
 <body>
 <!--APP-->
-<div class="app">
+<div class="app" id="tac-app">
   <header class="bar">
     <div class="brand">
       <span class="brand-name">Frontline</span>
@@ -42,7 +42,7 @@
         <button class="tool" id="zoom-out" aria-label="Dézoomer">−</button>
         <button class="tool" id="zoom-fit" aria-label="Voir toute la carte"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 8V3h5M12 3h5v5M17 12v5h-5M8 17H3v-5" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
         <button class="tool" id="grid-toggle" aria-label="Afficher la grille" aria-pressed="true"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2l6.5 3.75v7.5L10 17l-6.5-3.75v-7.5z" fill="none" stroke="currentColor" stroke-width="1.8"/></svg></button>
-        <button class="tool" id="sound-toggle" aria-label="Couper le son" aria-pressed="true" title="Son (M)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 7.5h3l4.5-4v13l-4.5-4H3z" fill="currentColor"/><path class="snd-on" d="M13.5 7a4 4 0 010 6M15.5 4.5a7.5 7.5 0 010 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path class="snd-off" d="M13.5 7.5l5 5m0-5l-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+        <button class="tool sound-toggle" id="sound-toggle" aria-label="Couper le son" aria-pressed="true" title="Son (M)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 7.5h3l4.5-4v13l-4.5-4H3z" fill="currentColor"/><path class="snd-on" d="M13.5 7a4 4 0 010 6M15.5 4.5a7.5 7.5 0 010 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path class="snd-off" d="M13.5 7.5l5 5m0-5l-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
         <button class="tool" id="cmd-toggle" aria-label="Mode directives" aria-pressed="false" title="Mode directives (D)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 18V2.5M5 3h10l-2.5 3.5L15 10H5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg></button>
       </div>
       <div class="directive-bar" id="directive-bar" hidden>
@@ -77,9 +77,72 @@
       </div>
     </aside>
   </main>
-  <div class="overlay" id="overlay" hidden>
-    <article class="dossier" id="dossier"></article>
-  </div>
+</div>
+<div class="app front-app" id="front-app" hidden>
+  <header class="bar">
+    <div class="brand">
+      <span class="brand-name">Frontline</span>
+      <span class="brand-sub">Front stratégique</span>
+    </div>
+    <div class="status">
+      <span id="f-name" class="battle-name"></span>
+      <span id="f-day" class="turn"></span>
+      <span id="f-cond" class="cond"></span>
+      <span id="f-phase" class="phase"></span>
+      <span id="f-goal" class="objective"></span>
+    </div>
+    <div class="bar-actions">
+      <button class="btn btn-ghost btn-icon" id="f-help" aria-label="Règles">?</button>
+      <button class="btn btn-ghost" id="f-menu">Menu</button>
+    </div>
+  </header>
+  <main class="desk">
+    <section class="board" aria-label="Carte du front">
+      <canvas id="f-map" class="map-canvas"></canvas>
+      <canvas id="f-weather" class="weather-canvas" aria-hidden="true"></canvas>
+      <div class="map-tools">
+        <button class="tool" id="f-zoom-in" aria-label="Zoomer">+</button>
+        <button class="tool" id="f-zoom-out" aria-label="Dézoomer">−</button>
+        <button class="tool" id="f-zoom-fit" aria-label="Voir toute la carte"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 8V3h5M12 3h5v5M17 12v5h-5M8 17H3v-5" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
+        <button class="tool sound-toggle" id="f-sound" aria-label="Couper le son" aria-pressed="true" title="Son (M)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 7.5h3l4.5-4v13l-4.5-4H3z" fill="currentColor"/><path class="snd-on" d="M13.5 7a4 4 0 010 6M15.5 4.5a7.5 7.5 0 010 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path class="snd-off" d="M13.5 7.5l5 5m0-5l-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+      </div>
+      <div class="day-clock" id="f-clock" hidden>
+        <span class="clock-time" id="f-clock-time"></span>
+        <span class="clock-track"><i id="f-clock-bar"></i></span>
+        <button class="clock-skip" id="f-skip" title="Passer la journée (Entrée)">Passer ›</button>
+      </div>
+      <div class="order-bar" id="f-tools" role="toolbar" aria-label="Ordres du matin">
+        <button class="otool" data-tool="infantry" aria-pressed="false" title="Vecteur d'infanterie (1)"><span class="tool-l">Inf.</span><span class="tool-n"></span></button>
+        <button class="otool" data-tool="armor" aria-pressed="false" title="Percée blindée (2)"><span class="tool-l">Blindés</span><span class="tool-n"></span></button>
+        <button class="otool" data-tool="retreat" aria-pressed="false" title="Repli ordonné (3)"><span class="tool-l">Repli</span><span class="tool-n"></span></button>
+        <button class="otool" data-tool="line" aria-pressed="false" title="Ligne de défense (4)"><span class="tool-l">Ligne</span><span class="tool-n"></span></button>
+        <button class="otool" data-tool="barrage" aria-pressed="false" title="Barrage de zone (5)"><span class="tool-l">Barrage</span><span class="tool-n"></span></button>
+        <button class="otool" data-tool="reserve" aria-pressed="false" title="Faire monter les réserves (6)"><span class="tool-l">Réserves</span><span class="tool-n"></span></button>
+      </div>
+      <p class="hint" id="f-hint" hidden></p>
+    </section>
+    <aside class="side">
+      <nav class="tabs" role="tablist" aria-label="Panneaux">
+        <button class="tab" role="tab" data-ftab="orders" id="f-tab-orders">Ordres</button>
+        <button class="tab" role="tab" data-ftab="forces">Forces</button>
+        <button class="tab" role="tab" data-ftab="log">Journal</button>
+      </nav>
+      <div class="panels">
+        <section class="panel" id="f-orders" data-fpanel="orders" aria-live="polite"></section>
+        <section class="panel" id="f-forces" data-fpanel="forces"></section>
+        <section class="panel panel-log" data-fpanel="log">
+          <h2 class="panel-title">Journal du front</h2>
+          <ul class="log" id="f-log"></ul>
+        </section>
+      </div>
+      <div class="dock">
+        <button class="btn btn-primary btn-go" id="f-go">Lancer la journée</button>
+      </div>
+    </aside>
+  </main>
+</div>
+<div class="overlay" id="overlay" hidden>
+  <article class="dossier" id="dossier"></article>
 </div>
 <!--/APP-->
 <script type="module" src="src/main.js"></script>

@@ -8,6 +8,11 @@ Le cœur du jeu : **planifier en même temps que l'adversaire**. Chaque tour, le
 ordres sans voir ceux de l'autre, puis tout s'exécute simultanément sans qu'on puisse intervenir.
 Il faut donc anticiper où l'ennemi sera, pas seulement où il est.
 
+Un second mode, **Front stratégique**, se lance depuis le menu : dix jours d'offensive sur tout un secteur,
+où les unités laissent place à des masses de troupes et à une ligne de front continue. Chaque matin, on trace
+ses poussées (infanterie, blindés), replis, lignes de défense et barrages, on fait monter les réserves et on
+décide du sort des poches ; puis la journée se déroule seule, en une vingtaine de secondes.
+
 ## Lancer le jeu
 
 Aucune dépendance. Node 18+ suffit.

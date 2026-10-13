@@ -1,0 +1,850 @@
+// Contrôleur du front stratégique : briefing, ordres du matin, journée animée, bilans et débriefing.
+// Le moteur (front.js) reste la vérité ; ici, on traduit les gestes en ordres et l'état en écrans.
+//
+// Geste : on choisit un outil, puis on touche le départ et la cible. Le jeu prend lui-même la case la plus
+// pertinente autour du doigt (la plus garnie au contact pour un vecteur, la plus proche pour une ligne) : nul besoin
+// de viser une case précise. Sans outil, toucher la carte donne une estimation des forces dans la zone.
+
+import {
+  createFront, beginDay, stepTick, addVector, addLine, addBarrage, removeOrder, deployReserve, undoDeployment,
+  repeatOrders, setPocketMode, vectorCatchment, troops, territory, townsHeld, attackerTowns, pocketName,
+  cellAtPoint, FRONT_WEATHER, POCKET_MODES, VECTOR_TYPES, sideIndex,
+} from './front.js';
+import { installAI } from './frontai.js';
+import { FrontRenderer, CELL, MIN_POCKET } from './frontrender.js';
+import { WeatherLayer } from './weather.js';
+import { BIOMES, SEASON } from './conditions.js';
+import { describeCell } from './terrain.js';
+import { createRng } from './rng.js';
+import { sound } from './audio.js';
+
+const byId = (id) => document.getElementById(id);
+const escHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const touchOnly = () => window.matchMedia?.('(hover: none)').matches;
+const stillMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+const DAY_MS = 20000; // une journée dure ~20 s : le front se déplace lentement, on le regarde vivre
+const SKIP_MS = 45; // « Passer la journée » : les ticks restants défilent en accéléré
+const DAY_START = 6, DAY_END = 20; // heures de la journée de combat
+
+const SIDE_NAME = ['Wehrmacht', 'Armée rouge'];
+
+// Outils du matin : vecteurs (deux appuis), ligne (deux appuis), barrage et réserves (un appui).
+const TOOLS = {
+  infantry: { label: 'Infanterie', short: 'Inf.', taps: 2, hint: 'Touchez le départ dans vos lignes, puis l\'objectif.' },
+  armor: { label: 'Blindés', short: 'Blindés', taps: 2, hint: 'Percée blindée : touchez le départ, puis l\'objectif (loin, étroit, rapide).' },
+  retreat: { label: 'Repli', short: 'Repli', taps: 2, hint: 'Repli ordonné : touchez le secteur à dégager, puis où se replier dans vos lignes.' },
+  line: { label: 'Ligne de défense', short: 'Ligne', taps: 2, hint: 'Ligne de défense : touchez une extrémité, puis l\'autre, dans vos lignes.' },
+  barrage: { label: 'Barrage', short: 'Barrage', taps: 1, hint: 'Barrage de zone : touchez la zone à pilonner (jusqu\'à 12 cases de vos lignes).' },
+  reserve: { label: 'Réserves', short: 'Réserves', taps: 1, hint: 'Chaque appui fait monter 800 hommes en ligne autour du point touché.' },
+};
+
+const fui = {
+  front: null,
+  r: null,
+  weather: null,
+  side: 0,
+  seed: '',
+  tool: null,
+  pending: null, // premier appui d'un ordre à deux appuis : { cell, point }
+  breakout: null, // id de la poche dont on trace la percée
+  hoverPoint: null,
+  probe: null, // estimation au toucher : { x, y, r }
+  tab: 'orders',
+  acc: 0,
+  skip: false,
+  ending: false,
+  loop: 0,
+  last: 0,
+  dayStats: null,
+  hooks: {},
+  bound: false,
+  hintTimer: 0,
+  showAll: false, // après la bataille : vue omnisciente
+};
+
+export const frontActive = () => !!fui.front && !byId('front-app').hidden;
+// Fond sonore : seulement pendant la journée, carte visible.
+export const frontAmbient = () => frontActive() && byId('overlay').hidden && fui.front?.phase === 'resolve';
+
+const men = (d) => Math.round(d * (fui.front?.cfg.men ?? 10));
+// Poches qui comptent (les miettes de moins de 200 hommes sont ignorées), les plus grosses d'abord.
+const bigPockets = (f, s) => f.pockets[s].filter((p) => p.troops >= MIN_POCKET).sort((a, b) => b.troops - a.troops);
+const fmtMen = (n) => `${(Math.round(n / 100) * 100).toLocaleString('fr-FR')} h`;
+// Fourchette d'estimation, arrondie à la centaine ou au demi-millier : « 2 000 à 3 000 hommes ».
+function menRange(n, lo = 0.75, hi = 1.3) {
+  const step = n >= 4000 ? 500 : 100;
+  const a = Math.max(0, Math.floor((n * lo) / step) * step), b = Math.max(step, Math.ceil((n * hi) / step) * step);
+  return `${a.toLocaleString('fr-FR')} à ${b.toLocaleString('fr-FR')} hommes`;
+}
+
+// ---------- Entrée et sortie du mode ----------
+
+export function initFront(hooks) {
+  fui.hooks = hooks;
+}
+
+export function openFront(sideCode, seed) {
+  stopLoop();
+  byId('tac-app').hidden = true;
+  byId('front-app').hidden = false;
+  if (!fui.bound) bind();
+  const rng = createRng(`front:setup:${seed}`);
+  const attacker = rng.chance(0.5) ? 'DE' : 'SU';
+  const biome = rng.weighted({ steppe: 35, bocage: 25, polesie: 20, bourg: 20 });
+  const season = rng.weighted({ 0: 30, 1: 25, 2: 20, 3: 15, 4: 10 });
+  const front = createFront({ seed, playerSide: sideCode, attacker, biome, season: Number(season) });
+  installAI(front);
+  Object.assign(fui, { front, seed, side: sideIndex(sideCode), tool: null, pending: null, breakout: null, probe: null, acc: 0, skip: false, ending: false, showAll: false, tab: 'orders', hoverPoint: null });
+  fui.r.setMap(front);
+  fui.r.resize();
+  fui.r.initialView(sideCode);
+  resnap();
+  refreshFront();
+  showFrontBriefing();
+}
+
+export function closeFront() {
+  stopLoop();
+  fui.front = null;
+  byId('front-app').hidden = true;
+  byId('tac-app').hidden = false;
+  fui.weather?.set('clear', 'day');
+}
+
+function viewer() { return fui.showAll ? null : fui.side; }
+function resnap() {
+  fui.r.cur = null;
+  fui.r.snapshot(viewer());
+}
+
+// ---------- Dossiers ----------
+
+function biomeText(f) {
+  const b = BIOMES[f.map.biome];
+  return b ? `<p><b>${b.label}.</b> ${b.text}</p>` : '';
+}
+
+function weatherText(f) {
+  const w = FRONT_WEATHER[f.weather];
+  return `<p><b>${w.label}.</b> ${w.text}</p>`;
+}
+
+function goalText(f) {
+  const att = f.attacker === fui.side;
+  const n = f.defTowns.length;
+  return att
+    ? `Prendre et tenir au soir du ${f.cfg.days}<sup>e</sup> jour au moins <b>${f.goal} des ${n} villes</b> marquées ★ (aujourd'hui aux mains de l'ennemi).`
+    : `Garder les villes marquées ★ : l'ennemi doit en tenir <b>${f.goal} sur ${n}</b> au soir du ${f.cfg.days}<sup>e</sup> jour pour l'emporter.`;
+}
+
+function enemyEstimate(f) {
+  const mem = f.memory[fui.side];
+  let est = 0;
+  for (let i = 0; i < f.map.N; i++) if (mem.owner[i] === 1 - fui.side) est += mem.est[i];
+  return est * f.cfg.men;
+}
+
+function showFrontBriefing() {
+  const f = fui.front;
+  const s = fui.side;
+  const att = f.attacker === s;
+  fui.hooks.showDossier(`
+    <p class="eyebrow">Front stratégique · ${escHtml(SEASON[f.season].month)} · ${f.cfg.days} jours</p>
+    <h1 class="title-l">${escHtml(f.map.name)}</h1>
+    <p class="kind">${SIDE_NAME[s]} · ${att ? 'vous attaquez' : 'vous défendez'}</p>
+    <p class="lede">${att
+      ? 'Vos divisions sont massées face à une ligne retranchée, inégalement fortifiée : trouvez ses points faibles, percez, encerclez.'
+      : 'Vos positions sont retranchées, plus solidement autour des villes. L\'ennemi a davantage de réserves : cédez du terrain s\'il le faut, mais gardez les villes.'}</p>
+    <div class="brief-grid">
+      <section>
+        <h2>Objectif</h2>
+        <p>${goalText(f)}</p>
+        <p>Victoire immédiate si l'ennemi tombe sous 12 % de ses effectifs, ne tient plus que 12 % du terrain, ou perd toutes les villes.</p>
+        <h2>Forces</h2>
+        <p>En ligne : ${fmtMen(men(troops(f, s)))}. Réserves : ${fmtMen(men(f.reserve[s]))}, renforcées chaque soir selon le ravitaillement et les villes tenues.</p>
+        <p>Renseignement : en face, ${menRange(enemyEstimate(f), 0.8, 1.4)} repérés ; le reste est dans le brouillard.</p>
+      </section>
+      <section>
+        <h2>Conditions</h2>
+        <div class="conditions">${biomeText(f)}${weatherText(f)}</div>
+        <h2>Ordres</h2>
+        <p>Chaque matin, choisissez un outil puis touchez le départ et la cible : le jeu prend la case la plus pertinente autour du doigt. Puis la journée se déroule seule, en une vingtaine de secondes.</p>
+      </section>
+    </div>
+    <div class="row-end"><button class="btn btn-primary" id="f-start">Prendre le commandement</button></div>
+  `, () => byId('f-start').addEventListener('click', () => { fui.hooks.hideDossier(); setHint(TOOLS_HELP()); refreshFront(); }));
+}
+
+const TOOLS_HELP = () => `${touchOnly() ? 'Touchez' : 'Cliquez'} la carte pour estimer les forces ; choisissez un outil pour donner un ordre.`;
+
+function frontRules() {
+  const c = fui.front?.cfg ?? { maxVectors: 4, maxArmor: 2, maxLines: 2, days: 10 };
+  return `
+    <details class="rules" open>
+      <summary>Front stratégique</summary>
+      <ol>
+        <li><b>Masses.</b> Plus d'unités : chaque camp est une masse de troupes, plus sombre où elle est dense. Le trait noir est le front. Hors de vue, l'ennemi n'est qu'une estimation estompée.</li>
+        <li><b>Le matin.</b> Le jeu est en pause. Donnez jusqu'à ${c.maxVectors} vecteurs (dont ${c.maxArmor} blindés) : les troupes autour du départ s'y engagent et poussent vers la cible. Un vecteur draine son voisinage : là où il prend, le front se dégarnit.</li>
+        <li><b>Outils.</b> Infanterie : large, lente, tenace. Blindés : étroits, rapides, profonds, mais ils s'enlisent sous la pluie. Repli ordonné : les troupes décrochent avec moins de pertes. Ligne de défense (${c.maxLines} par jour) : les cases le long du trait se retranchent au fil de la journée. Barrage : une zone pilonnée au début de la journée, même dans le brouillard. Réserves : chaque appui fait monter des renforts en ligne.</li>
+        <li><b>La journée.</b> Une vingtaine de secondes, sans intervention : le combat compare les pressions de part et d'autre du front, selon la densité, le terrain, le retranchement et la qualité des troupes. Le bouton discret « Passer » abrège la journée.</li>
+        <li><b>Défense élastique.</b> Sans ordre, les troupes colmatent d'elles-mêmes les secteurs menacés.</li>
+        <li><b>Encerclement.</b> Des troupes coupées de leur bord de carte forment une poche, qui fond d'environ 30 % par jour. Chaque matin, choisissez pour les vôtres : statu quo, Festung (se resserrer, tenir et fondre moins vite) ou percée d'évasion vers un point que vous touchez.</li>
+        <li><b>Brouillard.</b> Vous voyez à quelques cases de vos troupes (moins par brouillard). Touchez la carte : vos forces sont comptées, celles de l'ennemi estimées en fourchette.</li>
+        <li><b>Victoire.</b> Au soir du ${c.days}<sup>e</sup> jour, l'attaquant gagne s'il tient assez de villes ★ ; sinon le défenseur a tenu. Un camp qui tombe sous 12 % de ses effectifs ou de son terrain, ou qui perd toutes les villes, a perdu sur-le-champ.</li>
+      </ol>
+    </details>`;
+}
+
+function showHelp() {
+  fui.hooks.showDossier(`<p class="eyebrow">Manuel</p><h1 class="title-l">Front stratégique</h1>${frontRules()}<div class="row-end"><button class="btn btn-primary" id="f-close-help">Reprendre</button></div>`,
+    () => byId('f-close-help').addEventListener('click', fui.hooks.hideDossier));
+}
+
+// Instantané de début de journée, pour le bilan du soir.
+function takeStats() {
+  const f = fui.front, s = fui.side;
+  return {
+    day: f.day,
+    troops: troops(f, s),
+    reserve: f.reserve[s],
+    losses: f.stats.losses.slice(),
+    territory: territory(f, s),
+    towns: townsHeld(f, s),
+    objective: attackerTowns(f),
+    logFrom: f.log.length,
+    pockets: f.pockets[s].length,
+  };
+}
+
+function showDayReport() {
+  const f = fui.front, s = fui.side, d = fui.dayStats;
+  if (!d) return;
+  const lost = men(f.stats.losses[s] - d.losses[s]);
+  const theirs = men(f.stats.losses[1 - s] - d.losses[1 - s]);
+  const terr = (territory(f, s) - d.territory) * 100;
+  const reinf = men(f.reserve[s] - d.reserve);
+  const events = f.log.slice(d.logFrom).filter((e) => e.kind === 'town' || e.kind === 'pocket');
+  const obj = attackerTowns(f);
+  const att = f.attacker === s;
+  const myPockets = bigPockets(f, s);
+  fui.hooks.showDossier(`
+    <p class="eyebrow">${escHtml(f.map.name)} · bilan du soir</p>
+    <h1 class="title-l">Jour ${d.day} / ${f.cfg.days}</h1>
+    <div class="brief-grid">
+      <section>
+        <h2>Pertes</h2>
+        <p>Vos pertes : <b>${fmtMen(lost)}</b>.<br>Pertes ennemies estimées : ${theirs < 50 ? 'négligeables' : menRange(theirs, 0.7, 1.35)}.</p>
+        <h2>Terrain</h2>
+        <p>${Math.abs(terr) < 0.5 ? 'Le front n\'a guère bougé.' : terr > 0 ? `Vous gagnez ${terr.toFixed(1).replace('.', ',')} % du secteur.` : `Vous cédez ${(-terr).toFixed(1).replace('.', ',')} % du secteur.`} Vous tenez ${Math.round(territory(f, s) * 100)} % du terrain et ${townsHeld(f, s)} ville${townsHeld(f, s) > 1 ? 's' : ''}.</p>
+        <p>Objectif : ${obj} ville${obj > 1 ? 's' : ''} ★ sur ${f.goal} ${att ? 'prises' : 'perdues'}${obj >= f.goal ? (att ? ' : le compte y est, tenez-les.' : ' : il faut en reprendre.') : '.'}</p>
+      </section>
+      <section>
+        <h2>Événements</h2>
+        ${events.length ? `<ul class="ticks">${events.slice(0, 6).map((e) => `<li>${escHtml(e.text)}</li>`).join('')}${events.length > 6 ? `<li>… et ${events.length - 6} autres (journal).</li>` : ''}</ul>` : '<p>Pas de ville prise, pas d\'encerclement.</p>'}
+        <h2>Demain</h2>
+        ${f.phase === 'over' ? '' : `<p>Renforts reçus : ${fmtMen(reinf)} (réserves : ${fmtMen(men(f.reserve[s]))}).</p>${weatherText(f)}`}
+        ${myPockets.length && f.phase !== 'over' ? `<p class="warn-note">${myPockets.length > 1 ? `${myPockets.length} poches de vos troupes attendent` : 'Une poche de vos troupes attend'} vos ordres (onglet Ordres).</p>` : ''}
+      </section>
+    </div>
+    <div class="row-end"><button class="btn btn-primary" id="f-next">${f.phase === 'over' ? 'Résultat' : `Ordres du jour ${f.day}`}</button></div>
+  `, () => byId('f-next').addEventListener('click', () => {
+    if (f.phase === 'over') return showFrontDebrief();
+    fui.hooks.hideDossier();
+    sound.ui('bell');
+    refreshFront();
+  }));
+}
+
+function showFrontDebrief() {
+  const f = fui.front, s = fui.side;
+  const won = f.result.winner === s;
+  fui.showAll = true;
+  resnap();
+  drawFront();
+  const L = f.stats.losses;
+  fui.hooks.showDossier(`
+    <p class="eyebrow">${escHtml(f.map.name)} · rapport final</p>
+    <h1 class="title-l ${won ? 'win' : 'loss'}">${won ? 'Victoire' : 'Défaite'}</h1>
+    <p class="lede">${escHtml(f.result.reason)}</p>
+    <div class="brief-grid">
+      <section>
+        <h2>Pertes</h2>
+        <p>${SIDE_NAME[0]} : ${fmtMen(men(L[0]))}<br>${SIDE_NAME[1]} : ${fmtMen(men(L[1]))}</p>
+        <h2>Terrain</h2>
+        <p>${SIDE_NAME[0]} ${Math.round(territory(f, 0) * 100)} % · ${SIDE_NAME[1]} ${Math.round(territory(f, 1) * 100)} %. Villes ★ prises par l'attaquant : ${attackerTowns(f)} sur ${f.goal} visées.</p>
+      </section>
+      <section>
+        <h2>Après la bataille</h2>
+        <p>Le brouillard est levé : la carte montre maintenant les forces réelles des deux camps.</p>
+      </section>
+    </div>
+    <div class="row-end">
+      <button class="btn btn-ghost" id="f-see">Revoir la carte</button>
+      <button class="btn btn-primary" id="f-new">Nouvelle bataille</button>
+    </div>
+  `, () => {
+    byId('f-see').addEventListener('click', () => { fui.hooks.hideDossier(); refreshFront(); });
+    byId('f-new').addEventListener('click', () => fui.hooks.showMenu());
+  });
+}
+
+// ---------- Choix de la case autour du doigt ----------
+
+// Rayon de recherche autour du doigt, en unités de grille : ~32 px d'écran, jamais moins de 1,5 case.
+function reach() { return Math.max(1.5, 32 / (CELL * fui.r.cam.s)); }
+
+function contactCells() {
+  const f = fui.front, s = fui.side, mem = f.memory[s], { nb, N } = f.map;
+  const c = new Uint8Array(N);
+  for (let i = 0; i < N; i++) {
+    if (f.owner[i] !== s) continue;
+    for (let d = 0; d < 6; d++) { const j = nb[i * 6 + d]; if (j >= 0 && mem.owner[j] === 1 - s) { c[i] = 1; break; } }
+  }
+  return c;
+}
+
+// La case la plus pertinente près du point p pour l'outil :
+// - vecteur : la plus garnie, de préférence au contact (c'est elle qui poussera) ;
+// - réserves : une case ravitaillée, de préférence au contact ;
+// - ligne et repli (cible) : simplement la plus proche dans nos lignes.
+function pickCell(p, purpose) {
+  const f = fui.front, s = fui.side, { x, y } = f.centers;
+  const R = reach();
+  const contact = purpose === 'push' || purpose === 'reserve' ? contactCells() : null;
+  let best = -1, bs = -Infinity;
+  for (const radius of [R, R * 2]) {
+    for (let i = 0; i < f.map.N; i++) {
+      if (f.owner[i] !== s) continue;
+      if (purpose === 'reserve' && !f.supplied[s][i]) continue;
+      const d = Math.hypot(x[i] - p.x, y[i] - p.y);
+      if (d > radius) continue;
+      const near = Math.exp(-((d / radius) ** 2));
+      let score;
+      if (purpose === 'push') score = (f.dens[i] + 2) * (contact[i] ? 1.8 : 1) * near;
+      else if (purpose === 'reserve') score = (contact[i] ? 1.6 : 1) * near;
+      else score = -d;
+      if (score > bs) { bs = score; best = i; }
+    }
+    if (best >= 0) break;
+  }
+  return best;
+}
+
+const cellPoint = (i) => ({ x: fui.front.centers.x[i], y: fui.front.centers.y[i] });
+
+// ---------- Ordres ----------
+
+function setTool(t) {
+  const f = fui.front;
+  if (!f || f.phase !== 'plan') return;
+  fui.tool = fui.tool === t ? null : t;
+  fui.pending = null;
+  fui.breakout = null;
+  fui.probe = null;
+  setHint(fui.tool ? TOOLS[fui.tool].hint : TOOLS_HELP());
+  sound.ui('select');
+  refreshFront();
+}
+
+function cancelTool() {
+  fui.tool = null;
+  fui.pending = null;
+  fui.breakout = null;
+  setHint(TOOLS_HELP());
+  refreshFront();
+}
+
+function fail(r) {
+  if (!r?.error) return false;
+  setHint(r.error, true);
+  return true;
+}
+
+function placed(text) {
+  sound.ui('order');
+  setHint(text);
+}
+
+function onTap(p) {
+  const f = fui.front;
+  if (!f || !byId('overlay').hidden) return;
+  const s = fui.side;
+  if (f.phase !== 'plan' || (!fui.tool && !fui.breakout)) return probeAt(p);
+
+  if (fui.breakout) {
+    const r = setPocketMode(f, s, fui.breakout, 'breakout', { x: p.x, y: p.y });
+    fui.breakout = null;
+    if (!fail(r)) placed(`Percée d'évasion de la poche ${pocketName(f, r)} : toutes ses forces convergent vers la sortie.`);
+    return refreshFront();
+  }
+
+  const tool = fui.tool;
+  if (tool === 'barrage') {
+    const r = addBarrage(f, s, { x: p.x, y: p.y });
+    if (!fail(r)) { placed('Barrage réglé : la zone sera pilonnée au lever du jour.'); fui.tool = null; }
+    return refreshFront();
+  }
+  if (tool === 'reserve') {
+    const i = pickCell(p, 'reserve');
+    if (i < 0) { setHint('Touchez vos lignes ravitaillées.', true); return; }
+    const r = deployReserve(f, s, i, f.cfg.chunk);
+    if (!fail(r)) {
+      placed(`${fmtMen(men(r.amount))} montent en ligne. Réserves restantes : ${fmtMen(men(f.reserve[s]))}.`);
+      fui.probe = { ...cellPoint(i), r: 2.5 };
+      resnap();
+    }
+    return refreshFront();
+  }
+
+  // Ordres à deux appuis.
+  if (!fui.pending) {
+    const purpose = tool === 'line' ? 'near' : 'push';
+    const i = pickCell(p, purpose);
+    if (i < 0) { setHint('Touchez vos lignes.', true); return; }
+    fui.pending = { cell: i, point: tool === 'line' ? { x: p.x, y: p.y } : cellPoint(i) };
+    if (tool === 'line' && f.owner[cellAtPoint(f, p)] !== s) fui.pending.point = cellPoint(i);
+    sound.ui('select');
+    setHint(tool === 'line' ? 'Touchez l\'autre extrémité de la ligne.' : tool === 'retreat' ? 'Touchez où se replier, dans vos lignes.' : 'Touchez l\'objectif.');
+    return refreshFront();
+  }
+  const a = fui.pending;
+  fui.pending = null;
+  let r;
+  if (tool === 'line') {
+    let b = { x: p.x, y: p.y };
+    if (f.owner[cellAtPoint(f, b)] !== s) { const j = pickCell(p, 'near'); if (j >= 0) b = cellPoint(j); }
+    r = addLine(f, s, a.point, b);
+    if (!fail(r)) placed(`Ligne de défense : ${r.cells.length} cases se retranchent pendant la journée.`);
+  } else {
+    let to = { x: p.x, y: p.y };
+    if (tool === 'retreat' && f.owner[cellAtPoint(f, to)] !== s) { const j = pickCell(p, 'near'); if (j >= 0) to = cellPoint(j); }
+    r = addVector(f, s, tool, a.cell, to);
+    if (!fail(r)) placed(`${VECTOR_TYPES[tool].label} : environ ${fmtMen(men(vectorCatchment(f, r)))} engagés.`);
+  }
+  if (!r.error) fui.tool = null;
+  refreshFront();
+}
+
+// Estimation au toucher : nos forces sont comptées, celles de l'ennemi estimées en fourchette.
+function probeAt(p) {
+  const f = fui.front, s = fui.side;
+  const i = cellAtPoint(f, p);
+  if (i < 0) { fui.probe = null; setHint(TOOLS_HELP()); return drawFront(); }
+  const R = 3;
+  const omni = viewer() === null;
+  const mem = f.memory[s];
+  const know = (j) => (omni || f.owner[j] === s ? f.owner[j] : mem.owner[j]);
+  const side = know(i);
+  let sum = 0, seen = Infinity, visible = false;
+  for (let j = 0; j < f.map.N; j++) {
+    if (know(j) !== side || side < 0) continue;
+    if (Math.hypot(f.centers.x[j] - p.x, f.centers.y[j] - p.y) > R) continue;
+    if (omni || side === s) sum += f.dens[j];
+    else {
+      sum += mem.est[j];
+      if (f.vision[s][j]) visible = true;
+      else seen = Math.min(seen, f.clock - mem.seen[j]);
+    }
+  }
+  fui.probe = { x: p.x, y: p.y, r: R };
+  const terrain = describeCell(f.map, i);
+  let text;
+  if (side < 0) text = terrain;
+  else if (omni || side === s) {
+    const pocket = bigPockets(f, side).find((q) => q.cells.includes(i));
+    text = `${side === s && !omni ? 'Vos troupes' : SIDE_NAME[side]} : ${fmtMen(men(sum))} dans la zone · ${terrain}${pocket ? ` · poche ${pocketName(f, pocket)}` : ''}`;
+  } else {
+    const n = men(sum);
+    const age = visible ? '' : seen < Infinity ? ` (vu il y a ${hoursAgo(seen)})` : '';
+    text = `Ennemi estimé : ${n < 50 ? 'quelques éléments' : menRange(n)}${age} · ${terrain}`;
+  }
+  setHint(text);
+  drawFront();
+}
+
+function hoursAgo(ticks) {
+  const h = Math.round((ticks * (DAY_END - DAY_START)) / fui.front.cfg.ticks);
+  return h < 1 ? 'moins d\'une heure' : h < 24 ? `${h} h` : `${Math.round(h / 24)} j`;
+}
+
+function removeMine(id) {
+  removeOrder(fui.front, fui.side, id);
+  sound.ui('select');
+  refreshFront();
+}
+
+function undoReserve() {
+  if (undoDeployment(fui.front, fui.side)) { resnap(); sound.ui('select'); }
+  refreshFront();
+}
+
+function repeatYesterday() {
+  repeatOrders(fui.front, fui.side);
+  sound.ui('order');
+  refreshFront();
+}
+
+function pocketMode(id, mode) {
+  const f = fui.front;
+  if (mode === 'breakout') {
+    fui.tool = null;
+    fui.pending = null;
+    fui.breakout = id;
+    setHint('Touchez la direction de la percée : en général, vos lignes les plus proches.');
+    return refreshFront();
+  }
+  fail(setPocketMode(f, fui.side, id, mode));
+  sound.ui('order');
+  refreshFront();
+}
+
+// ---------- Journée ----------
+
+function launchDay() {
+  const f = fui.front;
+  if (!f || !byId('overlay').hidden) return;
+  if (f.phase === 'over') return showFrontDebrief();
+  if (f.phase === 'resolve') { fui.skip = true; return refreshFront(); }
+  fui.tool = null;
+  fui.pending = null;
+  fui.breakout = null;
+  fui.probe = null;
+  fui.dayStats = takeStats();
+  beginDay(f);
+  fui.acc = 0;
+  fui.skip = false;
+  fui.ending = false;
+  sound.ui('go');
+  setHint('');
+  refreshFront();
+  startLoop();
+}
+
+function tickMs() { return fui.skip || stillMotion() ? SKIP_MS : DAY_MS / fui.front.cfg.ticks; }
+
+function startLoop() {
+  stopLoop();
+  fui.last = performance.now();
+  const frame = (now) => {
+    fui.loop = requestAnimationFrame(frame);
+    const f = fui.front;
+    if (!f) return stopLoop();
+    const dt = Math.min(250, now - fui.last);
+    fui.last = now;
+    if (byId('overlay').hidden) fui.acc += dt;
+    const T = tickMs();
+    while (fui.acc >= T) {
+      if (fui.ending) { fui.acc = T; return endOfDay(); }
+      fui.acc -= T;
+      stepTick(f);
+      fui.r.snapshot(viewer());
+      if (f.phase !== 'resolve') fui.ending = true;
+      if (fui.skip) break; // une image par tick, même en accéléré
+    }
+    drawFront(fui.acc / T);
+    renderClock();
+  };
+  fui.loop = requestAnimationFrame(frame);
+}
+
+function stopLoop() {
+  if (fui.loop) cancelAnimationFrame(fui.loop);
+  fui.loop = 0;
+}
+
+function endOfDay() {
+  stopLoop();
+  fui.ending = false;
+  fui.skip = false;
+  resnap();
+  refreshFront();
+  showDayReport();
+}
+
+// ---------- Affichage ----------
+
+function drawFront(t = 1) {
+  const f = fui.front;
+  if (!f) return;
+  const s = fui.side;
+  const v = viewer();
+  const planning = f.phase === 'plan';
+  const orders = { vectors: f.orders[s], lines: f.lines[s], barrages: f.barrages[s] };
+  let preview = null;
+  if (planning && fui.hoverPoint) {
+    const h = fui.hoverPoint;
+    if (fui.pending && fui.tool === 'line') preview = { lines: [{ a: fui.pending.point, b: h, side: s }] };
+    else if (fui.pending) preview = { vectors: [{ type: fui.tool, from: fui.pending.point, to: h }] };
+    else if (fui.tool === 'barrage') preview = { barrages: [{ x: h.x, y: h.y, r: f.cfg.barrageRadius }] };
+  }
+  fui.r.draw({
+    viewer: v,
+    t,
+    orders: f.phase === 'over' ? null : orders,
+    preview,
+    origin: planning && fui.pending ? fui.pending.cell : null,
+    probe: fui.probe,
+  });
+  const { cam, worldW, worldH } = fui.r;
+  fui.weather.clip = { x: -cam.x * cam.s, y: -cam.y * cam.s, w: worldW * cam.s, h: worldH * cam.s };
+}
+
+let frontDrawQueued = false;
+function queueFrontDraw() {
+  if (frontDrawQueued || fui.loop) return;
+  frontDrawQueued = true;
+  requestAnimationFrame(() => { frontDrawQueued = false; drawFront(); });
+}
+
+function setHint(text, error = false) {
+  const el = byId('f-hint');
+  clearTimeout(fui.hintTimer);
+  el.textContent = text;
+  el.hidden = !text;
+  el.classList.toggle('error', error);
+  if (error) {
+    sound.ui('select');
+    fui.hintTimer = setTimeout(() => setHint(fui.tool ? TOOLS[fui.tool].hint : TOOLS_HELP()), 2600);
+  }
+}
+
+function dayClock() {
+  const f = fui.front;
+  const frac = Math.min(1, (f.tick + (fui.loop ? Math.min(1, fui.acc / tickMs()) : 0)) / f.cfg.ticks);
+  const mins = Math.round((DAY_START + frac * (DAY_END - DAY_START)) * 60);
+  return { frac, text: `${Math.floor(mins / 60)} h ${String(mins % 60).padStart(2, '0')}` };
+}
+
+function renderClock() {
+  const f = fui.front;
+  const el = byId('f-clock');
+  el.hidden = f.phase !== 'resolve' && !fui.ending;
+  if (el.hidden) return;
+  const c = dayClock();
+  byId('f-clock-time').textContent = c.text;
+  byId('f-clock-bar').style.width = `${(c.frac * 100).toFixed(1)}%`;
+  byId('f-skip').disabled = fui.skip;
+}
+
+const PHASE = { plan: 'Ordres du matin', resolve: 'Journée en cours', over: 'Terminée' };
+
+function refreshFront() {
+  const f = fui.front;
+  if (!f) return;
+  const s = fui.side;
+  const compact = window.matchMedia?.('(max-width: 600px)').matches;
+  const day = Math.min(f.day, f.cfg.days);
+  byId('f-name').textContent = f.map.name;
+  byId('f-day').textContent = compact ? `J${day}/${f.cfg.days}` : `Jour ${day} / ${f.cfg.days}`;
+  byId('f-cond').textContent = compact && f.weather === 'clear' ? '· Clair' : `${compact ? '· ' : ''}${FRONT_WEATHER[f.weather].label}`;
+  byId('f-cond').title = FRONT_WEATHER[f.weather].text;
+  byId('f-phase').textContent = PHASE[f.phase];
+  byId('f-phase').dataset.phase = f.phase === 'resolve' ? 'execute' : f.phase;
+  const obj = attackerTowns(f);
+  byId('f-goal').innerHTML = `<span class="star">★</span> ${obj}/${f.goal}${compact ? '' : f.attacker === s ? ' prises' : ' perdues'}`;
+  byId('f-goal').title = f.attacker === s ? `Villes de l'objectif prises : ${obj} sur ${f.goal} nécessaires` : `Villes de l'objectif perdues : ${obj} ; l'ennemi en veut ${f.goal}`;
+  fui.weather.set(f.weather, 'day');
+  sound.setWeather(f.weather);
+  const go = byId('f-go');
+  go.textContent = f.phase === 'plan' ? `Lancer le jour ${f.day}` : f.phase === 'resolve' ? 'Journée en cours…' : 'Rapport final';
+  go.disabled = f.phase === 'resolve';
+  renderTools();
+  renderClock();
+  document.querySelectorAll('[data-ftab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.ftab === fui.tab)));
+  document.querySelectorAll('[data-fpanel]').forEach((p) => p.classList.toggle('active', p.dataset.fpanel === fui.tab));
+  renderOrders();
+  renderForces();
+  renderFrontLog();
+  fui.hooks.syncAmbient?.();
+  drawFront();
+}
+
+function used(tool) {
+  const f = fui.front, s = fui.side;
+  const mine = f.orders[s].filter((v) => !v.pocket);
+  if (tool === 'infantry' || tool === 'retreat') return [mine.length, f.cfg.maxVectors];
+  if (tool === 'armor') return [mine.filter((v) => v.type === 'armor').length, f.cfg.maxArmor, mine.length >= f.cfg.maxVectors];
+  if (tool === 'line') return [f.lines[s].length, f.cfg.maxLines];
+  if (tool === 'barrage') return [f.barrages[s].length, f.cfg.barrages[s] + (s === f.attacker ? 1 : 0)];
+  return [0, Infinity, f.reserve[s] < 1];
+}
+
+function renderTools() {
+  const f = fui.front;
+  const bar = byId('f-tools');
+  bar.hidden = f.phase !== 'plan';
+  if (bar.hidden) return;
+  for (const b of bar.querySelectorAll('[data-tool]')) {
+    const t = b.dataset.tool;
+    const [n, max, full] = used(t);
+    b.setAttribute('aria-pressed', String(fui.tool === t));
+    b.disabled = (n >= max || full) && fui.tool !== t;
+    const left = max === Infinity ? fmtMen(men(f.reserve[fui.side])).replace(' h', '') : `${max - n}`;
+    b.querySelector('.tool-n').textContent = left;
+  }
+}
+
+function orderLine(label, detail, id) {
+  return `<li class="f-order"><span><b>${label}</b>${detail ? ` <em>${detail}</em>` : ''}</span>${id != null ? `<button class="btn btn-sm btn-x" data-remove="${id}" aria-label="Retirer : ${label}">✕</button>` : ''}</li>`;
+}
+
+function renderOrders() {
+  const f = fui.front, s = fui.side;
+  const el = byId('f-orders');
+  const planning = f.phase === 'plan';
+  const vecs = f.orders[s].filter((v) => !v.pocket);
+  const items = [
+    ...vecs.map((v) => orderLine(VECTOR_TYPES[v.type].label, `≈ ${fmtMen(men(vectorCatchment(f, v)))}`, planning ? v.id : null)),
+    ...f.lines[s].map((l) => orderLine('Ligne de défense', `${l.cells.length} cases`, planning ? l.id : null)),
+    ...f.barrages[s].map((b) => orderLine('Barrage', `rayon ${b.r} cases`, planning ? b.id : null)),
+  ];
+  const deployed = f.deployments[s].reduce((a, d) => a + d.amount, 0);
+  const pockets = bigPockets(f, s);
+  const canRepeat = planning && f.lastOrders[s].length > 0 && !vecs.length;
+  el.innerHTML = `
+    <p class="eyebrow">${planning ? `Ordres du jour ${f.day}` : f.phase === 'resolve' ? 'Ordres en cours d\'exécution' : 'Bataille terminée'}</p>
+    ${items.length ? `<ul class="f-orders">${items.join('')}</ul>` : `<p class="muted">${planning ? 'Aucun ordre : vos troupes tiennent et colmatent les brèches d\'elles-mêmes.' : f.phase === 'over' ? 'Le brouillard est levé : la carte montre les forces réelles des deux camps.' : 'Défense élastique sur tout le front.'}</p>`}
+    ${planning ? `
+      <div class="orders">
+        ${canRepeat ? '<button class="btn btn-sm" id="f-repeat">Reprendre les ordres de la veille</button>' : ''}
+        ${deployed ? `<button class="btn btn-sm" id="f-undo">Annuler le dernier renfort</button>` : ''}
+      </div>
+      <p class="muted small">Réserves : ${fmtMen(men(f.reserve[s]))}${deployed ? ` · ${fmtMen(men(deployed))} montés en ligne ce matin` : ''}.</p>` : ''}
+    ${pockets.length ? `<h3 class="f-sub">Troupes encerclées</h3><ul class="f-pockets">${pockets.map((p) => `
+      <li>
+        <p><b>Poche ${escHtml(pocketName(f, p))}</b> · ${fmtMen(men(p.troops))} · ${POCKET_MODES[p.mode]}</p>
+        ${planning ? `<div class="seg" role="group" aria-label="Comportement de la poche">${Object.entries({ hold: 'Statu quo', festung: 'Festung', breakout: 'Percée' }).map(([m, l]) => `<button class="btn btn-sm ${p.mode === m || (m === 'breakout' && fui.breakout === p.id) ? 'on' : ''}" data-pocket="${p.id}" data-mode="${m}">${l}</button>`).join('')}</div>` : ''}
+      </li>`).join('')}</ul>` : ''}`;
+  el.querySelectorAll('[data-remove]').forEach((b) => b.addEventListener('click', () => removeMine(Number(b.dataset.remove))));
+  el.querySelectorAll('[data-pocket]').forEach((b) => b.addEventListener('click', () => pocketMode(Number(b.dataset.pocket), b.dataset.mode)));
+  byId('f-repeat')?.addEventListener('click', repeatYesterday);
+  byId('f-undo')?.addEventListener('click', undoReserve);
+  byId('f-tab-orders').classList.toggle('badge', planning && pockets.length > 0);
+}
+
+function fstat(label, value) { return `<div class="stat"><dt>${label}</dt><dd>${value}</dd></div>`; }
+
+function renderForces() {
+  const f = fui.front, s = fui.side;
+  const lost = men(f.stats.losses[s]);
+  byId('f-forces').innerHTML = `
+    <p class="eyebrow">${SIDE_NAME[s]} · ${f.attacker === s ? 'attaque' : 'défense'}</p>
+    <dl class="stats">
+      ${fstat('En ligne', fmtMen(men(troops(f, s))))}
+      ${fstat('Réserves', fmtMen(men(f.reserve[s])))}
+      ${fstat('Pertes', fmtMen(lost))}
+      ${fstat('Terrain', `${Math.round(territory(f, s) * 100)} %`)}
+      ${fstat('Villes', townsHeld(f, s))}
+      ${fstat('Objectif ★', `${attackerTowns(f)}/${f.goal}`)}
+    </dl>
+    <p class="muted">${goalText(f)}</p>
+    <p class="muted small">En face (estimation) : ${menRange(enemyEstimate(f), 0.8, 1.4)} repérés.</p>`;
+}
+
+// Le journal n'affiche pas le bilan chiffré du moteur (il révèle les pertes ennemies exactes).
+function renderFrontLog() {
+  const f = fui.front;
+  const days = new Map();
+  for (const e of f.log) {
+    if (e.kind === 'report' || e.kind === 'day') continue;
+    if (!days.has(e.day)) days.set(e.day, []);
+    days.get(e.day).push(e);
+  }
+  byId('f-log').innerHTML = [...days].reverse().map(([d, list]) => `
+    <li class="log-turn">Jour ${Math.min(d, f.cfg.days)}</li>
+    ${list.map((e) => `<li class="log-${e.kind === 'result' ? 'result' : e.kind === 'town' ? 'destroy' : 'info'} ${e.side == null ? '' : e.side === fui.side ? 'mine' : 'theirs'}">${escHtml(e.text)}</li>`).join('')}`).join('')
+    || '<li class="log-dig">Rien à signaler pour l\'instant.</li>';
+}
+
+// ---------- Entrées ----------
+
+function bind() {
+  fui.bound = true;
+  fui.r = new FrontRenderer(byId('f-map'));
+  fui.weather = new WeatherLayer(byId('f-weather'));
+  const canvas = byId('f-map');
+  const r = fui.r;
+  const pts = new Map();
+  let gesture = null;
+  canvas.addEventListener('pointerdown', (e) => {
+    canvas.setPointerCapture(e.pointerId);
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pts.size === 1) gesture = { x0: e.clientX, y0: e.clientY, t0: performance.now(), moved: false, pinch: false };
+    else if (gesture) gesture.pinch = true;
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    const prev = pts.get(e.pointerId);
+    if (!prev) {
+      if (e.pointerType === 'mouse' && fui.front?.phase === 'plan' && (fui.tool || fui.pending)) {
+        const p = r.pointAt(e.clientX, e.clientY);
+        fui.hoverPoint = { x: p.x, y: p.y };
+        queueFrontDraw();
+      }
+      return;
+    }
+    if (pts.size === 1) {
+      if (!gesture.moved && Math.hypot(e.clientX - gesture.x0, e.clientY - gesture.y0) > 8) gesture.moved = true;
+      if (gesture.moved) r.pan(e.clientX - prev.x, e.clientY - prev.y);
+    } else if (pts.size === 2) {
+      const [a, b] = [...pts.values()];
+      const o = a === prev ? b : a;
+      const d0 = Math.hypot(prev.x - o.x, prev.y - o.y), d1 = Math.hypot(e.clientX - o.x, e.clientY - o.y);
+      const m = r.local((e.clientX + o.x) / 2, (e.clientY + o.y) / 2);
+      if (d0 > 0) r.zoomAt(d1 / d0, m.x, m.y);
+      r.pan((e.clientX - prev.x) / 2, (e.clientY - prev.y) / 2);
+    }
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    queueFrontDraw();
+  });
+  const end = (e) => {
+    if (!pts.has(e.pointerId)) return;
+    pts.delete(e.pointerId);
+    if (pts.size === 0 && gesture && !gesture.moved && !gesture.pinch && e.type === 'pointerup' && performance.now() - gesture.t0 < 600) onTap(r.pointAt(e.clientX, e.clientY));
+    if (pts.size === 0) gesture = null;
+  };
+  canvas.addEventListener('pointerup', end);
+  canvas.addEventListener('pointercancel', end);
+  canvas.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') { fui.hoverPoint = null; queueFrontDraw(); } });
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const m = r.local(e.clientX, e.clientY);
+    r.zoomAt(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)), m.x, m.y);
+    queueFrontDraw();
+  }, { passive: false });
+  canvas.addEventListener('gesturestart', (e) => e.preventDefault());
+  const zoom = (k) => { r.zoomAt(k, r.vw / 2, r.vh / 2); queueFrontDraw(); };
+  byId('f-zoom-in').addEventListener('click', () => zoom(1.35));
+  byId('f-zoom-out').addEventListener('click', () => zoom(1 / 1.35));
+  byId('f-zoom-fit').addEventListener('click', () => { r.fitAll(); queueFrontDraw(); });
+  byId('f-sound').addEventListener('click', () => fui.hooks.toggleSound?.());
+  document.querySelectorAll('#f-tools [data-tool]').forEach((b) => b.addEventListener('click', () => setTool(b.dataset.tool)));
+  byId('f-go').addEventListener('click', launchDay);
+  byId('f-skip').addEventListener('click', () => { fui.skip = true; renderClock(); });
+  byId('f-help').addEventListener('click', showHelp);
+  byId('f-menu').addEventListener('click', () => fui.hooks.showMenu());
+  document.querySelectorAll('[data-ftab]').forEach((b) => b.addEventListener('click', () => {
+    const side = byId('front-app').querySelector('.side');
+    if (fui.tab === b.dataset.ftab) side.classList.toggle('collapsed');
+    else side.classList.remove('collapsed');
+    fui.tab = b.dataset.ftab;
+    refreshFront();
+  }));
+  window.addEventListener('keydown', (e) => {
+    if (!frontActive() || !byId('overlay').hidden || e.target.tagName === 'INPUT') return;
+    const keys = { 1: 'infantry', 2: 'armor', 3: 'retreat', 4: 'line', 5: 'barrage', 6: 'reserve' };
+    if (keys[e.key]) setTool(keys[e.key]);
+    else if (e.key === 'Escape') cancelTool();
+    else if (e.key === 'Enter') { if (fui.front.phase === 'resolve') fui.skip = true; else launchDay(); }
+    else if (e.key === 'u' || e.key === 'U') undoReserve();
+  });
+  new ResizeObserver(() => {
+    if (!frontActive()) return;
+    fui.weather.resize();
+    r.resize();
+    drawFront();
+  }).observe(canvas.parentElement);
+}
+
+window.frontlineFront = fui; // accès console pour le débogage
+

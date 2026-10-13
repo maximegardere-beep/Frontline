@@ -13,6 +13,7 @@ import { unitStats, UNIT_TYPES, LEVELS, SIDES, other, hpState, resetIds, XP_FOR_
 import { tileAt, describeTile, terrainDefense } from './terrain.js';
 import { hexDistance, hexToPixel, sameHex } from './hex.js';
 import { newCampaign, battleSetup, concludeBattle, campaignOver, campaignVerdict, CAMPAIGN_LENGTH, KIND_LABELS } from './campaign.js';
+import { initFront, openFront, closeFront, frontActive, frontAmbient } from './frontui.js';
 
 const $ = (id) => document.getElementById(id);
 const SAVE_KEY = 'frontline.campaign.v1';
@@ -72,7 +73,14 @@ function hideDossier() { $('overlay').hidden = true; syncAmbient(); }
 
 // Fond sonore (vent, canonnade lointaine) seulement sur le champ de bataille, pas derrière les menus.
 function syncAmbient() {
-  sound.ambient(!!ui.inGame && $('overlay').hidden && ui.state?.phase !== 'over');
+  sound.ambient(frontActive() ? frontAmbient() : !!ui.inGame && $('overlay').hidden && ui.state?.phase !== 'over');
+}
+
+// Quitte le front stratégique pour le mode tactique (le menu reste ouvert par-dessus).
+function leaveFront() {
+  if (!frontActive()) return;
+  closeFront();
+  if (ui.state) { ui.renderer.resize(); refresh(); }
 }
 
 const FACTION_TEXT = {
@@ -96,14 +104,22 @@ function showMenu() {
           <span class="faction-text">${FACTION_TEXT[s]}</span>
         </button>`).join('')}
     </div>
+    <section class="mode-front">
+      <h2>Front stratégique · une bataille de dix jours</h2>
+      <p class="lede">Commandez tout un secteur : des masses de troupes et une ligne de front continue. Chaque matin, tracez vos poussées, lignes de défense et barrages ; puis la journée se déroule seule.</p>
+      <div class="front-pick">
+        ${['DE', 'SU'].map((s) => `<button class="btn" data-front="${s}">${SIDES[s].name}</button>`).join('')}
+      </div>
+    </section>
     <div class="row-between">
       <label class="seed" for="seed">Graine de campagne <input id="seed" value="${seed}" maxlength="12" autocomplete="off"></label>
-      ${ui.inGame ? '<button class="btn btn-primary" id="back">Retour à la bataille</button>' : ''}
+      ${frontActive() ? '<button class="btn btn-primary" id="back">Retour au front</button>' : ui.inGame ? '<button class="btn btn-primary" id="back">Retour à la bataille</button>' : ''}
       ${!ui.inGame && saved && !campaignOver(saved) ? `<button class="btn" id="resume">Reprendre (${SIDES[saved.playerSide].name}, bataille ${saved.index + 1}/${CAMPAIGN_LENGTH})</button>` : ''}
     </div>
     ${rulesHtml()}
   `, () => {
     document.querySelectorAll('.faction').forEach((b) => b.addEventListener('click', () => {
+      leaveFront();
       const s = $('seed').value.trim() || seed;
       resetIds();
       ui.campaign = newCampaign(b.dataset.side, s);
@@ -111,7 +127,13 @@ function showMenu() {
       showBriefing();
     }));
     $('back')?.addEventListener('click', hideDossier);
+    document.querySelectorAll('[data-front]').forEach((b) => b.addEventListener('click', () => {
+      ui.inGame = false;
+      ui.weather.set('clear', 'day');
+      openFront(b.dataset.front, $('seed').value.trim() || seed);
+    }));
     $('resume')?.addEventListener('click', () => {
+      leaveFront();
       ui.campaign = saved;
       const maxId = Math.max(0, ...saved.army.map((u) => Number(u.id.slice(2)) || 0));
       resetIds(maxId + 1000);
@@ -896,7 +918,7 @@ function bindMapInput() {
     $('grid-toggle').setAttribute('aria-pressed', String(r.gridAlpha > 0));
     scheduleDraw();
   });
-  new ResizeObserver(() => { ui.weather.resize(); if (ui.state) { r.resize(); draw(); } }).observe($('map').parentElement);
+  new ResizeObserver(() => { if (frontActive()) return; ui.weather.resize(); if (ui.state) { r.resize(); draw(); } }).observe($('map').parentElement);
 }
 
 // Panoramique et volume d'un son selon sa place à l'écran : plus faible hors champ.
@@ -909,12 +931,15 @@ function locateSound(x, y) {
 
 function setMuted(m) {
   sound.setMuted(m);
-  $('sound-toggle').setAttribute('aria-pressed', String(!m));
-  $('sound-toggle').setAttribute('aria-label', m ? 'Activer le son' : 'Couper le son');
+  document.querySelectorAll('.sound-toggle').forEach((b) => {
+    b.setAttribute('aria-pressed', String(!m));
+    b.setAttribute('aria-label', m ? 'Activer le son' : 'Couper le son');
+  });
 }
 
 function start() {
   bindMapInput();
+  initFront({ showDossier, hideDossier, showMenu, syncAmbient, toggleSound: () => setMuted(!sound.muted) });
   sound.locate = locateSound;
   // Le navigateur (iOS surtout) n'ouvre le son qu'à la suite d'un geste.
   for (const ev of ['pointerdown', 'keydown']) window.addEventListener(ev, () => sound.unlock(), { capture: true });
@@ -933,6 +958,8 @@ function start() {
   $('btn-menu').addEventListener('click', showMenu);
   window.addEventListener('keydown', (e) => {
     if (!$('overlay').hidden || e.target.tagName === 'INPUT') return;
+    if (e.key === 'm' || e.key === 'M') return setMuted(!sound.muted);
+    if (frontActive()) return; // le front stratégique a ses propres raccourcis
     if (e.key === 'Enter') endPhase();
     else if (e.key === 'Escape') { if (ui.dirTool) { ui.dirTool = null; refresh(); } else select(null); }
     else if (e.key === 'd' || e.key === 'D') setCommand(!ui.command);
@@ -941,7 +968,6 @@ function start() {
     else if (e.key === 'b' || e.key === 'B') setOrder('barrage');
     else if (e.key === 'h' || e.key === 'H') setOrder('hold');
     else if (e.key === 'g' || e.key === 'G') $('grid-toggle').click();
-    else if (e.key === 'm' || e.key === 'M') setMuted(!sound.muted);
   });
   // Partie de démonstration en fond derrière le menu.
   resetIds();
