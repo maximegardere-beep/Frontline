@@ -16,7 +16,7 @@ import { FRONT_KINDS } from './terrain.js';
 import { FRONT_WEATHER, POCKET_MODES, VECTOR_TYPES, pocketName } from './front.js';
 import { MIN_POCKET, ARMOR_ATK } from './frontinput.js';
 import { FrontFx } from './frontfx.js';
-import { GUN_KINDS, visibleGuns } from './frontguns.js';
+import { GUN_KINDS, visibleGuns, gunPower } from './frontguns.js';
 import { visibleArmor } from './frontarmor.js';
 import { railPoint } from './frontsupply.js';
 import { SPRITE_PAL, piece, tank, howitzer, towed, mortar, rocket, pit, dust } from './frontsprites.js';
@@ -30,6 +30,8 @@ const ORDER_INK = '#ffd23f'; // ordres du joueur
 const ORDER_HALO = 'rgba(24, 20, 10, 0.8)';
 const SPRITE_K = 1.7; // échelle des pièces vues de dessus (lisibles sans zoomer)
 const FIRE = { decay: 0.965, gain: 5, min: 0.08 }; // incendies : déclin par tick, attisement par point de destruction
+// Cratères par tick de barrage à pleine puissance, et leur rayon (pixels monde ; une case fait 9 de rayon).
+const SCAR = { div: { n: 6, r: 1.1 }, heavy: { n: 5, r: 1.6 }, mortar: { n: 7, r: 0.9 }, rocket: { n: 9, r: 0.9 } };
 
 
 // Poids de lissage d'un point de la carte : la case sous le point et ses voisines (noyau gaussien).
@@ -96,6 +98,9 @@ export class FrontRenderer extends Renderer {
     this.houses = [];
     this.fire = new Float32Array(front.map.N); // incendies des villes (visuel) : 0 à 1, attisés par la destruction
     this.ruinSeen = Float32Array.from(front.ruin ?? new Float32Array(front.map.N));
+    this.scars = null; // calque des cratères (paintScars), peint au fil des barrages
+    this.scarQueue = [];
+    this.scarClock = -1;
     this.fx = new FrontFx(CELL);
     this.sampler = makeSampler(this.map, this.worldW, this.worldH, 4, CELL * 1.25);
     // Montagnes : chaque case reçoit la case praticable la plus proche, dont elle prend le camp dans le rendu
@@ -538,6 +543,7 @@ export class FrontRenderer extends Renderer {
   // Instantané lissé, à appeler après chaque tick ; le rendu interpole entre les deux derniers.
   snapshot(viewer) {
     this.updateFires();
+    this.queueCraters();
     const v = this.viewOf(viewer);
     const S = this.sampler;
     const open = S.field(v.open).data;
@@ -640,6 +646,7 @@ export class FrontRenderer extends Renderer {
       }
     }
     ctx.globalAlpha = 1;
+    this.drawScars();
     this.drawHouses(view.viewer ?? null, true);
     this.drawWorks(view.viewer ?? null);
     this.drawRails(view.viewer ?? null);
@@ -690,6 +697,79 @@ export class FrontRenderer extends Renderer {
       ctx.stroke();
       ctx.setLineDash([]);
     }
+  }
+
+  // ---------- Cratères ----------
+
+  // Impacts des barrages du tick qui vient de se jouer : terre labourée et cratères, pour toute la bataille.
+  // Une fois par tick de l'horloge (snapshot peut être appelé plusieurs fois pour un même tick).
+  queueCraters() {
+    const f = this.front;
+    if (this.scarClock === f.clock || f.phase === 'plan' && f.tick === 0) return;
+    this.scarClock = f.clock;
+    if (f.tick > f.cfg.barrageTicks) return;
+    const rng = createRng(`craters:${f.seed}:${f.clock}`);
+    for (const s of [0, 1]) {
+      for (const b of f.barrages[s]) {
+        const g = f.guns?.find((x) => x.id === b.gun);
+        if (!g || g.fired !== f.clock - 1) continue;
+        const C = SCAR[g.kind] ?? SCAR.div;
+        const n = Math.round(C.n * gunPower(g) * FRONT_WEATHER[f.weather].barrage);
+        for (let q = 0; q < n; q++) {
+          const a = rng.next() * Math.PI * 2, r = Math.sqrt(rng.next()) * b.r * CELL;
+          const x = b.x * CELL + Math.cos(a) * r, y = b.y * CELL + Math.sin(a) * r;
+          const h = pixelToHex(x, y, CELL), i = h.row * this.map.W + h.col;
+          if (h.col < 0 || h.row < 0 || h.col >= this.map.W || h.row >= this.map.H || this.map.river?.[i] || this.map.kind[i] === K.mountain) continue;
+          this.scarQueue.push({ x, y, r: C.r * (0.7 + 0.6 * rng.next()), a: rng.next() * 6.3, k: rng.next() });
+        }
+      }
+    }
+  }
+
+  // Calque des cratères, au-dessus des masses (lisible dans les deux camps) : chaque impact ajoute une tache brune très légère (elles s'accumulent en
+  // terre labourée là où l'on pilonne souvent), un pointillé de terre retournée, puis le cratère lui-même : bourrelet
+  // clair éclairé du nord-ouest, entonnoir sombre, projections.
+  drawScars() {
+    if (this.scarQueue.length) this.paintScars();
+    if (this.scars) this.ctx.drawImage(this.scars, 0, 0, this.worldW, this.worldH);
+  }
+
+  paintScars() {
+    const scale = Math.min(1.6, this.layerScale ?? 1);
+    if (!this.scars) {
+      this.scars = document.createElement('canvas');
+      this.scars.width = Math.ceil(this.worldW * scale);
+      this.scars.height = Math.ceil(this.worldH * scale);
+      this.churn = document.createElement('canvas');
+      this.churn.width = this.churn.height = 32;
+      const g = this.churn.getContext('2d'), grad = g.createRadialGradient(16, 16, 0, 16, 16, 16);
+      grad.addColorStop(0, 'rgba(92, 68, 42, 1)');
+      grad.addColorStop(1, 'rgba(92, 68, 42, 0)');
+      g.fillStyle = grad;
+      g.fillRect(0, 0, 32, 32);
+    }
+    const ctx = this.scars.getContext('2d');
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    for (const c of this.scarQueue) {
+      ctx.globalAlpha = 0.09;
+      const R = CELL * 1.1;
+      ctx.drawImage(this.churn, c.x - R, c.y - R, R * 2, R * 2);
+      ctx.globalAlpha = 1;
+      for (let q = 0; q < 4; q++) {
+        const a = c.a + q * 1.7, d = 2 + ((c.k * 7 + q * 3.1) % 1) * 5;
+        ctx.fillStyle = q % 2 ? 'rgba(236, 222, 186, 0.5)' : 'rgba(52, 38, 24, 0.55)';
+        ctx.fillRect(c.x + Math.cos(a) * d, c.y + Math.sin(a) * d, 0.7, 0.7);
+      }
+      ctx.fillStyle = 'rgba(70, 52, 32, 0.45)';
+      for (let q = 0; q < 5; q++) { const a = c.a + q * 1.26, d = c.r * (1.7 + (q % 3) * 0.4); ctx.fillRect(c.x + Math.cos(a) * d, c.y + Math.sin(a) * d, 0.6, 0.6); }
+      ctx.fillStyle = 'rgba(238, 226, 190, 0.55)';
+      ctx.beginPath(); ctx.arc(c.x - 0.35, c.y - 0.35, c.r * 1.35, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(92, 70, 44, 0.8)';
+      ctx.beginPath(); ctx.arc(c.x + 0.2, c.y + 0.2, c.r * 1.2, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(40, 30, 20, 0.8)';
+      ctx.beginPath(); ctx.arc(c.x + 0.1, c.y + 0.15, c.r * 0.8, 0, Math.PI * 2); ctx.fill();
+    }
+    this.scarQueue.length = 0;
   }
 
   // ---------- Villes sous le feu ----------

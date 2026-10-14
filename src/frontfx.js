@@ -10,6 +10,14 @@
 import { ARMOR_ATK } from './frontinput.js';
 
 const TRACER = ['#fff27a', '#ff7a3c']; // Wehrmacht (jaune), Armée rouge (orange)
+// Obus en cloche par type de pièce (frontguns.js) : obus par tick de barrage, durée de vol (ms, + par pixel),
+// hauteur de la cloche (part de la distance), rayon de l'explosion. Les mortiers tirent haut, les Katioucha tendu.
+const ARC = {
+  div: { n: 12, life: 450, perPx: 4.5, maxLife: 1600, h: 0.38, r: 6 },
+  heavy: { n: 8, life: 600, perPx: 5, maxLife: 1900, h: 0.42, r: 9 },
+  mortar: { n: 14, life: 500, perPx: 6, maxLife: 1500, h: 0.7, r: 5 },
+  rocket: { n: 14, life: 350, perPx: 2.6, maxLife: 1000, h: 0.18, r: 6.5, rocket: true },
+};
 const MAX_PARTS = 1600;
 // Panaches de fumée : bouffées émises en continu par les foyers (incendies, combats intenses), poussées par le vent.
 const PLUME = { rate: 0.008, life: 5200, max: 700, grow: 20, drift: 0.011 }; // bouffées par ms et par foyer à plein, vie (ms), …
@@ -191,16 +199,22 @@ export class FrontFx {
         if (Math.random() < 0.5) this.shell(to, from, at(), 1 - a.side);
       }
     }
-    // Barrages du matin (le tick qui vient de se jouer est front.tick − 1).
+    // Barrages du matin (le tick qui vient de se jouer est front.tick − 1) : obus en cloche depuis la batterie,
+    // explosion à l'arrivée. Une batterie ennemie qu'on ne voit pas : l'obus n'apparaît qu'en fin de course.
     if (front.tick <= front.cfg.barrageTicks) {
       for (const s of [0, 1]) {
         for (const b of front.barrages[s]) {
           const bx = b.x * C, by = b.y * C, R = b.r * C;
           if (bx < rect.x0 - R || bx > rect.x1 + R || by < rect.y0 - R || by > rect.y1 + R) continue;
           if (viewer !== null && s !== viewer && !this.barrageSeen(front, viewer, b)) continue;
-          for (let q = 0; q < 16; q++) {
+          const g = (front.guns ?? []).find((x) => x.id === b.gun);
+          const A = ARC[g?.kind] ?? ARC.div;
+          const gunSeen = g && (viewer === null || g.side === viewer || g.seen?.[viewer]?.clock === front.clock);
+          for (let q = 0; q < A.n; q++) {
             const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * R;
-            this.blast(bx + Math.cos(a) * r, by + Math.sin(a) * r, at(), 6 + Math.random() * 4);
+            const tx = bx + Math.cos(a) * r, ty = by + Math.sin(a) * r;
+            if (g) this.arc(g.x * C, g.y * C, tx, ty, at(), A, !gunSeen);
+            else this.blast(tx, ty, at(), A.r + Math.random() * A.r * 0.4);
           }
         }
       }
@@ -217,13 +231,6 @@ export class FrontFx {
       const mission = front.barrages[g.side].find((b) => b.gun === g.id);
       const salvo = front.tick <= front.cfg.barrageTicks && mission;
       for (let q = 0; q < (salvo ? 5 : 2); q++) this.blast(gx + (Math.random() - 0.5) * 10, gy + (Math.random() - 0.5) * 6, at(), 2.2, true);
-      // Katioucha : traînées de roquettes vers la zone pilonnée.
-      if (salvo && g.kind === 'rocket') {
-        for (let q = 0; q < 8; q++) {
-          const a = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()) * mission.r * C;
-          this.tracer({ x: gx, y: gy }, { x: mission.x * C + Math.cos(a) * rr, y: mission.y * C + Math.sin(a) * rr }, at(), g.side, 700 + Math.random() * 300, 1.6);
-        }
-      }
     }
     // Villes qui tombent : une grosse explosion.
     for (const ev of events) {
@@ -254,6 +261,15 @@ export class FrontFx {
     }
   }
 
+  // Obus en cloche de (x0, y0) à (x1, y1) : il monte vers le haut de l'écran puis retombe, traînée derrière lui.
+  // late : n'apparaît qu'en fin de course (tiré d'une batterie qu'on ne voit pas).
+  arc(x0, y0, x1, y1, t0, A, late = false) {
+    const d = Math.hypot(x1 - x0, y1 - y0);
+    const life = Math.min(A.maxLife, A.life + d * A.perPx);
+    this.parts.push({ k: 'arc', t0, life, x0, y0, x1, y1, h: d * A.h, u0: late ? 0.6 : 0, rocket: !!A.rocket });
+    this.blast(x1, y1, t0 + life, A.r + Math.random() * A.r * 0.4);
+  }
+
   shell(from, to, t0, side) {
     this.parts.push({ k: 'tracer', t0, life: 110, x0: from.x, y0: from.y, x1: to.x, y1: to.y, side, w: 2.2 });
     this.parts.push({ k: 'flash', t0, life: 90, x: from.x, y: from.y, r: 3.5 });
@@ -265,6 +281,38 @@ export class FrontFx {
     this.parts.push({ k: 'blast', t0, life: 420, x, y, r, a: Math.random() * Math.PI });
     this.parts.push({ k: 'smoke', t0: t0 + 60, life: small ? 1600 : 3200, x, y, r, dx: (Math.random() - 0.3) * r * 0.8, dy: -r * (0.6 + Math.random() * 0.6) });
     if (!small) this.parts.push({ k: 'scorch', t0, life: 14000, x, y, r: r * (0.6 + Math.random() * 0.3) });
+  }
+
+  // Traînées des obus en cloche : un trait qui s'épaissit vers la tête (fumée grise pour les roquettes), puis la tête.
+  drawArcs(ctx, now, px) {
+    const SEG = 7;
+    for (const p of this.parts) {
+      if (p.k !== 'arc' || now < p.t0 || now > p.t0 + p.life) continue;
+      const u = (now - p.t0) / p.life;
+      if (u < p.u0) continue;
+      const pt = (v) => ({ x: p.x0 + (p.x1 - p.x0) * v, y: p.y0 + (p.y1 - p.y0) * v - p.h * 4 * v * (1 - v) });
+      const fade = Math.min(1, (u - p.u0) * 12);
+      const tail = p.rocket ? 0.3 : 0.16;
+      let a = pt(Math.max(p.u0, u - tail));
+      for (let q = 1; q <= SEG; q++) {
+        const b = pt(Math.max(p.u0, u - tail * (1 - q / SEG)));
+        const k = q / SEG;
+        ctx.globalAlpha = fade * k * (p.rocket ? 0.55 : 0.85);
+        ctx.strokeStyle = p.rocket ? 'rgb(176, 170, 158)' : 'rgb(255, 226, 150)';
+        ctx.lineWidth = Math.max(0.5, (p.rocket ? 0.8 + 1.6 * k : 0.4 + 1.1 * k)) * Math.max(1, px);
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+        a = b;
+      }
+      ctx.globalAlpha = fade;
+      ctx.fillStyle = '#fff6d8';
+      ctx.beginPath();
+      ctx.arc(a.x, a.y, Math.max(0.9, 1.3 * px), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
   }
 
   // Sol noirci : sous les masses de troupes.
@@ -336,11 +384,17 @@ export class FrontFx {
         ctx.stroke();
       }
     }
+    this.drawArcs(ctx, now, px);
     ctx.globalCompositeOperation = 'lighter';
     for (const p of parts) {
       if (now < p.t0 || now > p.t0 + p.life) continue;
       const u = (now - p.t0) / p.life;
-      if (p.k === 'flash') {
+      if (p.k === 'arc') {
+        if (u < p.u0) continue;
+        const z = p.h * 4 * u * (1 - u), x = p.x0 + (p.x1 - p.x0) * u, y = p.y0 + (p.y1 - p.y0) * u - z, R = Math.max(2.5, 4 * px);
+        ctx.globalAlpha = Math.min(1, (u - p.u0) * 12) * 0.7;
+        ctx.drawImage(this.glowSprite(), x - R, y - R, R * 2, R * 2);
+      } else if (p.k === 'flash') {
         ctx.globalAlpha = 1 - u;
         ctx.fillStyle = '#fff1c2';
         ctx.beginPath();

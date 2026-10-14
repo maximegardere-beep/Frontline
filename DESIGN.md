@@ -469,3 +469,15 @@ densités. Le moteur garde des points d'accroche pour cela.
   gravats gris, au-dessus des masses pour rester lisibles) ; chaque hausse de destruction attise un incendie qui
   s'éteint en un jour environ, avec un panache de fumée poussé par le vent. Chez l'ennemi, l'état n'est connu que des
   cases déjà observées, et les flammes ne se voient qu'à portée de vue.
+
+### Obus en cloche et cratères
+
+- Barrages (`frontfx.js`, ARC) : chaque obus part de la batterie et décrit une cloche vers le haut de l'écran
+  (hauteur 0,38 de la distance ; mortiers 0,7, Katioucha 0,18 avec traînée de fumée grise), traînée lumineuse
+  derrière la tête, explosion à l'arrivée. 8 à 14 obus par tick et par zone selon la pièce ; vol de 0,5 à 1,9 s. Tiré
+  d'une batterie ennemie qu'on ne voit pas, l'obus n'apparaît qu'en fin de course.
+- Cratères (`frontrender.js`, calque peint au fil de la bataille) : chaque tick de barrage effectivement tiré laisse
+  5 à 9 cratères à pleine puissance (moins par mauvais temps), au hasard dans la zone, hors rivières et montagnes.
+  Chacun ajoute une tache brune très légère (les zones pilonnées souvent virent à la terre labourée), un pointillé de
+  terre retournée, puis le cratère : bourrelet clair éclairé du nord-ouest, entonnoir sombre, projections. Le calque
+  est au-dessus des masses pour rester lisible dans les deux camps ; purement visuel.

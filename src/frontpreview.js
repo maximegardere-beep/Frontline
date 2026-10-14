@@ -19,8 +19,9 @@ window.preview = { front, r, step: () => tick() };
 function tick() {
   if (front.result) return;
   if (front.phase === 'plan') beginDay(front);
-  stepTick(front);
+  const events = stepTick(front);
   r.snapshot(viewer);
+  r.fx.spawn(front, viewer, performance.now(), TICK_MS / speed, r.viewRect(), events);
 }
 
 function frame(now) {
