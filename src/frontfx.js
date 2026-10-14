@@ -2,7 +2,8 @@
 // touche au moteur. À chaque tick, spawn() lit les pertes et les poussées du tick (front.tickLoss, tickEdges) et
 // programme sur la durée du tick :
 // - une lueur sur chaque case au contact, d'autant plus vive que les pertes y sont lourdes ;
-// - des tirs traçants d'un camp vers l'autre, en rafales de mitrailleuse une fois sur quatre ;
+// - aux assauts, des foyers de combat rapproché : mitrailleuses qui balaient, grenades, coups de fusil ; ailleurs le
+//   long du front, un feu de ligne discret (éclairs de départ, traçants courts, poussière à l'impact) ;
 // - des obus là où des blindés poussent (et les antichars qui leur répondent) ;
 // - les barrages du matin : salves d'explosions, fumée qui traîne, sol noirci.
 // Comme les sons, seulement là où le camp observateur a des troupes ou une vue, et seulement à l'écran.
@@ -18,7 +19,7 @@ const ARC = {
   mortar: { n: 14, life: 500, perPx: 6, maxLife: 1500, h: 0.7, r: 5 },
   rocket: { n: 14, life: 350, perPx: 2.6, maxLife: 1000, h: 0.18, r: 6.5, rocket: true },
 };
-const MAX_PARTS = 1600;
+const MAX_PARTS = 2400;
 // Panaches de fumée : bouffées émises en continu par les foyers (incendies, combats intenses), poussées par le vent.
 const PLUME = { rate: 0.008, life: 5600, max: 1000, grow: 24, drift: 0.011 }; // bouffées par ms et par foyer à plein, vie (ms), …
 
@@ -156,19 +157,20 @@ export class FrontFx {
         const foes = [];
         for (let d = 0; d < 6; d++) { const j = nb[i * 6 + d]; if (j >= 0 && front.owner[j] === 1 - s) foes.push(j); }
         if (!foes.length) continue;
-        let shots;
         if (h > 0) {
-          shots = 1 + l * 12 + Math.min(2, h * 0.15);
-          shots = Math.min(7, Math.floor(shots) + (Math.random() < shots % 1 ? 1 : 0));
-        } else shots = Math.random() < 0.04 + l * 1.5 ? 1 : 0; // front calme : un coup de temps en temps
-        for (let k = 0; k < shots; k++) {
+          // Foyer d'assaut : mitrailleuses qui balaient, grenades, coups de fusil, des deux côtés.
+          let n = 1 + l * 10 + Math.min(2, h * 0.15);
+          n = Math.min(7, Math.floor(n) + (Math.random() < n % 1 ? 1 : 0));
+          for (let k = 0; k < n; k++) {
+            const j = foes[(Math.random() * foes.length) | 0];
+            const back = Math.random() < 0.45; // la case assaillie riposte
+            this.firefight(back ? i : j, back ? j : i, back ? s : 1 - s, at(), cx, cy);
+          }
+        } else if (Math.random() < Math.min(0.8, 0.2 + l * 6)) {
+          // Front calme : feu de ligne, un départ de coup le long du front, parfois un traçant court.
           const j = foes[(Math.random() * foes.length) | 0];
-          const from = { x: jit(cx[j]) * C, y: jit(cy[j]) * C }, to = { x: jit(cx[i]) * C, y: jit(cy[i]) * C };
-          const t = at(), side = 1 - s;
-          if (h > 0 && Math.random() < 0.3) this.burstMG(from, to, t, side);
-          else this.tracer(from, to, t, side, 160 + Math.random() * 80, 1);
-          // Riposte : la case touchée tire aussi.
-          if (Math.random() < (h > 0 ? 0.6 : 0.3)) this.tracer(to, { x: jit(cx[j]) * C, y: jit(cy[j]) * C }, at(), s, 160 + Math.random() * 80, 1);
+          const mine = Math.random() < 0.5;
+          this.lineShot(mine ? i : j, mine ? j : i, mine ? s : 1 - s, at(), cx, cy);
         }
       }
     }
@@ -253,11 +255,43 @@ export class FrontFx {
     this.parts.push({ k: 'tracer', t0, life, x0: from.x, y0: from.y, x1: to.x, y1: to.y, side, w });
   }
 
-  burstMG(from, to, t0, side) {
-    const n = 4 + ((Math.random() * 4) | 0);
-    for (let q = 0; q < n; q++) {
-      const tx = to.x + (Math.random() - 0.5) * this.cell * 0.8, ty = to.y + (Math.random() - 0.5) * this.cell * 0.8;
-      this.tracer(from, { x: tx, y: ty }, t0 + q * 55, side, 130, 0.8);
+  // Point de la case a, près de sa frontière avec la case b (unités de grille → pixels monde), décalé le long du front.
+  edgePoint(a, b, cx, cy, depth = 0.35) {
+    const C = this.cell, mx = (cx[a] + cx[b]) / 2, my = (cy[a] + cy[b]) / 2;
+    const nx = cx[a] - mx, ny = cy[a] - my, side = (Math.random() - 0.5) * 1.1;
+    return { x: (mx + nx * depth * (0.6 + Math.random() * 0.8) - ny * side) * C, y: (my + ny * depth * (0.6 + Math.random() * 0.8) + nx * side) * C };
+  }
+
+  // Feu de ligne : éclair de départ, et un traçant court qui franchit le front (poussière à l'arrivée) une fois sur trois.
+  lineShot(a, b, side, t0, cx, cy) {
+    const from = this.edgePoint(a, b, cx, cy);
+    this.parts.push({ k: 'muzzle', t0, life: 90, x: from.x, y: from.y, r: 0.9 });
+    if (Math.random() < 0.35) {
+      const to = this.edgePoint(b, a, cx, cy, 0.5);
+      const ex = from.x + (to.x - from.x) * 0.8, ey = from.y + (to.y - from.y) * 0.8;
+      this.tracer(from, { x: ex, y: ey }, t0, side, 110, 0.8);
+      this.parts.push({ k: 'dust', t0: t0 + 110, life: 650, x: ex, y: ey, r: 1.1 });
+    }
+  }
+
+  // Combat rapproché de la case a vers la case b : rafale de mitrailleuse qui balaie, grenade, ou coup de fusil.
+  firefight(a, b, side, t0, cx, cy) {
+    const from = this.edgePoint(a, b, cx, cy, 0.45), to = this.edgePoint(b, a, cx, cy, 0.5);
+    const roll = Math.random();
+    if (roll < 0.35) {
+      const base = Math.atan2(to.y - from.y, to.x - from.x), L = Math.hypot(to.x - from.x, to.y - from.y) * (0.9 + Math.random() * 0.3);
+      const sweep = (Math.random() < 0.5 ? 1 : -1) * 0.07, start = -sweep * 3;
+      for (let q = 0; q < 6; q++) {
+        const an = base + start + sweep * q;
+        this.tracer(from, { x: from.x + Math.cos(an) * L, y: from.y + Math.sin(an) * L }, t0 + q * 50, side, 120, 0.8);
+      }
+      this.parts.push({ k: 'muzzle', t0, life: 300, x: from.x, y: from.y, r: 1.3 });
+    } else if (roll < 0.55) {
+      this.blast(to.x, to.y, t0 + 250, 2.4, true); // grenade
+    } else {
+      this.parts.push({ k: 'muzzle', t0, life: 90, x: from.x, y: from.y, r: 1 });
+      this.tracer(from, to, t0, side, 140, 1);
+      this.parts.push({ k: 'dust', t0: t0 + 140, life: 650, x: to.x, y: to.y, r: 1.2 });
     }
   }
 
@@ -349,7 +383,16 @@ export class FrontFx {
   drawOver(ctx, now, px) {
     const parts = this.parts;
     let live = 0;
-    // Fumée d'abord (dessous), puis le feu.
+    // Poussière des impacts, puis fumée (dessous), puis le feu.
+    ctx.fillStyle = 'rgb(226, 214, 182)';
+    for (const p of parts) {
+      if (p.k !== 'dust' || now < p.t0 || now > p.t0 + p.life) continue;
+      const u = (now - p.t0) / p.life;
+      ctx.globalAlpha = 0.6 * (1 - u);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y - u * 1.5, Math.max(p.r, 1.2 * px) * (1 + 1.6 * u), 0, Math.PI * 2);
+      ctx.fill();
+    }
     for (const p of parts) {
       if (p.k !== 'smoke' || now < p.t0 || now > p.t0 + p.life) continue;
       const u = (now - p.t0) / p.life;
@@ -394,6 +437,14 @@ export class FrontFx {
         const z = p.h * 4 * u * (1 - u), x = p.x0 + (p.x1 - p.x0) * u, y = p.y0 + (p.y1 - p.y0) * u - z, R = Math.max(2.5, 4 * px);
         ctx.globalAlpha = Math.min(1, (u - p.u0) * 12) * 0.7;
         ctx.drawImage(this.glowSprite(), x - R, y - R, R * 2, R * 2);
+      } else if (p.k === 'muzzle') {
+        // Départ de coup : éclair minuscule, qui crépite (mitrailleuse : plusieurs éclats).
+        if (((now - p.t0) / 45 | 0) % 2) continue;
+        ctx.globalAlpha = 1 - u * 0.5;
+        ctx.fillStyle = '#fff4c8';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, Math.max(p.r, 1.1 * px), 0, Math.PI * 2);
+        ctx.fill();
       } else if (p.k === 'flash') {
         ctx.globalAlpha = 1 - u;
         ctx.fillStyle = '#fff1c2';

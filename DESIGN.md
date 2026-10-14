@@ -493,3 +493,12 @@ densités. Le moteur garde des points d'accroche pour cela.
   de ville) et cases où les combats ont été intenses (`frontrender.js` : chaleur = 1,5 × pertes du tick, −10 % par
   tick, +0,25 par cratère ; seuil 0,6, 28 foyers au plus, espacés de deux cases), vus par le camp observateur. Pas de
   nouvelles bouffées en accéléré ni en mouvement réduit.
+
+### Tirs d'infanterie
+
+- Aux assauts (`frontfx.js`, firefight) : 1 à 7 actions par case assaillie et par tick, des deux côtés (riposte
+  45 %) : rafale de mitrailleuse qui balaie (6 traçants en éventail), grenade (petite explosion côté adverse) ou coup de
+  fusil (traçant d'une frontière à l'autre, poussière à l'impact).
+- Ailleurs le long du front (lineShot) : feu de ligne discret, un éclair de départ par case au contact avec une
+  probabilité de 0,2 + 6 × pertes (0,8 au plus), un traçant court et sa poussière une fois sur trois. Les coups partent
+  près de la frontière entre les deux cases, plus de case à case : le front se lit sur toute sa longueur.
