@@ -694,3 +694,8 @@ kbd {
 .front-year { flex-wrap: wrap; margin: 4px 0 6px; }
 .front-year .btn { flex: 1 1 140px; }
 .dossier .front-year .btn.on { background: var(--pencil); border-color: var(--pencil); color: #fff6ec; }
+@media (max-width: 480px) {
+  .tool-l { font-size: 11px; letter-spacing: -0.2px; }
+  .tool-l[data-s] { font-size: 0; }
+  .tool-l[data-s]::after { content: attr(data-s); font-size: 11px; }
+}
