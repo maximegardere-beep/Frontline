@@ -198,6 +198,30 @@ function rollWeather(front) {
   const keep = front.day > 1 && odds[front.weather] && front.rng.chance(0.5);
   if (!keep) front.weather = front.rng.weighted(odds);
   applyWeather(front);
+  rollWind(front, keep);
+}
+
+// Vent du jour (purement visuel : il pousse la fumée) : surtout d'ouest, plus fort sous la pluie et la neige, presque
+// nul dans le brouillard. Le temps gardé de la veille garde à peu près son vent. Tirage à part, pour ne pas changer
+// le déroulé des batailles.
+export const WIND = { clear: [0.15, 0.55], rain: [0.45, 0.9], fog: [0, 0.15], snow: [0.35, 0.8] };
+function rollWind(front, keep) {
+  const r = createRng(`wind:${front.seed}:${front.day}`);
+  const [lo, hi] = WIND[front.weather] ?? WIND.clear;
+  const gauss = (r.next() + r.next() + r.next() - 1.5) * 2; // ≈ normale réduite
+  const fresh = { dir: gauss * 1.2, force: lo + (hi - lo) * r.next() }; // dir : vers où il souffle (0 : vers l'est)
+  front.wind = keep && front.wind
+    ? { dir: front.wind.dir + (r.next() - 0.5) * 0.6, force: Math.min(hi, Math.max(lo, front.wind.force + (r.next() - 0.5) * 0.2)) }
+    : fresh;
+}
+
+// « Vent d'ouest, 20 km/h » : d'où il vient.
+export function windLabel(w) {
+  if (!w) return '';
+  const from = (((w.dir + Math.PI) / (Math.PI / 4)) % 8 + 8) % 8;
+  const names = ['d\'est', 'du sud-est', 'du sud', 'du sud-ouest', 'd\'ouest', 'du nord-ouest', 'du nord', 'du nord-est'];
+  const kmh = Math.round(5 + w.force * 35);
+  return w.force < 0.08 ? 'vent nul' : `vent ${names[Math.round(from) % 8]}, ${kmh} km/h`;
 }
 
 // Le gel rend les marais et les rivières praticables : terrain recalculé.

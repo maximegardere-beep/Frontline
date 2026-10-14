@@ -481,3 +481,15 @@ densités. Le moteur garde des points d'accroche pour cela.
   Chacun ajoute une tache brune très légère (les zones pilonnées souvent virent à la terre labourée), un pointillé de
   terre retournée, puis le cratère : bourrelet clair éclairé du nord-ouest, entonnoir sombre, projections. Le calque
   est au-dessus des masses pour rester lisible dans les deux camps ; purement visuel.
+
+### Fumée et vent
+
+- Vent du jour (`front.js`, `rollWind`), purement visuel : tiré chaque matin avec la météo, surtout d'ouest (écart
+  type ≈ 70°), force selon le temps (clair 0,15 à 0,55, pluie 0,45 à 0,9, neige 0,35 à 0,8, brouillard presque nul) ;
+  un temps gardé de la veille garde à peu près son vent. Générateur à part : le déroulé des batailles ne change pas.
+  Affiché avec la météo (« vent d'ouest, 24 km/h »).
+- Panaches (`frontfx.js`, drawPlumes) : des foyers émettent des bouffées qui grossissent, s'éclaircissent, montent
+  un peu et dérivent sous le vent (d'autant plus étirées qu'il est fort). Foyers : maisons en feu (un panache par case
+  de ville) et cases où les combats ont été intenses (`frontrender.js` : chaleur = 1,5 × pertes du tick, −10 % par
+  tick, +0,25 par cratère ; seuil 0,6, 28 foyers au plus, espacés de deux cases), vus par le camp observateur. Pas de
+  nouvelles bouffées en accéléré ni en mouvement réduit.

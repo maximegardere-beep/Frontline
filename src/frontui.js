@@ -8,7 +8,7 @@
 import {
   createFront, beginDay, stepTick, addVector, engagement, addLine, setLineLevel, addBarrage, removeOrder, deployReserve, undoDeployment,
   repeatOrders, setPocketMode, vectorCatchment, troops, territory, townsHeld, attackerTowns, pocketName,
-  cellAtPoint, FRONT_WEATHER, POCKET_MODES, VECTOR_TYPES, sideIndex,
+  cellAtPoint, FRONT_WEATHER, POCKET_MODES, VECTOR_TYPES, sideIndex, windLabel,
 } from './front.js';
 import { installAI } from './frontai.js';
 import { GUN_KINDS, GUN_POSTURES, gunPower, gunFor, setGunOrder } from './frontguns.js';
@@ -128,8 +128,8 @@ function biomeText(f) {
 }
 
 function weatherText(f) {
-  const w = FRONT_WEATHER[f.weather];
-  return `<p><b>${w.label}.</b> ${w.text}</p>`;
+  const w = FRONT_WEATHER[f.weather], wind = windLabel(f.wind);
+  return `<p><b>${w.label}.</b> ${w.text}${wind ? ` ${wind[0].toUpperCase()}${wind.slice(1)} : il pousse la fumée des combats.` : ''}</p>`;
 }
 
 function goalText(f) {
@@ -792,7 +792,7 @@ function refreshFront() {
   byId('f-name').textContent = f.map.name;
   byId('f-day').textContent = compact ? `J${day}/${f.cfg.days}` : `Jour ${day} / ${f.cfg.days}`;
   byId('f-cond').textContent = compact && f.weather === 'clear' ? '· Clair' : `${compact ? '· ' : ''}${FRONT_WEATHER[f.weather].label}`;
-  byId('f-cond').title = FRONT_WEATHER[f.weather].text;
+  byId('f-cond').title = `${FRONT_WEATHER[f.weather].text}${f.wind ? ` ${windLabel(f.wind)[0].toUpperCase()}${windLabel(f.wind).slice(1)}.` : ''}`;
   byId('f-phase').textContent = PHASE[f.phase];
   byId('f-phase').dataset.phase = f.phase === 'resolve' ? 'execute' : f.phase;
   const obj = attackerTowns(f);

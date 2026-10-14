@@ -20,7 +20,7 @@ const ARC = {
 };
 const MAX_PARTS = 1600;
 // Panaches de fumée : bouffées émises en continu par les foyers (incendies, combats intenses), poussées par le vent.
-const PLUME = { rate: 0.008, life: 5200, max: 700, grow: 20, drift: 0.011 }; // bouffées par ms et par foyer à plein, vie (ms), …
+const PLUME = { rate: 0.008, life: 5600, max: 1000, grow: 24, drift: 0.011 }; // bouffées par ms et par foyer à plein, vie (ms), …
 
 // Bouffée de fumée : disque flou d'une couleur.
 function puffSprite(rgb) {
@@ -117,7 +117,7 @@ export class FrontFx {
       const wob = Math.sin(age * 0.002 + p.ph) * 3 * u;
       const x = p.x + w.x * v * age - w.y * wob, y = p.y + w.y * v * age + w.x * wob - 4 * u;
       const R = 1.8 + PLUME.grow * u * (0.6 + 0.4 * p.s) / (0.6 + w.k);
-      ctx.globalAlpha = 0.26 * (1 - u) * Math.min(1, u * 10) * (0.5 + 0.5 * p.s);
+      ctx.globalAlpha = 0.42 * (1 - u) * Math.min(1, u * 10) * (0.55 + 0.45 * p.s);
       ctx.drawImage(u < 0.3 ? this.smokeDark : this.smokeLight, x - R, y - R, R * 2, R * 2);
     }
     ctx.globalAlpha = 1;

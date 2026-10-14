@@ -30,6 +30,9 @@ const ORDER_INK = '#ffd23f'; // ordres du joueur
 const ORDER_HALO = 'rgba(24, 20, 10, 0.8)';
 const SPRITE_K = 1.7; // échelle des pièces vues de dessus (lisibles sans zoomer)
 const FIRE = { decay: 0.965, gain: 5, min: 0.08 }; // incendies : déclin par tick, attisement par point de destruction
+// Fumée des combats : chaleur par unité de densité perdue, déclin par tick, apport d'un cratère ; seuil d'un foyer,
+// chaleur d'un foyer à plein, espacement (unités de grille), nombre au plus, débit relatif à un incendie.
+const SMOKE = { loss: 1.5, decay: 0.9, barrage: 0.25, min: 0.6, full: 3, space: 3.5, max: 28, rate: 0.8 };
 // Cratères par tick de barrage à pleine puissance, et leur rayon (pixels monde ; une case fait 9 de rayon).
 const SCAR = { div: { n: 6, r: 1.1 }, heavy: { n: 5, r: 1.6 }, mortar: { n: 7, r: 0.9 }, rocket: { n: 9, r: 0.9 } };
 
@@ -101,6 +104,8 @@ export class FrontRenderer extends Renderer {
     this.scars = null; // calque des cratères (paintScars), peint au fil des barrages
     this.scarQueue = [];
     this.scarClock = -1;
+    this.heat = new Float32Array(front.map.N); // intensité récente des combats par case (foyers de fumée)
+    this.smoke = []; // foyers de fumée visibles : [x, y, force] × n
     this.fx = new FrontFx(CELL);
     this.sampler = makeSampler(this.map, this.worldW, this.worldH, 4, CELL * 1.25);
     // Montagnes : chaque case reçoit la case praticable la plus proche, dont elle prend le camp dans le rendu
@@ -544,6 +549,7 @@ export class FrontRenderer extends Renderer {
   snapshot(viewer) {
     this.updateFires();
     this.queueCraters();
+    this.smokeSources(viewer);
     const v = this.viewOf(viewer);
     const S = this.sampler;
     const open = S.field(v.open).data;
@@ -664,6 +670,9 @@ export class FrontRenderer extends Renderer {
     ctx.lineWidth = 2.4;
     strokeSegments(ctx, line);
     this.fx.drawOver(ctx, now, 1 / cam.s);
+    const w = f.wind ?? { dir: 0, force: 0.4 };
+    this.fx.wind = { x: Math.cos(w.dir), y: Math.sin(w.dir), k: w.force };
+    this.fx.plumeSources(this.smoke, 'battle');
     this.fx.drawPlumes(ctx, now);
     this.drawSpearTips(spears.filter((sp) => !sp.formation));
     this.drawArmor(view);
@@ -707,6 +716,9 @@ export class FrontRenderer extends Renderer {
     const f = this.front;
     if (this.scarClock === f.clock || f.phase === 'plan' && f.tick === 0) return;
     this.scarClock = f.clock;
+    // Chaleur des combats : pertes du tick, qui retombent en quelques heures.
+    const loss = f.tickLoss;
+    for (let i = 0; i < this.map.N; i++) this.heat[i] = this.heat[i] * SMOKE.decay + (loss?.[i] ?? 0) * SMOKE.loss;
     if (f.tick > f.cfg.barrageTicks) return;
     const rng = createRng(`craters:${f.seed}:${f.clock}`);
     for (const s of [0, 1]) {
@@ -721,6 +733,7 @@ export class FrontRenderer extends Renderer {
           const h = pixelToHex(x, y, CELL), i = h.row * this.map.W + h.col;
           if (h.col < 0 || h.row < 0 || h.col >= this.map.W || h.row >= this.map.H || this.map.river?.[i] || this.map.kind[i] === K.mountain) continue;
           this.scarQueue.push({ x, y, r: C.r * (0.7 + 0.6 * rng.next()), a: rng.next() * 6.3, k: rng.next() });
+          this.heat[i] += SMOKE.barrage;
         }
       }
     }
@@ -770,6 +783,29 @@ export class FrontRenderer extends Renderer {
       ctx.beginPath(); ctx.arc(c.x + 0.1, c.y + 0.15, c.r * 0.8, 0, Math.PI * 2); ctx.fill();
     }
     this.scarQueue.length = 0;
+  }
+
+  // Foyers de fumée des combats : les cases les plus chaudes, vues par le camp observateur, espacées d'au moins deux
+  // cases (sinon un secteur en feu devient un mur de fumée).
+  smokeSources(viewer) {
+    const f = this.front, { N } = this.map;
+    const hot = [];
+    for (let i = 0; i < N; i++) {
+      if (this.heat[i] < SMOKE.min) continue;
+      if (viewer !== null && f.owner[i] !== viewer && !f.vision[viewer]?.[i]) continue;
+      hot.push(i);
+    }
+    hot.sort((a, b) => this.heat[b] - this.heat[a]);
+    const out = [], taken = [];
+    for (const i of hot) {
+      const x = f.centers.x[i], y = f.centers.y[i];
+      if (taken.some((t) => (t.x - x) ** 2 + (t.y - y) ** 2 < SMOKE.space ** 2)) continue;
+      taken.push({ x, y });
+      const p = this.center(i);
+      out.push(p.x, p.y, Math.min(1, this.heat[i] / SMOKE.full) * SMOKE.rate);
+      if (taken.length >= SMOKE.max) break;
+    }
+    this.smoke = out;
   }
 
   // ---------- Villes sous le feu ----------
