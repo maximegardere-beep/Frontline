@@ -10,7 +10,7 @@ Object.assign(FRONT_SETUP, JSON.parse(process.env.SETUP ?? '{}'));
 Object.assign(AI_TUNING, JSON.parse(process.env.AI ?? '{}'));
 if (process.env.JSON) process.on('exit', () => {});
 const N = Number(process.argv[2] ?? 40), SEED = process.argv[3] ?? 'sim';
-const BIOMES = ['steppe', 'bocage', 'polesie', 'bourg'];
+const BIOMES = ['steppe', 'bocage', 'polesie', 'bourg', 'montagne', 'foret', 'fleuve'];
 const tally = { att: 0, def: 0, nul: 0, DE: 0, SU: 0 };
 const reasons = {};
 let days = 0, pockets = 0, towns = 0, ms = 0, early = 0;
@@ -18,7 +18,7 @@ const perBiome = {};
 const grades = {}, scores = [];
 for (let k = 0; k < N; k++) {
   const attacker = k % 2 ? 'SU' : 'DE';
-  const biome = BIOMES[k % 4];
+  const biome = BIOMES[k % BIOMES.length];
   const t0 = performance.now();
   const f = createFront({ seed: `${SEED}${k}`, playerSide: null, attacker, biome, season: k % 5 });
   installAI(f);

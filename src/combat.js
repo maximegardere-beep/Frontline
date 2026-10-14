@@ -1,7 +1,7 @@
 // Résolution du feu aux dés (d6) et tests de moral ; et, pour le mode Frontline stratégique,
 // la physique du front : flux de densité et pression différentielle (voir frontTick en fin de fichier).
 
-import { tileAt, terrainDefense, edgeFlow } from './terrain.js';
+import { tileAt, terrainDefense, edgeFlow, flowFor } from './terrain.js';
 import { bfsDistance } from './path.js';
 import { hexDistance, DIR_VECTORS } from './hex.js';
 import { unitStats } from './units.js';
@@ -164,13 +164,16 @@ export function frontTick(front) {
     // 1a. Vecteurs : la part engagée avance dans la direction de l'ordre ; ce qui bute sur l'ennemi le pousse.
     if (w > 0.01) {
       let sum = 0;
+      // Part blindée de la poussée, déduite de sa puissance de choc (1,2 infanterie, 1,8 blindés) : le terrain la freine
+      // davantage (forêts, marais, villes, rivières) et une route l'accélère.
+      const armored = Math.max(0, Math.min(1, (S.atk[i] - 1.2) / 0.6));
       for (let d = 0; d < 6; d++) {
         const j = nb[i * 6 + d];
         q[d] = 0;
         if (j < 0 || owner[j] < 0) continue;
         const dot = DIR_VECTORS[d].x * S.dx[i] + DIR_VECTORS[d].y * S.dy[i];
         if (dot <= 0.05) continue;
-        q[d] = dot * dot * (owner[j] === s ? edgeFlow(map, i, j) : Math.max(0.25, map.flow[j]));
+        q[d] = dot * dot * (owner[j] === s ? edgeFlow(map, i, j, armored) : Math.max(0.25 - 0.19 * armored, flowFor(map, j, armored)));
         sum += q[d];
       }
       if (sum > 0) {
@@ -180,7 +183,7 @@ export function frontTick(front) {
           const j = nb[i * 6 + d], share = q[d] / sum;
           if (owner[j] === s) { delta[i] -= moving * share; delta[j] += moving * share; }
           else {
-            const v = dens[i] * w * S.atk[i] * quality[s] * share;
+            const v = dens[i] * w * S.atk[i] * quality[s] * share * (1 - armored + armored * map.atkA[j]);
             push[j] += v;
             edges.push(i, j, v);
           }

@@ -10,7 +10,7 @@
 // L'attaquant engage plus volontiers que le défenseur, qui contre-attaque surtout ce qui est faible.
 // Poches : tirage pondéré entre statu quo, Festung et percée d'évasion (troupes piégées, distance aux lignes amies).
 
-import { addVector, addLine, addBarrage, deployReserve, setPocketMode, edgeCol, FRONT_WEATHER, VECTOR_TYPES } from './front.js';
+import { addVector, addLine, addBarrage, deployReserve, setPocketMode, edgeCol, cellAtPoint, FRONT_WEATHER, VECTOR_TYPES } from './front.js';
 import { bfsDistance } from './path.js';
 import { GUN_KINDS, setGunOrder } from './frontguns.js';
 
@@ -156,7 +156,14 @@ export function planFront(front, s) {
     let to = town ? point(front, town.i) : { x: h.x + dirX * 25, y: h.y };
     // On ne vise pas en arrière : au moins vers l'avant.
     if ((to.x - h.x) * dirX < 4) to = { x: h.x + dirX * 20, y: to.y };
-    const type = armorOK && armor < cfg.maxArmor && sec.ratio > engage * 1.15 ? 'armor' : 'infantry';
+    // Les blindés ne s'engagent que sur un axe praticable pour eux (ni forêt profonde, ni marais, ni rivière sans pont).
+    let goA = 0, n = 0;
+    for (let k = 1; k <= 10; k++) {
+      const i = cellAtPoint(front, { x: h.x + ((to.x - h.x) * k) / 10, y: h.y + ((to.y - h.y) * k) / 10 });
+      if (i >= 0) { goA += Math.min(1, front.map.flowA[i]); n++; }
+    }
+    const armorGround = n ? goA / n : 1;
+    const type = armorOK && armorGround > 0.6 && armor < cfg.maxArmor && sec.ratio > engage * 1.15 ? 'armor' : 'infantry';
     if (type === 'armor') armor++;
     const v = addVector(front, s, type, sec.head, to);
     if (v.error) continue;

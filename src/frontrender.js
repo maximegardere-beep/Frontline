@@ -219,9 +219,13 @@ export class FrontRenderer extends Renderer {
     ctx.lineWidth = 1;
     for (const lv of [1.5, 2.5]) strokeSegments(ctx, contourSegments(ef, lv));
 
-    // 4. Végétation, marais, montagnes, villes.
+    // 4. Eau et routes : rivières (ruban bleu cerné), gués (pierres claires), routes (trait pâle cerné), ponts.
+    this.drawWater(ctx);
+
+    // 5. Végétation, marais, montagnes, villes.
     for (let c = 0; c < map.N; c++) {
       const p = this.center(c), k = map.kind[c];
+      if (map.river?.[c]) continue;
       const r = createRng(c * 7 + 3);
       if (k === K.forest) {
         for (let t = 0; t < 3; t++) {
@@ -271,6 +275,72 @@ export class FrontRenderer extends Renderer {
       ctx.fillText(t.name, p.x, p.y + CELL * 2.6);
     }
     this.layer = off;
+  }
+
+  drawWater(ctx) {
+    const map = this.map;
+    if (!map.river) return;
+    const { N, nb } = map;
+    // Rivières : ruban lissé le long du tracé (berge sombre, puis eau), un peu plus large que les cases d'eau du jeu.
+    const pt = ([row, col]) => ({ x: CELL * SQRT3 * (col + 0.5 * (Math.round(row) & 1)) + (CELL * SQRT3) / 2, y: CELL * 1.5 * row + CELL });
+    for (const [w, color] of [[1.5, 'rgba(46, 74, 92, 0.75)'], [1.15, 'rgb(104, 148, 170)']]) {
+      ctx.strokeStyle = color;
+      for (const r of map.rivers ?? []) {
+        if (!r.line?.length) continue;
+        // Moyenne glissante : le tracé suit les cases sans leurs crans.
+        const pts = r.line.map((_, k) => {
+          let x = 0, y = 0, n = 0;
+          for (let q = Math.max(0, k - 2); q <= Math.min(r.line.length - 1, k + 2); q++) { const p = pt(r.line[q]); x += p.x; y += p.y; n++; }
+          return { x: x / n, y: y / n };
+        });
+        // Prolonge jusqu'aux bords de la carte.
+        const first = pts[0], last = pts[pts.length - 1], second = pts[1] ?? first, prev = pts[pts.length - 2] ?? last;
+        pts.unshift({ x: first.x * 2 - second.x, y: first.y * 2 - second.y });
+        pts.push({ x: last.x * 2 - prev.x, y: last.y * 2 - prev.y });
+        ctx.lineWidth = CELL * w * (r.big ? 2.1 : 1);
+        ctx.beginPath();
+        splineTo(ctx, pts);
+        ctx.stroke();
+      }
+    }
+    // Gués : pierres claires en travers.
+    for (let i = 0; i < N; i++) {
+      if (map.river[i] !== 2) continue;
+      const p = this.center(i);
+      ctx.fillStyle = 'rgba(226, 214, 180, 0.9)';
+      for (let k = -2; k <= 2; k++) { ctx.beginPath(); ctx.arc(p.x + k * 2.6, p.y + (k % 2) * 1.2, 1.3, 0, Math.PI * 2); ctx.fill(); }
+    }
+    // Routes : spline par les centres des cases, cernée.
+    for (const pass of [['rgba(86, 66, 40, 0.55)', 3.4], ['rgb(222, 206, 160)', 2]]) {
+      ctx.strokeStyle = pass[0];
+      ctx.lineWidth = pass[1];
+      for (const path of map.roads ?? []) {
+        ctx.beginPath();
+        splineTo(ctx, path.map((i) => this.center(i)));
+        ctx.stroke();
+      }
+    }
+    // Ponts : tablier brun en travers de la rivière, dans l'axe de la route.
+    for (const path of map.roads ?? []) {
+      for (let k = 0; k < path.length; k++) {
+        const i = path[k];
+        if (map.bridge[i] !== 1) continue;
+        const a = this.center(path[Math.max(0, k - 1)]), b = this.center(path[Math.min(path.length - 1, k + 1)]), p = this.center(i);
+        const ang = Math.atan2(b.y - a.y, b.x - a.x);
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(ang);
+        const L = CELL * (map.bigRiver[i] ? 2.2 : 1.6);
+        ctx.fillStyle = 'rgba(40, 30, 20, 0.5)';
+        ctx.fillRect(-L / 2 + 0.8, -2.6 + 0.8, L, 5.2);
+        ctx.fillStyle = 'rgb(140, 104, 64)';
+        ctx.fillRect(-L / 2, -2.6, L, 5.2);
+        ctx.strokeStyle = 'rgb(70, 50, 30)';
+        ctx.lineWidth = 0.7;
+        ctx.strokeRect(-L / 2, -2.6, L, 5.2);
+        ctx.restore();
+      }
+    }
   }
 
   // ---------- Masses de troupes ----------

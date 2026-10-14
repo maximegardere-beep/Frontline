@@ -16,7 +16,8 @@ import { scoreBreakdown, objectiveState, GRADES, SCORE } from './frontscore.js';
 import { FrontRenderer, CELL } from './frontrender.js';
 import { bigPockets, menRange, pickCell, areaReport, combatSpots } from './frontinput.js';
 import { WeatherLayer } from './weather.js';
-import { BIOMES, SEASON } from './conditions.js';
+import { SEASON } from './conditions.js';
+import { FRONT_BIOMES } from './mapgen.js';
 import { describeCell } from './terrain.js';
 import { createRng } from './rng.js';
 import { sound } from './audio.js';
@@ -86,7 +87,7 @@ export function openFront(sideCode, seed) {
   if (!fui.bound) bind();
   const rng = createRng(`front:setup:${seed}`);
   const attacker = rng.chance(0.5) ? 'DE' : 'SU';
-  const biome = rng.weighted({ steppe: 35, bocage: 25, polesie: 20, bourg: 20 });
+  const biome = rng.weighted({ steppe: 22, bocage: 16, polesie: 12, bourg: 12, montagne: 12, foret: 12, fleuve: 14 });
   const season = rng.weighted({ 0: 30, 1: 25, 2: 20, 3: 15, 4: 10 });
   const front = createFront({ seed, playerSide: sideCode, attacker, biome, season: Number(season) });
   installAI(front);
@@ -116,8 +117,9 @@ function resnap() {
 // ---------- Dossiers ----------
 
 function biomeText(f) {
-  const b = BIOMES[f.map.biome];
-  return b ? `<p><b>${b.label}.</b> ${b.text}</p>` : '';
+  const b = FRONT_BIOMES[f.map.biome];
+  const water = f.map.rivers?.length ? (f.map.rivers[0].big ? ' Un fleuve traverse le secteur : ponts rares, à tenir ou à faire sauter.' : ' Une rivière coupe le secteur : ponts et gués sont les seuls passages rapides.') : '';
+  return b ? `<p><b>${b.label}.</b> ${b.text}${water}</p>` : '';
 }
 
 function weatherText(f) {

@@ -323,3 +323,38 @@ test('IA : ordres des deux rôles, sans tricher (le brouillard compte), bataille
   while (!f.result) runDay(f);
   assert.ok(f.result.reason.length > 0);
 });
+
+test('terrain : rivières continues, ponts sur les routes, gués, cols ; blindés freinés hors route', async () => {
+  const { generateFrontMap } = await import('../src/mapgen.js');
+  const { computeTerrain } = await import('../src/terrain.js');
+  const m = generateFrontMap('riv', { biome: 'fleuve', defender: 1 });
+  assert.equal(m.rivers.length, 1);
+  assert.ok(m.rivers[0].big, 'un fleuve');
+  // Continuité : la composante de l'eau atteint les bords nord et sud.
+  const water = new Set(m.rivers[0].cells.filter((i) => m.river[i]));
+  const start = [...water].find((i) => Math.floor(i / m.W) === 0);
+  const seen = new Set([start]);
+  const stack = [start];
+  while (stack.length) { const i = stack.pop(); for (let d = 0; d < 6; d++) { const j = m.nb[i * 6 + d]; if (j >= 0 && water.has(j) && !seen.has(j)) { seen.add(j); stack.push(j); } } }
+  assert.ok([...seen].some((i) => Math.floor(i / m.W) >= m.H - 2), 'le fleuve traverse la carte');
+  let bridges = 0;
+  for (let i = 0; i < m.N; i++) if (m.bridge[i]) { bridges++; assert.ok(m.road[i], 'un pont porte une route'); }
+  assert.ok(bridges > 0, 'des ponts');
+  // Terrain selon le type : sur l'eau, les blindés passent bien plus mal que l'infanterie ; le gel ouvre le fleuve.
+  const w = [...water].find((i) => !m.bridge[i]);
+  assert.ok(m.flowA[w] < m.flow[w] * 0.5, 'rivière : blindés presque bloqués');
+  const forest = [...Array(m.N).keys()].find((i) => m.kind[i] === 1 && !m.river[i] && !m.road[i]);
+  if (forest >= 0) assert.ok(m.flowA[forest] < m.flow[forest], 'forêt : blindés plus lents');
+  const road = [...Array(m.N).keys()].find((i) => m.road[i] && m.kind[i] === 0 && !m.river[i]);
+  if (road >= 0) assert.ok(m.flowA[road] > m.flow[road], 'route : blindés plus rapides');
+  computeTerrain(m, true);
+  assert.ok(m.flow[w] > 0.6, 'fleuve gelé praticable');
+  // Montagnes : des chaînes épaisses, et toujours un passage d'ouest en est (cols percés au besoin).
+  let carved = 0;
+  for (const seed of ['cols', 'cols2', 'cols3']) {
+    const mt = generateFrontMap(seed, { biome: 'montagne' });
+    carved += mt.passes.length;
+    assert.ok(mt.kind.filter((k) => k === 4).length > mt.N * 0.05, 'des montagnes');
+  }
+  assert.ok(carved > 0, 'des cols percent les chaînes');
+});

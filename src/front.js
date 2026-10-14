@@ -7,7 +7,7 @@
 import { createRng, hashString } from './rng.js';
 import { generateFrontMap, makeNoise } from './mapgen.js';
 import { cellCenters, pixelToHex } from './hex.js';
-import { MOUNTAIN, FRONT_KINDS, cellFluidity, cellDefense } from './terrain.js';
+import { MOUNTAIN, computeTerrain } from './terrain.js';
 import { SEASON } from './conditions.js';
 import { findPockets, bfsDistance } from './path.js';
 import { emptyField, frontNeed, frontTick } from './combat.js';
@@ -81,7 +81,7 @@ let nextVectorId = 1;
 // attacker : camp attaquant ('DE' ou 'SU'), fixé au briefing ; season : indice du mois (0 juillet … 4 novembre).
 export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = null, season = 0, days = FRONT_SETUP.days, setup = {} } = {}) {
   const cfg = { ...FRONT_SETUP, ...setup, days };
-  const map = generateFrontMap(seed, { biome });
+  const map = generateFrontMap(seed, { biome, defender: attacker === 'DE' ? 1 : 0 });
   const { W, H, N } = map;
   const owner = new Int8Array(N);
   const dens = new Float32Array(N);
@@ -166,8 +166,6 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
   front.goal = Math.max(1, Math.ceil(front.defTowns.length * cfg.goalShare - 1e-9));
   front.initial = [troops(front, 0) + front.reserve[0], troops(front, 1) + front.reserve[1]];
   front.memory = [0, 1].map((s) => ({ owner: Int8Array.from(owner), est: new Float32Array(N), seen: new Int32Array(N).fill(-1) }));
-  map.baseFlow = map.flow;
-  map.baseDef = map.def;
   rollWeather(front);
   updateSupply(front);
   updateMemory(front);
@@ -187,20 +185,9 @@ function rollWeather(front) {
   applyWeather(front);
 }
 
-// Le gel rend les marais praticables : fluidité et défense recalculées comme pour une plaine.
+// Le gel rend les marais et les rivières praticables : terrain recalculé.
 export function applyWeather(front) {
-  const { map } = front;
-  if (!FRONT_WEATHER[front.weather].frozen) { map.flow = map.baseFlow; map.def = map.baseDef; return; }
-  const marsh = FRONT_KINDS.indexOf('marsh');
-  map.flow = Float32Array.from(map.baseFlow);
-  map.def = Float32Array.from(map.baseDef);
-  const plain = { ...map, kind: Uint8Array.of(0), elev: Uint8Array.of(0) };
-  for (let i = 0; i < map.N; i++) {
-    if (map.kind[i] !== marsh) continue;
-    plain.elev[0] = map.elev[i];
-    map.flow[i] = cellFluidity(plain, 0);
-    map.def[i] = cellDefense(plain, 0);
-  }
+  computeTerrain(front.map, !!FRONT_WEATHER[front.weather].frozen);
 }
 
 export const visionRange = (front) => Math.max(1, front.cfg.vision + FRONT_WEATHER[front.weather].vision);

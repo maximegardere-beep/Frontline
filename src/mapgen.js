@@ -2,7 +2,7 @@
 
 import { createRng } from './rng.js';
 import { neighborCoords, hexDistance, neighborTable } from './hex.js';
-import { tileAt, roadEdgeKey, TERRAIN, FRONT_KINDS, MOUNTAIN, TOWN, cellFluidity, cellDefense } from './terrain.js';
+import { tileAt, roadEdgeKey, TERRAIN, FRONT_KINDS, MOUNTAIN, TOWN, computeTerrain } from './terrain.js';
 import { placeName } from './names.js';
 import { BIOMES } from './conditions.js';
 
@@ -265,12 +265,84 @@ export function generateMap(seed, opts = {}) {
 // Relief : 0 bas-fond, 1 plaine, 2 collines, 3 hauteurs ; quelques massifs de montagne infranchissables font goulets.
 
 // Biomes de la micro-grille : mêmes noms que le mode tactique, réglages adaptés à la grande carte.
+// river : 'none' | 'meander' (rivière sinueuse, nord-sud ou est-ouest) | 'big' (fleuve nord-sud côté défenseur) ;
+// riverOdds : probabilité d'une rivière ; passes : cols percés dans les chaînes de montagnes ; roads : liaisons.
 export const FRONT_BIOMES = {
-  steppe: { forestQ: 0.93, marshQ: 0.9, marshElev: 0, mountains: 0.02, towns: [5, 7] },
-  bocage: { forestQ: 0.62, marshQ: 0.86, marshElev: 0, mountains: 0.03, towns: [5, 7] },
-  polesie: { forestQ: 0.74, marshQ: 0.64, marshElev: 1, mountains: 0.008, towns: [4, 6] },
-  bourg: { forestQ: 0.8, marshQ: 0.86, marshElev: 0, mountains: 0.03, towns: [4, 6], city: true },
+  steppe: { label: 'Steppe ouverte', text: 'Peu de couvert, de longues vues : le terrain des chars.', forestQ: 0.93, marshQ: 0.9, marshElev: 0, mountains: 0.02, towns: [5, 7], river: 'meander', riverOdds: 0.5 },
+  bocage: { label: 'Forêts et bocages', text: 'Bois nombreux : les chars y perdent leur élan, l\'infanterie s\'y accroche.', forestQ: 0.62, marshQ: 0.86, marshElev: 0, mountains: 0.03, towns: [5, 7], river: 'meander', riverOdds: 0.5 },
+  polesie: { label: 'Marais de Polésie', text: 'Marais et rivières : les routes et les ponts décident de tout.', forestQ: 0.74, marshQ: 0.64, marshElev: 1, mountains: 0.008, towns: [4, 6], river: 'meander', riverOdds: 0.85 },
+  bourg: { label: 'Grande ville', text: 'Une grande ville au centre, nœud de routes : combats de rue.', forestQ: 0.8, marshQ: 0.86, marshElev: 0, mountains: 0.03, towns: [4, 6], city: true, river: 'meander', riverOdds: 0.5 },
+  montagne: { label: 'Montagnes (Carpates)', text: 'Chaînes infranchissables percées de quelques cols : les percées s\'y canalisent.', forestQ: 0.6, marshQ: 0.92, marshElev: 0, mountains: 0.13, passes: 4, towns: [4, 6], river: 'meander', riverOdds: 0.4 },
+  foret: { label: 'Grande forêt (Briansk)', text: 'Forêt profonde et rares routes : un combat d\'infanterie.', forestQ: 0.38, marshQ: 0.88, marshElev: 0, mountains: 0.01, towns: [4, 6], river: 'meander', riverOdds: 0.6 },
+  fleuve: { label: 'Grand fleuve (Dniepr)', text: 'Un fleuve barre le secteur, quelques ponts seulement : têtes de pont et défense de rive.', forestQ: 0.86, marshQ: 0.86, marshElev: 0, mountains: 0.01, towns: [5, 7], river: 'big', riverOdds: 1 },
 };
+
+// Rivière : chemin continu de case en case, d'un bord à l'opposé, guidé par le relief (elle cherche les creux) et un
+// bruit de méandres. vertical : du nord au sud. x0 : position de départ (colonne, ou ligne si est-ouest).
+function carveFrontRiver(map, hs, rng, { vertical = true, x0, width = 1, avoid, pull = 0.06 }) {
+  const { W, H, nb } = map;
+  const wig = makeNoise(rng);
+  const cells = [];
+  const line = []; // tracé lissé pour le dessin : [ligne, colonne] (réels) à chaque pas
+  const along = vertical ? H : W, across = vertical ? W : H;
+  let pos = x0;
+  const at = (a, b) => (vertical ? a * W + b : b * W + a);
+  for (let a = 0; a < along; a++) {
+    // Méandre : dérive douce, rappelée vers les creux voisins.
+    const drift = (wig(a * 0.08, 0.3, 2) - 0.5) * 2.2;
+    let best = pos, bv = Infinity;
+    for (const d of [-1, 0, 1]) {
+      const b = Math.max(2, Math.min(across - 3, Math.round(pos + d)));
+      const i = at(a, b);
+      const v = hs[i] * 6 - drift * d + (avoid?.(i) ? 50 : 0) + Math.abs(b - x0) * pull;
+      if (v < bv) { bv = v; best = b; }
+    }
+    const prev = Math.round(pos);
+    pos = best + (drift - Math.round(drift)) * 0.3;
+    const b1 = Math.round(pos);
+    // Cases de la ligne a, entre l'ancienne et la nouvelle position : la rivière reste continue.
+    for (let b = Math.min(prev, b1); b <= Math.max(prev, b1); b++) for (let k = 0; k < width; k++) cells.push(at(a, Math.min(across - 1, b + k)));
+    line.push(vertical ? [a, pos + (width - 1) / 2] : [pos + (width - 1) / 2, a]);
+  }
+  // Raccord des lignes successives (le décalage des lignes impaires de la grille hexagonale peut laisser un trou).
+  const set = new Set(cells);
+  for (const i of [...set]) {
+    let linked = false;
+    for (let d = 0; d < 6; d++) { const j = nb[i * 6 + d]; if (j >= 0 && set.has(j)) { linked = true; break; } }
+    if (!linked) { const j = nb[i * 6 + (vertical ? 5 : 0)]; if (j >= 0) set.add(j); }
+  }
+  return { cells: [...set], line };
+}
+
+// Chemin de coût minimal (Dijkstra simple sur la grille) : routes et cols.
+function cheapestPath(map, from, isGoal, cost) {
+  const { N, nb } = map;
+  const dist = new Float32Array(N).fill(Infinity), prev = new Int32Array(N).fill(-1), done = new Uint8Array(N);
+  dist[from] = 0;
+  const heap = [[0, from]];
+  while (heap.length) {
+    let m = 0;
+    for (let k = 1; k < heap.length; k++) if (heap[k][0] < heap[m][0]) m = k;
+    const [dv, i] = heap[m];
+    heap[m] = heap[heap.length - 1];
+    heap.pop();
+    if (done[i]) continue;
+    done[i] = 1;
+    if (isGoal(i)) {
+      const path = [];
+      for (let c = i; c >= 0; c = prev[c]) path.push(c);
+      return path.reverse();
+    }
+    for (let d = 0; d < 6; d++) {
+      const j = nb[i * 6 + d];
+      if (j < 0 || done[j]) continue;
+      const c = cost(i, j);
+      if (!Number.isFinite(c)) continue;
+      if (dv + c < dist[j]) { dist[j] = dv + c; prev[j] = i; heap.push([dist[j], j]); }
+    }
+  }
+  return null;
+}
 
 export function generateFrontMap(seed, opts = {}) {
   const W = opts.width ?? 96;
@@ -317,7 +389,8 @@ export function generateFrontMap(seed, opts = {}) {
   // (chaque camp doit pouvoir se ravitailler) ; on vérifie qu'un passage ouest → est subsiste.
   const mountainShare = opts.mountains ?? B.mountains;
   const score = new Float32Array(N);
-  for (let i = 0; i < N; i++) score[i] = elev[i] >= 2 ? hs[i] + rs[i] * 0.08 : -1;
+  // Biome de montagne : les crêtes (bruit replié) dessinent des chaînes allongées, percées ensuite de cols.
+  for (let i = 0; i < N; i++) score[i] = B.passes ? (elev[i] >= 1 ? rs[i] + hs[i] * 0.3 : -1) : elev[i] >= 2 ? hs[i] + rs[i] * 0.08 : -1;
   for (let share = mountainShare; share > 0.004; share *= 0.6) {
     const cut = quantile(score, 1 - share);
     for (let i = 0; i < N; i++) {
@@ -325,8 +398,48 @@ export function generateFrontMap(seed, opts = {}) {
       if (kind[i] === MOUNTAIN) kind[i] = 0;
       if (score[i] >= cut && score[i] > 0 && col > 4 && col < W - 5) kind[i] = MOUNTAIN;
     }
+    // Montagnes : des cols percent les chaînes (chemin le moins coûteux d'ouest en est, élargi d'une case).
+    if (B.passes) {
+      map.passes = [];
+      for (let k = 0; k < B.passes; k++) {
+        const r0 = Math.round(((k + 0.5) / B.passes) * H + (rng.next() - 0.5) * 4);
+        const start = Math.max(0, Math.min(H - 1, r0)) * W;
+        const path = cheapestPath(map, start, (i) => i % W === W - 1, (i, j) => (kind[j] === MOUNTAIN ? 25 : 1) + Math.abs(Math.floor(j / W) - r0) * 0.15);
+        if (!path) continue;
+        for (const i of path) {
+          if (kind[i] !== MOUNTAIN) continue;
+          kind[i] = 0;
+          elev[i] = Math.min(elev[i], 2);
+          map.passes.push(i);
+          for (let d = 0; d < 6; d++) { const j = nb[i * 6 + d]; if (j >= 0 && kind[j] === MOUNTAIN && rng.chance(0.5)) { kind[j] = 0; elev[j] = Math.min(elev[j], 2); } }
+        }
+      }
+    }
     if (crossable(map)) break;
   }
+
+  // Rivières (avant les villes, qui s'installent sur une rive, pas dedans).
+  map.river = new Uint8Array(N);
+  map.bigRiver = new Uint8Array(N);
+  map.bridge = new Uint8Array(N);
+  map.road = new Uint8Array(N);
+  map.rivers = [];
+  map.roads = [];
+  const wantRiver = opts.river ?? (B.river && B.river !== 'none' && rng.chance(B.riverOdds ?? 0.5) ? B.river : 'none');
+  if (wantRiver === 'big') {
+    // Fleuve nord-sud, côté du défenseur, à quelques colonnes de la ligne de départ (vers W/2).
+    const side = opts.defender === 0 ? -1 : 1;
+    const { cells, line } = carveFrontRiver(map, hs, rng, { vertical: true, x0: W / 2 + side * (12 + rng.int(0, 3)), width: 2, avoid: (i) => kind[i] === MOUNTAIN, pull: 0.5 });
+    for (const i of cells) if (kind[i] !== MOUNTAIN) { map.river[i] = 1; map.bigRiver[i] = 1; }
+    map.rivers.push({ cells, line, big: true });
+  } else if (wantRiver === 'meander') {
+    const vertical = rng.chance(0.55);
+    const x0 = vertical ? rng.int(Math.round(W * 0.2), Math.round(W * 0.8)) : rng.int(Math.round(H * 0.25), Math.round(H * 0.75));
+    const { cells, line } = carveFrontRiver(map, hs, rng, { vertical, x0, avoid: (i) => kind[i] === MOUNTAIN });
+    for (const i of cells) if (kind[i] !== MOUNTAIN) map.river[i] = 1;
+    map.rivers.push({ cells, line, big: false });
+  }
+  for (const i of map.river.keys()) if (map.river[i] && kind[i] === K('marsh')) kind[i] = 0;
 
   // Villes : nœuds à tenir, espacées, hors marais et montagnes, plutôt réparties d'ouest en est.
   const usedNames = new Set();
@@ -349,7 +462,8 @@ export function generateFrontMap(seed, opts = {}) {
     let best = -1, bestScore = -Infinity;
     for (let k = 0; k < 80; k++) {
       const i = rng.int(0, N - 1), col = i % W, row = Math.floor(i / W);
-      if (kind[i] === MOUNTAIN || kind[i] === K('marsh') || elev[i] >= 3) continue;
+      if (kind[i] === MOUNTAIN || kind[i] === K('marsh') || elev[i] >= 3 || map.river[i]) continue;
+      if ([0, 1, 2, 3, 4, 5].some((d) => nb[i * 6 + d] >= 0 && map.river[nb[i * 6 + d]])) continue;
       if (col < 8 || col > W - 9 || row < 4 || row > H - 5) continue;
       const far = Math.min(Infinity, ...map.towns.map((o) => hexDistance({ col, row }, o)));
       if (far < 14) continue;
@@ -360,12 +474,55 @@ export function generateFrontMap(seed, opts = {}) {
     const col = best % W, row = Math.floor(best / W);
     // Une ville couvre la case et ses voisines : elle se lit sur la carte et offre un vrai point d'appui.
     kind[best] = TOWN;
-    for (let d = 0; d < 6; d++) { const j = nb[best * 6 + d]; if (j >= 0 && kind[j] !== MOUNTAIN) kind[j] = TOWN; }
+    for (let d = 0; d < 6; d++) { const j = nb[best * 6 + d]; if (j >= 0 && kind[j] !== MOUNTAIN && !map.river[j]) kind[j] = TOWN; }
     map.towns.push({ i: best, col, row, name: placeName(rng, usedNames) });
   }
   map.towns.sort((a, b) => a.col - b.col);
-  map.flow = Float32Array.from({ length: N }, (_, i) => cellFluidity(map, i));
-  map.def = Float32Array.from({ length: N }, (_, i) => cellDefense(map, i));
+  if (B.city) for (let i = 0; i < N; i++) if (kind[i] === TOWN && map.river[i]) map.bridge[i] = 1; // la ville enjambe la rivière
+
+  // Routes : chaque ville reliée à ses deux voisines les plus proches, et les villes extrêmes aux bords ouest et est.
+  // Elles évitent marais, forêts et montées ; là où elles franchissent une rivière, un pont.
+  const roadCost = (i, j) => {
+    if (kind[j] === MOUNTAIN) return Infinity;
+    let c = kind[j] === K('marsh') ? 5 : kind[j] === K('forest') ? 2.2 : 1;
+    c += Math.max(0, elev[j] - elev[i]) * 1.5;
+    if (map.river[j] && !map.river[i]) c += 10;
+    if (map.road[j]) c *= 0.4; // réutiliser une route existante
+    return c;
+  };
+  const link = (from, isGoal) => {
+    const path = cheapestPath(map, from, isGoal, roadCost);
+    if (!path) return;
+    for (const i of path) { map.road[i] = 1; if (map.river[i]) map.bridge[i] = 1; }
+    map.roads.push(path);
+  };
+  const T = map.towns;
+  const linked = new Set();
+  for (const t of T) {
+    const others = T.filter((o) => o !== t).sort((a, b) => hexDistance(a, t) - hexDistance(b, t)).slice(0, 2);
+    for (const o of others) {
+      const key = [t.i, o.i].sort().join('-');
+      if (linked.has(key)) continue;
+      linked.add(key);
+      link(t.i, (i) => i === o.i);
+    }
+  }
+  if (T.length) {
+    link(T[0].i, (i) => i % W === 0);
+    link(T[T.length - 1].i, (i) => i % W === W - 1);
+  }
+  // Gués : un ou deux passages lents par rivière, loin des ponts.
+  for (const r of map.rivers) {
+    const cands = rng.shuffle(r.cells.filter((i) => map.river[i] && !map.bridge[i] && !map.bigRiver[i]));
+    let n = rng.int(1, 2);
+    for (const i of cands) {
+      if (!n) break;
+      if (r.cells.some((j) => map.bridge[j] && Math.abs((j % W) - (i % W)) + Math.abs(Math.floor(j / W) - Math.floor(i / W)) < 8)) continue;
+      map.river[i] = 2;
+      n--;
+    }
+  }
+  computeTerrain(map);
   const mid = map.towns.reduce((b, t) => (Math.abs(t.col - W / 2) < Math.abs((b?.col ?? -1e9) - W / 2) ? t : b), null);
   map.name = mid ? `Front de ${mid.name}` : `Secteur ${100 + rng.int(10, 290)}`;
   return map;

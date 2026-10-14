@@ -360,3 +360,16 @@ densités. Le moteur garde des points d'accroche pour cela.
   plus que pour l'attaquant (le défenseur qui part avec toutes les villes ne gagnait plus au premier tick).
 - Interface : score et issue en vue dans la barre et l'onglet Forces, objectifs secondaires cochés au fil des jours,
   cotes marquées sur la carte, tableau du décompte au rapport final.
+
+### Terrain : rivières, ponts, routes, terrain selon le type de troupes, nouveaux biomes
+
+- Rivières (`mapgen.js`) : tracé continu d'un bord à l'autre qui suit les creux, nord-sud ou est-ouest ; fleuve de deux
+  cases côté défenseur (biome « fleuve »). Cases d'eau : fluidité 0,25, défense 0,7 (mauvais endroit où tenir) ; gué
+  0,55 ; pont 0,9. Gelées (neige), elles se franchissent presque partout. Dessin : ruban lissé (moyenne glissante du
+  tracé), gués en pierres claires, ponts en tablier brun.
+- Routes : chaque ville reliée à ses deux voisines et les villes extrêmes aux bords ; chemin de moindre coût (évite
+  marais, forêts, montées, et ne franchit une rivière qu'une fois : un pont).
+- Terrain selon le type (`terrain.js`, `computeTerrain`) : fluidité et choc des blindés par case (forêt 0,45 / 0,65,
+  marais 0,2 / 0,6, ville 0,6 / 0,6, rivière 0,08 / 0,5, route × 1,5). Le moteur mélange selon la part blindée de chaque
+  poussée (déduite de sa puissance de choc). L'IA n'engage ses blindés que sur un axe praticable.
+- Biomes ajoutés : montagne (chaînes de crêtes percées de cols), grande forêt, grand fleuve.

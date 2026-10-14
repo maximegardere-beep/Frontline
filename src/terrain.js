@@ -106,14 +106,67 @@ export function cellDefense(map, i) {
   return FRONT_TERRAIN[FRONT_KINDS[map.kind[i]]].def * ELEV_DEF[map.elev[i]];
 }
 
-// Passage de i vers j : fluidité de la case d'arrivée, réduite en montée.
-export function edgeFlow(map, i, j) {
-  const climb = Math.max(0, map.elev[j] - map.elev[i]);
-  return map.flow[j] / (1 + 0.5 * climb);
+// Terrain selon le type de troupes : les blindés (part blindée d'une poussée) ont leur propre fluidité (flowA) et
+// perdent une part de leur choc en entrant dans certaines cases (atkA). Forêts, marais et villes les freinent bien plus
+// que l'infanterie ; une route les accélère.
+export const ARMOR_TERRAIN = {
+  plain: { flow: 1, atk: 1 },
+  forest: { flow: 0.45, atk: 0.65 },
+  marsh: { flow: 0.2, atk: 0.6 },
+  town: { flow: 0.6, atk: 0.6 },
+  mountain: { flow: 0, atk: 0 },
+};
+// Eau : rivière (1), gué (2) ; pont (map.bridge = 1). Gelée, la rivière se franchit presque partout.
+export const WATER = {
+  river: { flow: 0.25, def: 0.7, flowA: 0.08, atkA: 0.5 },
+  ford: { flow: 0.55, def: 0.85, flowA: 0.3, atkA: 0.7 },
+  bridge: { flow: 0.9, def: 1, flowA: 0.9, atkA: 0.9 },
+  frozen: { flow: 0.8, def: 1, flowA: 0.7, atkA: 0.9 },
+};
+export const ROAD_ARMOR = 1.5; // fluidité des blindés sur route (plafonnée à 1,3)
+
+// Calcule flow, def, flowA, atkA de toutes les cases (frozen : gel des marais et des rivières).
+export function computeTerrain(map, frozen = false) {
+  const { N } = map;
+  map.flow = new Float32Array(N);
+  map.def = new Float32Array(N);
+  map.flowA = new Float32Array(N);
+  map.atkA = new Float32Array(N);
+  const marsh = FRONT_KINDS.indexOf('marsh');
+  for (let i = 0; i < N; i++) {
+    let k = FRONT_KINDS[map.kind[i]];
+    if (frozen && map.kind[i] === marsh) k = 'plain';
+    const T = FRONT_TERRAIN[k], A = ARMOR_TERRAIN[k];
+    const ef = ELEV_FLOW[map.elev[i]], ed = ELEV_DEF[map.elev[i]];
+    let flow = T.flow, def = T.def, flowA = A.flow, atkA = A.atk;
+    const water = map.river?.[i] ? (map.bridge?.[i] === 1 ? 'bridge' : frozen ? 'frozen' : map.river[i] === 2 ? 'ford' : 'river') : null;
+    if (water && k !== 'mountain') {
+      const Wt = WATER[water];
+      flow = Math.min(flow, Wt.flow); def = Wt.def; flowA = Math.min(flowA, Wt.flowA); atkA = Math.min(atkA, Wt.atkA);
+    }
+    if (map.road?.[i] && k !== 'mountain' && water !== 'river') flowA = Math.min(1.3, Math.max(flowA, 0.6) * ROAD_ARMOR);
+    map.flow[i] = flow * ef;
+    map.def[i] = def * ed;
+    map.flowA[i] = flowA * ef;
+    map.atkA[i] = atkA;
+  }
 }
+
+// Passage de i vers j : fluidité de la case d'arrivée, réduite en montée.
+export function edgeFlow(map, i, j, armored = 0) {
+  const climb = Math.max(0, map.elev[j] - map.elev[i]);
+  return flowFor(map, j, armored) / (1 + 0.5 * climb);
+}
+
+// Fluidité d'une case pour une poussée dont une part `armored` est blindée.
+export const flowFor = (map, j, armored = 0) => (armored > 0 && map.flowA ? map.flow[j] * (1 - armored) + map.flowA[j] * armored : map.flow[j]);
 
 export function describeCell(map, i) {
   const k = FRONT_KINDS[map.kind[i]];
   const town = k === 'town' ? map.towns.find((t) => t.i === i) : null;
-  return [town ? `${FRONT_TERRAIN[k].label} de ${town.name}` : FRONT_TERRAIN[k].label, ELEV_LABELS[map.elev[i]]].join(' · ');
+  const parts = [town ? `${FRONT_TERRAIN[k].label} de ${town.name}` : FRONT_TERRAIN[k].label];
+  if (map.river?.[i]) parts.push(map.bridge?.[i] === 1 ? 'pont' : map.bridge?.[i] === 2 ? 'pont détruit' : map.river[i] === 2 ? 'gué' : map.bigRiver?.[i] ? 'fleuve' : 'rivière');
+  else if (map.road?.[i]) parts.push('route');
+  parts.push(ELEV_LABELS[map.elev[i]]);
+  return parts.join(' · ');
 }
