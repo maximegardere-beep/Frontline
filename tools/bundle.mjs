@@ -5,7 +5,7 @@ import { readFile, writeFile, mkdir, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 
-const ORDER = ['rng', 'hex', 'names', 'conditions', 'terrain', 'mapgen', 'units', 'path', 'combat', 'game', 'ai', 'campaign', 'fx', 'audio', 'weather', 'render', 'frontguns', 'front', 'frontai', 'frontinput', 'frontfx', 'frontrender', 'frontui', 'main'];
+const ORDER = ['rng', 'hex', 'names', 'conditions', 'terrain', 'mapgen', 'units', 'path', 'combat', 'game', 'ai', 'campaign', 'fx', 'audio', 'weather', 'render', 'frontguns', 'front', 'frontai', 'frontinput', 'frontfx', 'frontsprites', 'frontrender', 'frontui', 'main'];
 const root = new URL('..', import.meta.url).pathname;
 
 let js = '';

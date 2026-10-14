@@ -17,6 +17,7 @@ import { FRONT_WEATHER, POCKET_MODES, VECTOR_TYPES, pocketName } from './front.j
 import { MIN_POCKET, ARMOR_ATK } from './frontinput.js';
 import { FrontFx } from './frontfx.js';
 import { GUN_KINDS, visibleGuns } from './frontguns.js';
+import { SPRITE_PAL, piece, tank, howitzer, towed, mortar, rocket, pit, dust } from './frontsprites.js';
 
 export const CELL = 9; // rayon d'une case de la micro-grille, en pixels monde
 
@@ -25,6 +26,7 @@ const SIDE_RGB = [[52, 84, 138], [178, 42, 30]]; // Wehrmacht, Armée rouge
 const SIDE_LINE = ['#26303d', '#4a1610'];
 const ORDER_INK = '#ffd23f'; // ordres du joueur
 const ORDER_HALO = 'rgba(24, 20, 10, 0.8)';
+const SPRITE_K = 1.7; // échelle des pièces vues de dessus (lisibles sans zoomer)
 
 
 // Poids de lissage d'un point de la carte : la case sous le point et ses voisines (noyau gaussien).
@@ -559,48 +561,35 @@ export class FrontRenderer extends Renderer {
     }
   }
 
-  // Tête de percée : une pointe de flèche épaisse orientée selon l'axe, qui avance avec les chars, et le nom du groupe.
+  // Tête de percée : un coin de chars vus de dessus, orienté selon l'axe, qui avance avec la percée et soulève de la
+  // poussière ; le nom du groupe en dessous. Le nombre de chars suit les troupes que la percée entraîne.
   drawSpearTips(spears) {
-    const { ctx } = this;
+    const { ctx, cam } = this;
+    const k = SPRITE_K * Math.max(1, 1 / cam.s);
     for (const sp of spears) {
-      const h = this.toWorld(sp.head), a = this.toWorld(sp.from);
+      const h = this.toWorld(sp.head);
       const ang = Math.atan2(sp.uy, sp.ux);
-      const rgb = SIDE_RGB[sp.side];
-      // Sillage : de l'origine à la tête, trait large et translucide.
-      ctx.strokeStyle = `rgba(${rgb[0] * 0.6}, ${rgb[1] * 0.6}, ${rgb[2] * 0.6}, 0.45)`;
-      ctx.lineWidth = CELL * 1.1;
-      ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(h.x, h.y);
-      ctx.stroke();
-      // Pointe : chevron plein, cerné de clair.
-      const R = CELL * 2.4;
-      const pt = (r, da) => [h.x + Math.cos(ang + da) * r, h.y + Math.sin(ang + da) * r];
-      ctx.beginPath();
-      ctx.moveTo(...pt(R, 0));
-      ctx.lineTo(...pt(R * 1.05, 2.45));
-      ctx.lineTo(...pt(R * 0.25, Math.PI));
-      ctx.lineTo(...pt(R * 1.05, -2.45));
-      ctx.closePath();
-      ctx.fillStyle = SIDE_LINE[sp.side];
-      ctx.strokeStyle = 'rgba(250, 240, 210, 0.9)';
-      ctx.lineWidth = 1.6;
-      ctx.fill();
-      ctx.stroke();
-      ctx.font = '700 10px "IBM Plex Sans Condensed", "Arial Narrow", sans-serif';
+      let mass = 0;
+      for (const i of sp.cells) mass += this.front.dens[i];
+      let n = Math.max(2, Math.min(5, Math.round(mass / 60)));
+      if (cam.s < 1.1) n = Math.min(n, 3);
+      const form = [[0, 0], [-10, -9], [-10, 9], [-20, -18], [-20, 18]].slice(0, n);
+      const pts = form.map(([fx, fy]) => [h.x + (fx * Math.cos(ang) - fy * Math.sin(ang)) * k, h.y + (fx * Math.sin(ang) + fy * Math.cos(ang)) * k]);
+      for (const [x, y] of pts) dust(ctx, x, y, ang, k);
+      for (const [x, y] of pts) piece(ctx, x, y, ang, k, (G, P, sh) => tank(G, P, sh, sp.side === 1), SPRITE_PAL[sp.side]);
+      ctx.font = `700 ${10 / cam.s}px "IBM Plex Sans Condensed", "Arial Narrow", sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      const ly = h.y + (Math.sin(ang) > 0.3 ? -R - 8 : R + 8);
-      ctx.lineWidth = 3;
+      const ly = h.y + (Math.sin(ang) > 0.3 ? -1 : 1) * 30 * k;
+      ctx.lineWidth = 3 / cam.s;
       ctx.strokeStyle = 'rgba(250, 240, 210, 0.85)';
-      ctx.strokeText(sp.name, h.x, ly);
+      ctx.strokeText(sp.name, h.x - Math.cos(ang) * 10 * k, ly);
       ctx.fillStyle = SIDE_LINE[sp.side];
-      ctx.fillText(sp.name, h.x, ly);
+      ctx.fillText(sp.name, h.x - Math.cos(ang) * 10 * k, ly);
     }
   }
 
-  // Groupes d'artillerie : symbole d'état-major (rectangle et point plein ; deux points pour la lourde, un chevron
-  // pour les roquettes), de taille constante à l'écran. Le matin, cercle de portée des siens (marqué pour le groupe
+  // Groupes d'artillerie : pièces vues de dessus (drawBattery). Le matin, cercle de portée des siens (marqué pour le groupe
   // sélectionné), trait vers sa destination et vers sa mission. L'ennemi repéré apparaît à sa dernière position vue.
   drawGuns(view) {
     const f = this.front;
@@ -648,31 +637,8 @@ export class FrontRenderer extends Renderer {
           ctx.stroke();
         }
       }
-      const w = 17 * px, h = 11 * px;
-      ctx.globalAlpha = known ? 1 : 0.55;
-      ctx.fillStyle = 'rgba(250, 240, 210, 0.92)';
-      ctx.strokeStyle = SIDE_LINE[g.side];
-      ctx.lineWidth = (sel ? 2.4 : 1.5) * px;
-      ctx.beginPath();
-      ctx.rect(c.x - w / 2, c.y - h / 2, w, h);
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = SIDE_LINE[g.side];
-      const dot = (dx) => { ctx.beginPath(); ctx.arc(c.x + dx, c.y, 2.3 * px, 0, Math.PI * 2); ctx.fill(); };
-      if (g.kind === 'heavy') { dot(-3.2 * px); dot(3.2 * px); } else dot(0);
-      if (g.kind === 'rocket') {
-        ctx.beginPath();
-        ctx.moveTo(c.x - 5 * px, c.y - 1.5 * px);
-        ctx.lineTo(c.x, c.y - 4.5 * px);
-        ctx.lineTo(c.x + 5 * px, c.y - 1.5 * px);
-        ctx.lineWidth = 1.2 * px;
-        ctx.stroke();
-      }
-      if (sel) {
-        ctx.strokeStyle = ORDER_INK;
-        ctx.lineWidth = 2 * px;
-        ctx.strokeRect(c.x - w / 2 - 3 * px, c.y - h / 2 - 3 * px, w + 6 * px, h + 6 * px);
-      }
+      ctx.globalAlpha = known ? 1 : 0.5;
+      this.drawBattery(g, c, sel);
       // Nom : au zoom rapproché, ou pour le groupe sélectionné.
       if (sel || cam.s > 1.3) {
         ctx.font = `600 ${10 * px}px "IBM Plex Sans Condensed", "Arial Narrow", sans-serif`;
@@ -680,11 +646,52 @@ export class FrontRenderer extends Renderer {
         ctx.textBaseline = 'top';
         ctx.lineWidth = 3 * px;
         ctx.strokeStyle = 'rgba(250, 240, 210, 0.85)';
-        ctx.strokeText(g.name, c.x, c.y + h / 2 + 2 * px);
+        const ly = c.y + 21 * SPRITE_K * Math.max(1, 1 / cam.s);
+        ctx.strokeText(g.name, c.x, ly);
         ctx.fillStyle = SIDE_LINE[g.side];
-        ctx.fillText(g.name, c.x, c.y + h / 2 + 2 * px);
+        ctx.fillText(g.name, c.x, ly);
       }
       ctx.globalAlpha = 1;
+    }
+  }
+
+  // Un groupe d'artillerie vu de dessus (frontsprites.js). Sa posture se lit : en batterie, pièces ouvertes dans leurs
+  // épaulements, face à l'ennemi ; appui mobile, une pièce en position et les autres attelées ; déplacement, colonne
+  // de camions qui remorquent les pièces. Le nombre de pièces suit la force du groupe. Taille minimale à l'écran ; au
+  // zoom éloigné, deux pièces seulement.
+  drawBattery(g, c, sel) {
+    const { ctx, cam } = this;
+    const P = SPRITE_PAL[g.side];
+    const k = SPRITE_K * Math.max(1, 1 / cam.s);
+    const face = g.side === 0 ? 0 : Math.PI;
+    const moveAng = g.dest ? Math.atan2((g.dest.y - g.y), (g.dest.x - g.x)) : face;
+    let n = g.kind === 'mortar' ? 4 : 3;
+    n = Math.max(1, Math.ceil(n * g.str - 0.05));
+    if (cam.s < 1.1) n = Math.min(n, 2);
+    const gap = (g.kind === 'mortar' ? 6 : g.kind === 'rocket' ? 7.5 : 8.5) * k;
+    const sprite = g.kind === 'mortar' ? mortar : g.kind === 'rocket' ? rocket : (G, Pl, sh) => howitzer(G, Pl, sh, g.kind === 'heavy' ? 1.3 : 1);
+    if (sel) {
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, (n * gap) / 2 + 8 * k, 0, Math.PI * 2);
+      ctx.strokeStyle = ORDER_INK;
+      ctx.lineWidth = 2 / cam.s;
+      ctx.stroke();
+    }
+    for (let q = 0; q < n; q++) {
+      const emplaced = g.posture === 'battery' || (g.posture === 'mobile' && q === 0);
+      if (emplaced) {
+        // Ligne de pièces de front, perpendiculaire à la direction de tir.
+        const off = (q - (n - 1) / 2) * gap;
+        const x = c.x - Math.sin(face) * off, y = c.y + Math.cos(face) * off;
+        if (g.kind !== 'rocket') pit(ctx, x, y, face, (g.kind === 'mortar' ? 3.4 : g.kind === 'heavy' ? 6 : 5) * k);
+        piece(ctx, x, y, face, k, sprite, P);
+      } else {
+        // Colonne attelée, dans la direction de marche.
+        const back = (q - (g.posture === 'mobile' ? 1 : 0)) * 17 * k;
+        const x = c.x - Math.cos(moveAng) * back, y = c.y - Math.sin(moveAng) * back;
+        dust(ctx, x, y, moveAng, k);
+        piece(ctx, x, y, moveAng, k, g.kind === 'rocket' ? rocket : towed, P);
+      }
     }
   }
 

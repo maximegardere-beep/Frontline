@@ -279,6 +279,7 @@ dernier mouvement observé : c'est la base pour anticiper et placer ses barrages
 | `src/frontinput.js` | Saisie du front sans DOM : case autour du doigt, estimation au toucher, foyers de combat |
 | `src/frontfx.js` | Effets de combat du front : lueurs au contact, tirs traçants, obus, barrages |
 | `src/frontguns.js` | Artillerie du front : groupes nommés, portée, postures (batterie, mobile, déplacement), appui défensif, contre-batterie, camouflage |
+| `src/frontsprites.js` | Pièces vues de dessus dessinées en code : chars, obusiers, mortiers, Katioucha, camions, épaulements |
 | `src/frontrender.js` | Rendu du front : masses fondues, ligne de front, ordres, poches |
 | `src/frontui.js` | Interface du front : briefing, outils, journée animée, bilans, sons |
 

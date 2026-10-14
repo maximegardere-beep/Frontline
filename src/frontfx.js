@@ -123,8 +123,16 @@ export class FrontFx {
       }
       const gx = g.x * C, gy = g.y * C;
       if (gx < rect.x0 - 30 || gx > rect.x1 + 30 || gy < rect.y0 - 30 || gy > rect.y1 + 30) continue;
-      const salvo = front.tick <= front.cfg.barrageTicks && front.barrages[g.side].some((b) => b.gun === g.id);
+      const mission = front.barrages[g.side].find((b) => b.gun === g.id);
+      const salvo = front.tick <= front.cfg.barrageTicks && mission;
       for (let q = 0; q < (salvo ? 5 : 2); q++) this.blast(gx + (Math.random() - 0.5) * 10, gy + (Math.random() - 0.5) * 6, at(), 2.2, true);
+      // Katioucha : traînées de roquettes vers la zone pilonnée.
+      if (salvo && g.kind === 'rocket') {
+        for (let q = 0; q < 8; q++) {
+          const a = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()) * mission.r * C;
+          this.tracer({ x: gx, y: gy }, { x: mission.x * C + Math.cos(a) * rr, y: mission.y * C + Math.sin(a) * rr }, at(), g.side, 700 + Math.random() * 300, 1.6);
+        }
+      }
     }
     // Villes qui tombent : une grosse explosion.
     for (const ev of events) {

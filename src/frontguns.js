@@ -10,6 +10,7 @@ import { pixelToHex } from './hex.js';
 export const GUN_KINDS = {
   div: { label: 'Artillerie divisionnaire', short: 'Art.', range: 14, r: 3, rate: 0.04, works: 0.12, speed: 0.6 },
   heavy: { label: 'Artillerie lourde', short: 'Art. lourde', range: 20, r: 2.6, rate: 0.05, works: 0.2, speed: 0.4 },
+  mortar: { label: 'Mortiers lourds 120 mm', short: 'Mortiers', range: 9, r: 2.6, rate: 0.045, works: 0.1, speed: 0.7 },
   rocket: { label: 'Lance-roquettes (Katioucha)', short: 'Katioucha', range: 10, r: 3.5, rate: 0.07, works: 0.06, speed: 0.8 },
 };
 
@@ -76,7 +77,7 @@ export function createGuns(front, kinds) {
       const n = list.slice(0, k + 1).filter((x) => x === kind).length;
       const name = s === 0
         ? (kind === 'heavy' ? `Art.Abt. ${600 + k * 7}` : `Art.Rgt. ${100 + k * 33}`)
-        : (kind === 'rocket' ? `${ORDINAL(n)} rég. de mortiers de la Garde` : `${ORDINAL(n)} rég. d'artillerie`);
+        : (kind === 'rocket' ? `${ORDINAL(n)} rég. de mortiers de la Garde` : kind === 'mortar' ? `${ORDINAL(n)} rég. de mortiers` : `${ORDINAL(n)} rég. d'artillerie`);
       guns.push({ id: id++, side: s, kind, name, x: cx[best], y: cy[best], str: 1, posture: 'battery', dest: null, lost: false, fired: -99, seen: [null, null] });
     });
   }

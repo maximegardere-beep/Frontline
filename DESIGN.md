@@ -340,3 +340,9 @@ densités. Le moteur garde des points d'accroche pour cela.
 - Doctrine de poussée de l'IA (serpentement) : travail commencé puis mis de côté, branche `claude/doctrine-wip`
   (règles de cohésion, feux croisés et étranglement des doigts de gant dans le moteur ; opérations suivies sur
   plusieurs jours dans l'IA). À reprendre.
+- Pièces vues de dessus (`frontsprites.js`, style « C » choisi) : les groupes d'artillerie et les têtes de percée sont
+  dessinés comme des pièces réelles, sans logo. Obusiers ouverts dans leurs épaulements (posture en batterie), une pièce
+  en position et les autres attelées (appui mobile), colonne de camions (déplacement) ; mortiers 120 mm soviétiques sur
+  plaque, Katioucha sur camion avec traînées de roquettes au tir ; coin de 2 à 5 chars à la tête de chaque percée
+  blindée, avec poussière. Le nombre de pièces suit la force du groupe ; taille minimale à l'écran, deux pièces au zoom
+  éloigné. L'Armée rouge aligne désormais deux régiments divisionnaires, un de mortiers lourds et un de Katioucha.

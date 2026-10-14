@@ -31,7 +31,7 @@ export const FRONT_SETUP = {
   lineLen: 30, // longueur maximale d'une ligne, en cases
   lineWidth: 1.8, // demi-largeur de la bande retranchée (unités de grille ; deux cases voisines sont à 1,73)
   // Groupes d'artillerie (frontguns.js) : une mission de barrage par groupe et par jour, dans sa portée.
-  guns: [['div', 'div', 'heavy'], ['div', 'div', 'div', 'rocket']],
+  guns: [['div', 'div', 'heavy'], ['div', 'div', 'mortar', 'rocket']],
   barrageTicks: 6, // le barrage martèle la zone pendant les premiers ticks de la journée
   retreatCover: 0.33, // usure subie par les troupes qui décrochent en bon ordre
   chunk: 80, // densité déposée par clic de déploiement
