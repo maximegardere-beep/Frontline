@@ -28,7 +28,7 @@ export const ARMOR_RULES = {
   defense: 0.08, // densité défensive équivalente par char, dans sa propre case
   tankLoss: 0.9, // chars perdus par unité de riposte reçue
   wear: 0.3, // part des pertes de densité de sa case qui touchent aussi ses chars
-  speed: 0.55, // unités de grille par tick en marche (× fluidité blindée)
+  speed: 0.8, // unités de grille par tick en marche (× fluidité blindée)
   cooldown: 2, // ticks au moins entre deux cases prises
   fuelAttack: 0.025, // carburant par tick d'attaque
   fuelMove: 0.008, // par tick de marche
@@ -67,7 +67,7 @@ export function createArmor(front, setup = ARMOR_SETUP) {
   for (const s of [0, 1]) {
     const list = setup[s];
     list.forEach((u, k) => {
-      // Derrière le front, réparties du nord au sud, à ~5 cases de la ligne.
+      // Derrière le front, réparties du nord au sud, à ~8 cases de la ligne (en arrière de l'artillerie).
       const row = Math.round(((k + 0.5) / list.length) * H);
       let edge = -1;
       for (let c = 0; c < W; c++) {
@@ -75,7 +75,7 @@ export function createArmor(front, setup = ARMOR_SETUP) {
         if (front.owner[i] === 1 - s) break;
         if (front.owner[i] === s) edge = i;
       }
-      const want = edge >= 0 ? { x: cx[edge] - (s === 0 ? 9 : -9), y: cy[edge] } : { x: s === 0 ? 20 : cx[W - 1] - 20, y: cy[row * W] };
+      const want = edge >= 0 ? { x: cx[edge] - (s === 0 ? 15 : -15), y: cy[edge] } : { x: s === 0 ? 20 : cx[W - 1] - 20, y: cy[row * W] };
       let best = -1, bd = Infinity;
       for (let i = 0; i < N; i++) {
         if (front.owner[i] !== s || front.map.flowA[i] <= 0.3) continue;

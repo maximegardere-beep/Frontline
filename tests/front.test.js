@@ -411,6 +411,7 @@ test('formations blindées : en réserve sans ordre, elles percent vers leur obj
   assert.ok(!setArmorOrder(f, 0, a.id, { x: a.x + 45, y: a.y }).error);
   const captured0 = f.stats.captured[0];
   runDay(f);
+  if (a.target) runDay(f); // elle a d'abord dû gagner le front
   assert.ok(a.x > start.x + 6, `elle a avancé (${start.x.toFixed(0)} → ${a.x.toFixed(0)})`);
   assert.ok(f.stats.captured[0] > captured0, 'des cases prises');
   assert.ok(a.tanks < tanks0 || a.fought === false, 'la percée coûte des chars');

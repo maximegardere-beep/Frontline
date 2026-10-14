@@ -393,9 +393,10 @@ function onTap(p) {
       if (!fail(r)) { placed(`${r.name} : ${GUN_POSTURES[r.posture].label.toLowerCase()} vers sa nouvelle position (${Math.round(GUN_POSTURES[r.posture].fire * 100)} % de sa puissance de feu aujourd'hui).`); fui.gun = null; }
       return refreshFront();
     }
-    if (g) return selectGun(g.id);
     const a = armorNear(p);
-    if (a) return selectArmor(a.id);
+    // Le plus proche du doigt, groupe d'artillerie ou formation blindée.
+    if (a && (!g || Math.hypot(a.x - p.x, a.y - p.y) < Math.hypot(g.x - p.x, g.y - p.y))) return selectArmor(a.id);
+    if (g) return selectGun(g.id);
   }
   if (f.phase !== 'plan' || (!fui.tool && !fui.breakout)) return probeAt(p);
 
