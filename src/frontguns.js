@@ -8,10 +8,10 @@
 import { pixelToHex } from './hex.js';
 
 export const GUN_KINDS = {
-  div: { label: 'Artillerie divisionnaire', short: 'Art.', range: 14, r: 3, rate: 0.04, works: 0.12, speed: 0.6 },
-  heavy: { label: 'Artillerie lourde', short: 'Art. lourde', range: 20, r: 2.6, rate: 0.05, works: 0.2, speed: 0.4 },
-  mortar: { label: 'Mortiers lourds 120 mm', short: 'Mortiers', range: 9, r: 2.6, rate: 0.045, works: 0.1, speed: 0.7 },
-  rocket: { label: 'Lance-roquettes (Katioucha)', short: 'Katioucha', range: 10, r: 3.5, rate: 0.07, works: 0.06, speed: 0.8 },
+  div: { label: 'Artillerie divisionnaire', short: 'Art.', range: 18, r: 3, rate: 0.04, works: 0.12, speed: 0.6 },
+  heavy: { label: 'Artillerie lourde', short: 'Art. lourde', range: 26, r: 2.6, rate: 0.05, works: 0.2, speed: 0.4 },
+  mortar: { label: 'Mortiers lourds 120 mm', short: 'Mortiers', range: 12, r: 2.6, rate: 0.045, works: 0.1, speed: 0.7 },
+  rocket: { label: 'Lance-roquettes (Katioucha)', short: 'Katioucha', range: 13, r: 3.5, rate: 0.07, works: 0.06, speed: 0.8 },
 };
 
 // fire : part de la puissance ; move : part de la vitesse du groupe.
@@ -27,6 +27,7 @@ export const GUN_RULES = {
   counter: 0.07, // usure d'un groupe par tick de barrage ennemi sur sa position
   regen: 0.15, // récupération nocturne
   minStr: 0.25, // en dessous, le groupe est hors de combat (détruit)
+  flee: 0.12, // part des troupes d'une case pilonnée qui décroche vers l'arrière, par tick de barrage
   spot: 5.5, // distance de repérage d'un groupe camouflé (unités de grille, ~3 cases)
 };
 

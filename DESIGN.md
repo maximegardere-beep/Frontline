@@ -529,3 +529,13 @@ densités. Le moteur garde des points d'accroche pour cela.
   pour garder l'équilibre.
 - Mesure (42 batailles IA contre IA) : cases prises par jour 40 → 32,5, pire journée (médiane) 84 → 63 ; victoires
   de l'attaquant 21 → 19, du défenseur 14 → 15.
+
+### Artillerie : portée et décrochage sous le feu
+
+- Portées +30 % : divisionnaire 18, lourde 26, mortiers 12, Katioucha 13 unités de grille. Mise en place initiale
+  inchangée (à mi-portée derrière le front) : on frappe plus profond dès le premier jour.
+- Mesure avant ce changement : un barrage tuait ~18 % des troupes de sa zone, rien ne bougeait autour (le besoin des
+  cases n'en tient pas compte) et le trou n'était pas comblé le soir. Désormais, à chaque tick de barrage, 12 % des
+  troupes d'une case pilonnée décrochent vers les cases amies plus éloignées du centre (GUN_RULES.flee) : la zone se vide
+  de 44 % en 5 ticks, les troupes se regroupent juste derrière, les pertes ne changent presque pas. Un barrage prépare
+  donc l'assaut en vidant les cases, que le colmatage ne remplit que lentement.

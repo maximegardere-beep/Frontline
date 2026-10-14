@@ -710,6 +710,7 @@ export function stepTick(front) {
 function applyWorks(front, events) {
   const c = front.cfg;
   let bridges = false;
+  const flee = []; // [case, densité] : troupes qui décrochent sous les barrages, déposées après les tirs
   for (const s of [0, 1]) {
     buildTick(front, s);
     if (front.tick >= c.barrageTicks) continue;
@@ -731,6 +732,18 @@ function applyWorks(front, events) {
         const l = front.dens[i] * K.rate * k;
         front.dens[i] -= l;
         front.stats.losses[1 - s] += l;
+        // Sous les obus, une part des troupes décroche vers les cases amies plus éloignées du centre du barrage :
+        // la zone se vide (moins de pertes, mais des cases faciles à prendre pour qui attaque derrière).
+        const d0 = Math.hypot(front.centers.x[i] - b.x, front.centers.y[i] - b.y), back = [];
+        for (let q = 0; q < 6; q++) {
+          const j = front.map.nb[i * 6 + q];
+          if (j >= 0 && front.owner[j] === 1 - s && Math.hypot(front.centers.x[j] - b.x, front.centers.y[j] - b.y) > d0 + 0.3) back.push(j);
+        }
+        if (back.length) {
+          const m = front.dens[i] * GUN_RULES.flee * Math.min(1, k);
+          front.dens[i] -= m;
+          for (const j of back) flee.push(j, m / back.length);
+        }
       }
       for (const e of front.guns) {
         if (e.side !== 1 - s || e.lost || Math.hypot(e.x - b.x, e.y - b.y) > b.r) continue;
@@ -739,6 +752,7 @@ function applyWorks(front, events) {
       }
     }
   }
+  for (let q = 0; q < flee.length; q += 2) front.dens[flee[q]] += flee[q + 1];
   if (bridges) applyWeather(front); // pont détruit : le terrain change
 }
 
