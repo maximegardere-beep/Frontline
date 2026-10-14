@@ -505,7 +505,8 @@ kbd {
   bottom: 10px;
   max-width: 600px;
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   gap: 4px;
   padding: 4px;
   border: 1px solid rgba(0, 0, 0, 0.5);
@@ -534,6 +535,7 @@ kbd {
 .otool[data-tool="line"] { border-bottom-color: #4f7db0; }
 .otool[data-tool="barrage"] { border-bottom-color: #8d6a9f; }
 .otool[data-tool="reserve"] { border-bottom-color: #7fbf4d; }
+.otool[data-tool="transfer"] { border-bottom-color: #8fb3d9; }
 .otool[aria-pressed="true"] { background: var(--paper); color: var(--ink); }
 .otool:disabled { opacity: 0.4; cursor: default; }
 .otool:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }

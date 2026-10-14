@@ -539,3 +539,18 @@ densités. Le moteur garde des points d'accroche pour cela.
   troupes d'une case pilonnée décrochent vers les cases amies plus éloignées du centre (GUN_RULES.flee) : la zone se vide
   de 44 % en 5 ticks, les troupes se regroupent juste derrière, les pertes ne changent presque pas. Un barrage prépare
   donc l'assaut en vidant les cases, que le colmatage ne remplit que lentement.
+
+### Regroupement de nuit
+
+- `frontnight.js`. Chemin de marche dans ses lignes (Dijkstra) : une case de route (entre deux cases de route) coûte
+  0,25, une case de steppe 1, la forêt et le marais davantage ; une nuit permet un coût de 6 (≈ 24 cases par la
+  route, 6 à travers champs). Un chemin à plus de 50 % sur route transporte jusqu'à 600 hommes, sinon 150. On prélève
+  au plus la moitié de chaque case autour du départ (2 cases), on dépose autour de l'arrivée.
+- Le matin, outil « Transfert » (touche 8, 3 par matin) : les troupes ont marché pendant la nuit, le transfert
+  s'applique tout de suite et s'annule depuis la liste des ordres. La nuit, l'état-major de chaque camp (1 transfert
+  pour le joueur, 2 pour l'IA) prélève sur son secteur le plus calme pour le plus menacé (bandes de 8 lignes ;
+  menace = densité ennemie connue au contact / nos troupes au contact, à partir de 0,7).
+- Rendu : le matin, flèche le long du chemin (épaisse par la route, pointillée à travers champs), « −N h » au départ et
+  « +N h » à l'arrivée ; les transferts de l'état-major sont marqués comme tels.
+- Mesure (42 batailles IA contre IA) : 8 regroupements de l'état-major par bataille et par carte en moyenne, la moitié
+  par la route ; équilibre inchangé (attaquant 15, défenseur 17).

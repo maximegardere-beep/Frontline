@@ -10,6 +10,7 @@ import {
   repeatOrders, setPocketMode, vectorCatchment, troops, territory, townsHeld, attackerTowns, pocketName,
   cellAtPoint, FRONT_WEATHER, POCKET_MODES, VECTOR_TYPES, sideIndex, windLabel,
 } from './front.js';
+import { addTransfer, NIGHT } from './frontnight.js';
 import { installAI } from './frontai.js';
 import { GUN_KINDS, GUN_POSTURES, gunPower, gunFor, setGunOrder } from './frontguns.js';
 import { setArmorOrder, expLabel } from './frontarmor.js';
@@ -44,6 +45,7 @@ const TOOLS = {
   line: { label: 'Ligne de défense', short: 'Ligne', taps: 2, hint: 'Ligne de défense : touchez une extrémité, puis l\'autre, dans vos lignes. Tranchées en un jour, barbelés en deux, antichar en trois (niveau réglable dans le panneau).' },
   barrage: { label: 'Barrage', short: 'Barrage', taps: 1, hint: 'Barrage de zone : touchez la zone à pilonner. Le groupe d\'artillerie disponible le plus puissant qui l\'a à portée tirera.' },
   reserve: { label: 'Réserves', short: 'Réserves', taps: 1, hint: 'Chaque appui fait monter 800 hommes en ligne autour du point touché.' },
+  transfer: { label: 'Transfert', short: 'Transf.', taps: 2, hint: 'Regroupement de nuit : touchez le secteur à dégarnir, puis où envoyer ses troupes, dans vos lignes. Par une route tenue, jusqu\'à 600 hommes et loin ; à travers champs, 150 hommes et tout près.' },
 };
 
 const fui = {
@@ -444,19 +446,24 @@ function onTap(p) {
 
   // Ordres à deux appuis.
   if (!fui.pending) {
-    const purpose = tool === 'line' ? 'near' : 'push';
+    const purpose = tool === 'line' || tool === 'transfer' ? 'near' : 'push';
     const i = pickNear(p, purpose);
     if (i < 0) { setHint('Touchez vos lignes.', true); return; }
     fui.pending = { cell: i, point: tool === 'line' ? { x: p.x, y: p.y } : cellPoint(i) };
     if (tool === 'line' && f.owner[cellAtPoint(f, p)] !== s) fui.pending.point = cellPoint(i);
     sound.ui('select');
-    setHint(tool === 'line' ? 'Touchez l\'autre extrémité de la ligne.' : tool === 'retreat' ? 'Touchez où se replier, dans vos lignes.' : 'Touchez l\'objectif.');
+    setHint(tool === 'line' ? 'Touchez l\'autre extrémité de la ligne.' : tool === 'retreat' ? 'Touchez où se replier, dans vos lignes.' : tool === 'transfer' ? 'Touchez où envoyer ces troupes, dans vos lignes.' : 'Touchez l\'objectif.');
     return refreshFront();
   }
   const a = fui.pending;
   fui.pending = null;
   let r;
-  if (tool === 'line') {
+  if (tool === 'transfer') {
+    let j = cellAtPoint(f, p);
+    if (j < 0 || f.owner[j] !== s) j = pickNear(p, 'near');
+    r = j < 0 ? { error: 'Touchez vos lignes.' } : addTransfer(f, s, a.cell, j);
+    if (!fail(r)) { placed(`${fmtMen(men(r.amount))} ${r.road ? 'par la route' : 'à travers champs'} : ils ont marché toute la nuit.`); resnap(); }
+  } else if (tool === 'line') {
     let b = { x: p.x, y: p.y };
     if (f.owner[cellAtPoint(f, b)] !== s) { const j = pickNear(p, 'near'); if (j >= 0) b = cellPoint(j); }
     r = addLine(f, s, a.point, b);
@@ -555,6 +562,7 @@ function hoursAgo(ticks) {
 
 function removeMine(id) {
   removeOrder(fui.front, fui.side, id);
+  resnap(); // un transfert annulé : les troupes reviennent
   sound.ui('select');
   refreshFront();
 }
@@ -825,6 +833,7 @@ function used(tool) {
     return [alive.filter((a) => a.target).length, alive.length + 1, !alive.length];
   }
   if (tool === 'line') return [f.lines[s].filter((l) => l.day === f.day).length, f.cfg.maxLines, f.lines[s].length >= 4];
+  if (tool === 'transfer') return [f.transfers[s].filter((t) => !t.auto && t.day === f.day).length, NIGHT.perDay];
   if (tool === 'barrage') {
     const able = f.guns.filter((g) => g.side === s && gunPower(g) > 0).length;
     return [f.barrages[s].length, able];
@@ -871,6 +880,7 @@ function renderOrders() {
     ...vecs.map((v) => orderLine(VECTOR_TYPES[v.type].label, `≈ ${fmtMen(men(vectorCatchment(f, v)))}`, planning ? v.id : null)),
     ...f.lines[s].map((l) => lineItem(f, l, planning)),
     ...f.barrages[s].map((b) => orderLine('Barrage', f.guns.find((g) => g.id === b.gun)?.name ?? '', planning ? b.id : null)),
+    ...f.transfers[s].map((t) => orderLine(t.auto ? 'Regroupement de l\'état-major' : 'Transfert', `${fmtMen(men(t.amount))} · ${t.road ? 'par la route' : 'à travers champs'}${t.auto ? ' · cette nuit' : ''}`, planning && !t.auto ? t.id : null)),
   ];
   const guns = f.guns.filter((g) => g.side === s);
   const armor = f.armor.filter((a) => a.side === s);
@@ -1044,7 +1054,7 @@ function bind() {
   }));
   window.addEventListener('keydown', (e) => {
     if (!frontActive() || !byId('overlay').hidden || e.target.tagName === 'INPUT') return;
-    const keys = { 1: 'infantry', 2: 'armor', 3: 'retreat', 4: 'line', 5: 'barrage', 6: 'reserve', 7: 'fix' };
+    const keys = { 1: 'infantry', 2: 'armor', 3: 'retreat', 4: 'line', 5: 'barrage', 6: 'reserve', 7: 'fix', 8: 'transfer' };
     if (keys[e.key]) setTool(keys[e.key]);
     else if (e.key === 'Escape') cancelTool();
     else if (e.key === 'Enter') { if (fui.front.phase === 'resolve') fui.skip = true; else launchDay(); }
