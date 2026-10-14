@@ -283,6 +283,7 @@ dernier mouvement observé : c'est la base pour anticiper et placer ses barrages
 | `src/frontworks.js` | Ouvrages : tranchées, barbelés, obstacles antichar, ponts ; chantiers, dégâts, ruines persistantes |
 | `src/frontarmor.js` | Formations blindées : chars, expérience, carburant, grenadiers ; marche, choc, exploitation, pertes, ravitaillement |
 | `src/frontsupply.js` | Ravitaillement (têtes de ligne, point culminant logistique) et fatigue des troupes |
+| `src/frontscenario.js` | Scénarios 1941 à 1944 (forces, blindés, artillerie, exigence du score) et atouts propres à chaque camp |
 | `src/frontsprites.js` | Pièces vues de dessus dessinées en code : chars, obusiers, mortiers, Katioucha, camions, épaulements |
 | `src/frontrender.js` | Rendu du front : masses fondues, ligne de front, ordres, poches |
 | `src/frontui.js` | Interface du front : briefing, outils, journée animée, bilans, sons |

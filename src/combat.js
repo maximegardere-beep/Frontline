@@ -1,7 +1,7 @@
 // Résolution du feu aux dés (d6) et tests de moral ; et, pour le mode Frontline stratégique,
 // la physique du front : flux de densité et pression différentielle (voir frontTick en fin de fichier).
 
-import { tileAt, terrainDefense, edgeFlow, flowFor } from './terrain.js';
+import { tileAt, terrainDefense, edgeFlow, flowFor, TOWN } from './terrain.js';
 import { WORKS } from './frontworks.js';
 import { armorPressure, armorRiposte, armorRemaining } from './frontarmor.js';
 import { FATIGUE } from './frontsupply.js';
@@ -238,7 +238,9 @@ export function frontTick(front) {
   const AR = front.armor ? armorPressure(front, push) : { hits: [], def: new Map() };
 
   // 2b. Assauts : pertes du défenseur, riposte répartie sur les assaillants au prorata de leur poussée.
-  const defense = (j) => (dens[j] + (AR.def.get(j) ?? 0)) * map.def[j] * quality[owner[j]] * field[owner[j]].fort[j];
+  // Ténacité dans les villes : un camp peut y tenir mieux que l'autre (frontscenario.js).
+  const hold = (j) => (map.kind[j] === TOWN ? front.cfg?.townHold?.[owner[j]] ?? 1 : 1);
+  const defense = (j) => (dens[j] + (AR.def.get(j) ?? 0)) * map.def[j] * quality[owner[j]] * field[owner[j]].fort[j] * hold(j);
   for (let j = 0; j < N; j++) {
     if (!push[j]) continue;
     const F = push[j], D = defense(j);

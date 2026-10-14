@@ -213,6 +213,7 @@ export function scoreBreakdown(front, final = false) {
   let rowsHeld = 0;
   for (let r = 0; r < H; r++) { const i = r * W + edge; if (front.owner[i] === att && front.supplied[att][i]) rowsHeld++; }
   rows.push({ key: 'exploit', label: 'Exploitation jusqu\'au bord de la carte', pts: rowsHeld >= 3 ? SCORE.exploit : 0 });
+  if (front.bias) rows.push({ key: 'bias', label: `Exigence du scénario ${front.year} : l'offensive part favorite`, pts: -front.bias });
   for (const o of front.objectives) {
     const st = objectiveState(front, o);
     const ok = st.final ?? (final ? st.done : null);

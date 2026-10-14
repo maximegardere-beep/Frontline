@@ -441,3 +441,15 @@ densités. Le moteur garde des points d'accroche pour cela.
   20 % de ce que le colmatage élastique lui ferait céder, et son besoin monte de 50 % (elle appelle des renforts).
   Fixer un secteur retient donc les réserves adverses loin du point de rupture.
 - L'IA fixe un ou deux secteurs voisins (6 à 14 lignes) de ses attaques.
+
+### Équilibrage par les camps et par l'année
+
+- Atouts (`frontscenario.js`, FRONT_TRAITS) : Wehrmacht, reconnaissance +1 case et Panzer qui refont 80 % de leur plein
+  la nuit (60 % côté soviétique) ; Armée rouge, réserves et renforts plus forts, défense des villes × 1,25, la neige ne
+  ralentit pas son infanterie et à peine ses chars.
+- Scénarios choisis au menu : 1941 Barbarossa, 1942 Fall Blau, 1943 Koursk (par défaut), 1944 Bagration. Chacun règle
+  qualité, effectifs, réserves, renforts, blindés, artillerie, saisons, camp qui attaque le plus souvent, et l'exigence
+  du score (points retranchés à une offensive favorite : 4 en 1941, 26 en 1944).
+- Mesure (60 à 72 batailles IA contre IA par année, attaquant tiré selon le scénario) : 1941 Wehrmacht 38 % / Armée
+  rouge 38 % ; 1942 35 / 37 ; 1943 38 / 47 ; 1944 31 / 60 (beaucoup de fins anticipées : l'effondrement allemand y
+  échappe au score). Indécis 10 à 28 %.

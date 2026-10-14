@@ -18,6 +18,7 @@ import { FrontRenderer, CELL } from './frontrender.js';
 import { bigPockets, menRange, pickCell, areaReport, combatSpots } from './frontinput.js';
 import { WeatherLayer } from './weather.js';
 import { SEASON } from './conditions.js';
+import { scenarioOf, DEFAULT_YEAR } from './frontscenario.js';
 import { FRONT_BIOMES } from './mapgen.js';
 import { describeCell } from './terrain.js';
 import { createRng } from './rng.js';
@@ -83,16 +84,17 @@ export function initFront(hooks) {
   fui.hooks = hooks;
 }
 
-export function openFront(sideCode, seed) {
+export function openFront(sideCode, seed, year = DEFAULT_YEAR) {
   stopLoop();
   byId('tac-app').hidden = true;
   byId('front-app').hidden = false;
   if (!fui.bound) bind();
   const rng = createRng(`front:setup:${seed}`);
-  const attacker = rng.chance(0.5) ? 'DE' : 'SU';
+  const sc = scenarioOf(year);
+  const attacker = rng.weighted(sc.attacker);
   const biome = rng.weighted({ steppe: 22, bocage: 16, polesie: 12, bourg: 12, montagne: 12, foret: 12, fleuve: 14 });
-  const season = rng.weighted({ 0: 30, 1: 25, 2: 20, 3: 15, 4: 10 });
-  const front = createFront({ seed, playerSide: sideCode, attacker, biome, season: Number(season) });
+  const season = rng.weighted(sc.seasons);
+  const front = createFront({ seed, playerSide: sideCode, attacker, biome, season: Number(season), year });
   installAI(front);
   Object.assign(fui, { front, seed, side: sideIndex(sideCode), tool: null, pending: null, breakout: null, probe: null, acc: 0, skip: false, ending: false, showAll: false, tab: 'orders', hoverPoint: null });
   fui.r.setMap(front);
@@ -169,7 +171,7 @@ function showFrontBriefing() {
   const s = fui.side;
   const att = f.attacker === s;
   fui.hooks.showDossier(`
-    <p class="eyebrow">Front stratégique · ${escHtml(SEASON[f.season].month)} · ${f.cfg.days} jours</p>
+    <p class="eyebrow">Front stratégique · ${escHtml(SEASON[f.season].month.replace('1943', f.year))} · ${f.cfg.days} jours</p>
     <h1 class="title-l">${escHtml(f.map.name)}</h1>
     <p class="kind">${SIDE_NAME[s]} · ${att ? 'vous attaquez' : 'vous défendez'}</p>
     <p class="lede">${att
@@ -177,6 +179,9 @@ function showFrontBriefing() {
       : 'Vos positions sont retranchées, plus solidement autour des villes. L\'ennemi a davantage de réserves : cédez du terrain s\'il le faut, mais gardez les villes.'}</p>
     <div class="brief-grid">
       <section>
+        <h2>${escHtml(scenarioOf(f.year).label)}</h2>
+        <p>${escHtml(scenarioOf(f.year).text)}${f.bias ? ` L'offensive part favorite : ${f.bias} points sont retranchés de son score.` : ''}</p>
+        <p class="muted small">Atouts : la Wehrmacht voit une case plus loin et ses Panzer se ravitaillent plus vite ; l'Armée rouge a plus de réserves et de renforts, tient mieux les villes et ne craint pas la neige.</p>
         <h2>Objectif</h2>
         <p>${goalText(f)}</p>
         <h2>Objectifs secondaires (+${SCORE.secondary} points chacun)</h2>

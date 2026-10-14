@@ -11,6 +11,7 @@ import { MOUNTAIN, computeTerrain } from './terrain.js';
 import { SEASON } from './conditions.js';
 import { findPockets, bfsDistance } from './path.js';
 import { emptyField, frontNeed, frontTick } from './combat.js';
+import { FRONT_TRAITS, scenarioOf, DEFAULT_YEAR } from './frontscenario.js';
 import { initSupply, updateSupplyK, advanceRails, restTroops } from './frontsupply.js';
 import { createArmor, armorAfter, armorNight, updateArmorSightings, ARMOR_SETUP } from './frontarmor.js';
 import { WORKS, initWorks, defenderBelt, barrageWorks, captureWorks, buildTick, trenchFor } from './frontworks.js';
@@ -24,11 +25,12 @@ export const sideIndex = (s) => (s === 'DE' ? 0 : 1);
 export const FRONT_SETUP = {
   days: 15,
   ticks: 24, // ticks par journée
-  troops: [5800, 6000], // densité totale sur la carte au départ (équilibrage après formations et artillerie)
-  reserve: [600, 700], // pool logistique initial
-  reinforce: [240, 280], // renforts quotidiens, au prorata du bord de carte ravitaillé
+  // Valeurs par défaut = scénario 1943 (frontscenario.js) ; createFront({ year }) applique celles d'une autre année.
+  troops: [5800, 6000], // densité totale sur la carte au départ
+  reserve: [600, 800], // pool logistique initial
+  reinforce: [240, 300], // renforts quotidiens, au prorata du bord de carte ravitaillé
   townBonus: 25, // renforts quotidiens par ville tenue
-  quality: [1.45, 1], // qualité allemande (calée sur 90 batailles IA contre IA : Wehrmacht 38 %, Armée rouge 39 %, indécis 23 %)
+  quality: [1.38, 1], // qualité (les atouts propres à chaque camp sont dans FRONT_TRAITS)
   maxVectors: 16, // garde-fou seulement : la vraie limite est la part des troupes engagées (engageCap)
   maxArmor: 2, // ancien vecteur blindé (moteur et tests)
   engageCap: 0.6, // part au plus des troupes d'un camp engagée sur ses vecteurs ; au-delà, tous sont réduits d'autant
@@ -87,8 +89,9 @@ export const POCKET_MODES = {
 let nextVectorId = 1;
 
 // attacker : camp attaquant ('DE' ou 'SU'), fixé au briefing ; season : indice du mois (0 juillet … 4 novembre).
-export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = null, season = 0, days = FRONT_SETUP.days, setup = {} } = {}) {
-  const cfg = { ...FRONT_SETUP, ...setup, days };
+export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = null, season = 0, days = FRONT_SETUP.days, setup = {}, year = null } = {}) {
+  const sc = year ? scenarioOf(year) : null;
+  const cfg = { ...FRONT_SETUP, ...FRONT_TRAITS, ...(sc ? { ...sc.setup, guns: sc.guns, armor: sc.armor } : {}), ...setup, days };
   const map = generateFrontMap(seed, { biome, defender: attacker === 'DE' ? 1 : 0 });
   const { W, H, N } = map;
   const owner = new Int8Array(N);
@@ -102,6 +105,8 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
   }
   const front = {
     seed,
+    year: year ?? DEFAULT_YEAR,
+    bias: sc?.bias ?? 0, // exigence du scénario envers l'offensive (frontscore.js)
     map,
     centers: cellCenters(W, H, 1),
     cfg,
@@ -165,7 +170,7 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
     initWorks(front);
     defenderBelt(front, def, dist, (i) => Math.min(1, Math.max(0.1, (works(Math.floor(i / W) * 0.09, 3.3, 2) - 0.3) * 2.2)), nearTown, cfg.entrenchDepth);
   }
-  // Objectif de l'attaquant : tenir au 10e jour au moins la moitié des villes que le défenseur avait au départ.
+  // Villes ★ : celles du défenseur au départ (score de l'offensive, frontscore.js).
   front.defTowns = map.towns.filter((t) => owner[t.i] === def).map((t) => t.i);
   front.goal = Math.max(1, Math.ceil(front.defTowns.length * cfg.goalShare - 1e-9));
   front.initial = [troops(front, 0) + front.reserve[0], troops(front, 1) + front.reserve[1]];
@@ -440,7 +445,9 @@ export function rebuildFields(front, s) {
   const W8 = FRONT_WEATHER[front.weather];
   for (const v of front.orders[s]) {
     const T0 = VECTOR_TYPES[v.type];
-    const T = { ...T0, speed: T0.speed * (v.type === 'armor' ? W8.armor : W8.infantry) };
+    // Camp aguerri à l'hiver : la neige ne ralentit pas son infanterie, à peine ses chars.
+    const winter = W8.frozen && front.cfg.winter?.[s];
+    const T = { ...T0, speed: T0.speed * (v.type === 'armor' ? (winter ? Math.max(W8.armor, 0.9) : W8.armor) : winter ? 1 : W8.infantry) };
     const L = len(v.from, v.to);
     const ux = (v.to.x - v.from.x) / L, uy = (v.to.y - v.from.y) / L;
     for (let i = 0; i < N; i++) {
@@ -562,7 +569,7 @@ export function computeVision(front, s) {
   const { map, owner, dens } = front;
   const seeds = [];
   for (let i = 0; i < map.N; i++) if (owner[i] === s && dens[i] > 0.5) seeds.push(i);
-  const range = visionRange(front);
+  const range = visionRange(front) + (front.cfg.visionBonus?.[s] ?? 0);
   const dist = bfsDistance(map.nb, map.N, seeds, () => true, range);
   const vis = new Uint8Array(map.N);
   for (let i = 0; i < map.N; i++) vis[i] = owner[i] === s || dist[i] <= range ? 1 : 0;

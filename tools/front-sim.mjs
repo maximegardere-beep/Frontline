@@ -4,6 +4,9 @@ import { createFront, runDay, FRONT_SETUP, townsHeld } from '../src/front.js';
 import { installAI, AI_TUNING } from '../src/frontai.js';
 import { FRONT_RULES } from '../src/combat.js';
 import { scoreBreakdown, GRADES } from '../src/frontscore.js';
+import { scenarioOf } from '../src/frontscenario.js';
+import { createRng } from '../src/rng.js';
+const YEAR = process.env.YEAR ? Number(process.env.YEAR) : null;
 
 Object.assign(FRONT_RULES, JSON.parse(process.env.RULES ?? '{}'));
 Object.assign(FRONT_SETUP, JSON.parse(process.env.SETUP ?? '{}'));
@@ -17,10 +20,11 @@ let days = 0, pockets = 0, towns = 0, ms = 0, early = 0;
 const perBiome = {};
 const grades = {}, scores = [];
 for (let k = 0; k < N; k++) {
-  const attacker = k % 2 ? 'SU' : 'DE';
+  // Avec YEAR : le camp qui attaque est tiré selon le scénario ; sinon, les rôles alternent.
+  const attacker = YEAR ? createRng(`sim-att:${SEED}${k}`).weighted(scenarioOf(YEAR).attacker) : k % 2 ? 'SU' : 'DE';
   const biome = BIOMES[k % BIOMES.length];
   const t0 = performance.now();
-  const f = createFront({ seed: `${SEED}${k}`, playerSide: null, attacker, biome, season: k % 5 });
+  const f = createFront({ seed: `${SEED}${k}`, playerSide: null, attacker, biome, season: k % 5, year: YEAR });
   installAI(f);
   let seenPockets = 0;
   while (!f.result) {

@@ -240,7 +240,7 @@ export function armorNight(front) {
     if (a.lost) continue;
     const supplied = front.supplied[a.side][a.cell];
     if (supplied) {
-      a.fuel = Math.min(1, a.fuel + R.refuel);
+      a.fuel = Math.min(1, a.fuel + (front.cfg.refuel?.[a.side] ?? R.refuel));
       a.tanks = Math.min(a.max, a.tanks + (a.max - a.tanks) * R.repair * (a.fought ? 0.5 : 1));
       a.gren = Math.min(a.gren + 10, 200);
     }

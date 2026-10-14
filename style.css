@@ -688,3 +688,6 @@ kbd {
 .f-gauge i::after { content: ''; position: absolute; top: 0; bottom: 0; left: calc(var(--c) * 100%); width: 2px; background: var(--text); }
 .f-gauge.over b { color: #f0a093; }
 .f-gauge.over i::before { background: var(--pencil); }
+.front-year { flex-wrap: wrap; margin: 4px 0 6px; }
+.front-year .btn { flex: 1 1 140px; }
+.dossier .front-year .btn.on { background: var(--pencil); border-color: var(--pencil); color: #fff6ec; }

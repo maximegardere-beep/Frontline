@@ -14,6 +14,13 @@ import { tileAt, describeTile, terrainDefense } from './terrain.js';
 import { hexDistance, hexToPixel, sameHex } from './hex.js';
 import { newCampaign, battleSetup, concludeBattle, campaignOver, campaignVerdict, CAMPAIGN_LENGTH, KIND_LABELS } from './campaign.js';
 import { initFront, openFront, closeFront, frontActive, frontAmbient } from './frontui.js';
+import { SCENARIOS, DEFAULT_YEAR } from './frontscenario.js';
+
+// Année du front stratégique choisie au menu (mémorisée).
+function frontYear() {
+  try { const y = Number(localStorage.getItem('frontline.front.year')); if (SCENARIOS[y]) return y; } catch { /* stockage indisponible */ }
+  return DEFAULT_YEAR;
+}
 
 const $ = (id) => document.getElementById(id);
 const SAVE_KEY = 'frontline.campaign.v1';
@@ -95,7 +102,7 @@ function showMenu() {
     <p class="eyebrow">Front de l'Est · été 1943</p>
     <h1 class="title-xl">Frontline</h1>
     <p class="lede">Vous commandez un groupement tactique pendant cinq batailles, sur des cartes à chaque fois différentes. Tracez votre plan, anticipez celui de l'adversaire, puis regardez-le se dérouler sans pouvoir intervenir.</p>
-    <button class="link-front" id="to-front">Nouveau : le Front stratégique, dix jours sur tout un secteur ↓</button>
+    <button class="link-front" id="to-front">Le Front stratégique : quinze jours sur tout un secteur, de 1941 à 1944 ↓</button>
     <div class="factions">
       ${['DE', 'SU'].map((s) => `
         <button class="faction faction-${s}" data-side="${s}">
@@ -106,8 +113,10 @@ function showMenu() {
         </button>`).join('')}
     </div>
     <section class="mode-front" id="mode-front">
-      <h2>Front stratégique · une bataille de dix jours</h2>
-      <p class="lede">Commandez tout un secteur : des masses de troupes et une ligne de front continue. Chaque matin, tracez vos poussées, lignes de défense et barrages ; puis la journée se déroule seule.</p>
+      <h2>Front stratégique · une bataille de quinze jours</h2>
+      <p class="lede">Commandez tout un secteur : des masses de troupes et une ligne de front continue. Chaque matin, tracez vos poussées, fixations, lignes de défense et barrages, lancez vos blindés ; puis la journée se déroule seule.</p>
+      <div class="seg front-year" role="group" aria-label="Année">${Object.entries(SCENARIOS).map(([y, sc]) => `<button class="btn btn-sm ${Number(y) === frontYear() ? 'on' : ''}" data-year="${y}" title="${sc.text.replace(/"/g, '&quot;')}">${sc.label}</button>`).join('')}</div>
+      <p class="muted small" id="front-year-text">${SCENARIOS[frontYear()].text}</p>
       <div class="front-pick">
         ${['DE', 'SU'].map((s) => `<button class="btn" data-front="${s}">${SIDES[s].name}</button>`).join('')}
       </div>
@@ -132,7 +141,12 @@ function showMenu() {
     document.querySelectorAll('[data-front]').forEach((b) => b.addEventListener('click', () => {
       ui.inGame = false;
       ui.weather.set('clear', 'day');
-      openFront(b.dataset.front, $('seed').value.trim() || seed);
+      openFront(b.dataset.front, $('seed').value.trim() || seed, frontYear());
+    }));
+    document.querySelectorAll('[data-year]').forEach((b) => b.addEventListener('click', () => {
+      try { localStorage.setItem('frontline.front.year', b.dataset.year); } catch { /* stockage indisponible */ }
+      document.querySelectorAll('[data-year]').forEach((x) => x.classList.toggle('on', x === b));
+      $('front-year-text').textContent = SCENARIOS[b.dataset.year].text;
     }));
     $('resume')?.addEventListener('click', () => {
       leaveFront();
