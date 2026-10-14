@@ -123,7 +123,8 @@ export const WATER = {
   bridge: { flow: 0.9, def: 1, flowA: 0.9, atkA: 0.9 },
   frozen: { flow: 0.8, def: 1, flowA: 0.7, atkA: 0.9 },
 };
-export const ROAD_ARMOR = 1.5; // fluidité des blindés sur route (plafonnée à 1,3)
+export const ROAD_ARMOR = 2; // fluidité des blindés sur route…
+export const ROAD_CAP = 1.6; // … plafonnée : les chars y roulent 60 % plus vite qu'en steppe, sans gagner de choc
 
 // Villes sous le feu : ruin (0 intacte … 1 rasée) s'accumule avec les barrages et les combats (front.js). Le bonus
 // défensif fond tant que la ville brûle et s'effondre, puis remonte dans les ruines (Stalingrad : les décombres sont
@@ -169,7 +170,7 @@ export function cellTerrain(map, i, frozen = false, ruin = 0) {
     const Wt = WATER[water];
     flow = Math.min(flow, Wt.flow); def = Wt.def; flowA = Math.min(flowA, Wt.flowA); atkA = Math.min(atkA, Wt.atkA);
   }
-  if (map.road?.[i] && k !== 'mountain' && water !== 'river') flowA = Math.min(1.3, Math.max(flowA, 0.6) * ROAD_ARMOR);
+  if (map.road?.[i] && k !== 'mountain' && water !== 'river') flowA = Math.min(ROAD_CAP, Math.max(flowA, 0.6) * ROAD_ARMOR);
   if (k === 'town' && !water) {
     def = 1 + ruinBonus(ruin);
     flow *= 1 - RUINS.flow * ruin;

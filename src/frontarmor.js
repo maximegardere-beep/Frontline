@@ -209,19 +209,86 @@ export function armorAfter(front, lossBefore, densBefore, events) {
       a.cool = Math.ceil(R.cooldown / Math.max(0.3, front.map.flowA[a.aim]));
       continue;
     }
-    // Marche dans ses lignes vers l'objectif.
+    // Marche dans ses lignes vers l'objectif, par le chemin le plus rapide (la route, quand elle va dans le bon sens).
     if (a.target && !a.attacking && a.fuel > 0) {
       const dx = a.target.x - a.x, dy = a.target.y - a.y;
       if (Math.hypot(dx, dy) < 1.2) { a.target = null; continue; }
       a.progress = (a.progress ?? 0) + R.speed * Math.max(0.1, front.map.flowA[c]);
       if (a.progress >= 1.7) {
-        const j = stepToward(front, c, dx, dy, (k) => front.owner[k] === a.side && front.map.flowA[k] > 0.05);
-        if (j >= 0) { moveTo(front, a, j); a.fuel = Math.max(0, a.fuel - R.fuelMove); }
+        // Route recalculée quand la formation la quitte, que l'objectif change, ou toutes les 4 heures (le front bouge).
+        const r = a.route;
+        if (!r || r.target !== a.target || front.clock - r.clock >= 4 || r.cells[r.at] !== c) a.route = { cells: armorRoute(front, a), at: 0, target: a.target, clock: front.clock };
+        const route = a.route.cells.slice(a.route.at);
+        if (route.length > 1 && !(front.owner[route[1]] === a.side && front.map.flowA[route[1]] > 0.05)) a.route = null;
+        const j = a.route && route.length > 1 ? route[1] : stepToward(front, c, dx, dy, (k) => front.owner[k] === a.side && front.map.flowA[k] > 0.05);
+        if (j >= 0) { moveTo(front, a, j); a.fuel = Math.max(0, a.fuel - R.fuelMove); if (a.route) a.route.at++; }
         a.progress = 0;
       }
     }
   }
 }
+
+// Route de marche d'une formation dans ses propres lignes : de sa case à la case amie la plus proche de l'objectif,
+// au moindre temps (coût d'un pas = 1 / fluidité blindée de la case d'arrivée), dans un rayon limité autour de la
+// ligne droite. Les routes (fluidité 1,6) attirent donc la marche quand elles vont à peu près vers l'objectif ;
+// forêts et marais sont contournés. Renvoie la suite des cases, départ compris ([a.cell] si rien de mieux).
+export function armorRoute(front, a, target = a.target) {
+  if (!target) return [a.cell];
+  const { N, nb } = front.map;
+  const cx = front.centers.x, cy = front.centers.y, flowA = front.map.flowA;
+  const ok = (k) => front.owner[k] === a.side && flowA[k] > 0.05;
+  const x0 = cx[a.cell], y0 = cy[a.cell], span = Math.hypot(target.x - x0, target.y - y0);
+  const near = (k) => {
+    // Distance au segment départ → objectif : on ne cherche pas de détour au-delà de ROUTE.detour.
+    const vx = target.x - x0, vy = target.y - y0, L2 = vx * vx + vy * vy || 1;
+    const t = Math.max(0, Math.min(1, ((cx[k] - x0) * vx + (cy[k] - y0) * vy) / L2));
+    return Math.hypot(cx[k] - x0 - vx * t, cy[k] - y0 - vy * t) <= ROUTE.detour + span * 0.15;
+  };
+  const dist = new Float32Array(N).fill(Infinity), prev = new Int32Array(N).fill(-1);
+  dist[a.cell] = 0;
+  const heap = [[0, a.cell]];
+  let goal = a.cell, gd = Math.hypot(target.x - x0, target.y - y0);
+  while (heap.length) {
+    // Tas binaire minimal sur le coût.
+    const top = heap[0], last = heap.pop();
+    if (heap.length) {
+      heap[0] = last;
+      for (let i = 0; ;) {
+        const l = 2 * i + 1, r = l + 1;
+        let m = i;
+        if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+        if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+        if (m === i) break;
+        [heap[i], heap[m]] = [heap[m], heap[i]];
+        i = m;
+      }
+    }
+    const [d, k] = top;
+    if (d > dist[k]) continue;
+    const gk = Math.hypot(target.x - cx[k], target.y - cy[k]);
+    if (gk < gd - 1e-6) { gd = gk; goal = k; }
+    for (let q = 0; q < 6; q++) {
+      const j = nb[k * 6 + q];
+      if (j < 0 || !ok(j) || !near(j)) continue;
+      const nd = d + 1 / Math.min(ROUTE.maxFlow, flowA[j]);
+      if (nd < dist[j]) {
+        dist[j] = nd;
+        prev[j] = k;
+        heap.push([nd, j]);
+        for (let i = heap.length - 1; i > 0;) {
+          const p = (i - 1) >> 1;
+          if (heap[p][0] <= heap[i][0]) break;
+          [heap[i], heap[p]] = [heap[p], heap[i]];
+          i = p;
+        }
+      }
+    }
+  }
+  const path = [];
+  for (let k = goal; k >= 0; k = prev[k]) path.push(k);
+  return path.reverse();
+}
+const ROUTE = { detour: 6, maxFlow: 1.6 }; // écart toléré à la ligne droite (unités de grille), fluidité prise en compte
 
 function moveTo(front, a, j) {
   const px = front.centers.x[a.cell], py = front.centers.y[a.cell];
