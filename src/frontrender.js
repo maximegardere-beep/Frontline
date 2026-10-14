@@ -10,6 +10,7 @@
 
 import { Renderer, splineTo, blobPath, contourSegments, strokeSegments, ELEV_STOPS, PALETTE } from './render.js';
 import { hexToPixel, pixelToHex, SQRT3 } from './hex.js';
+import { bfsDistance } from './path.js';
 import { createRng } from './rng.js';
 import { makeNoise } from './mapgen.js';
 import { FRONT_KINDS } from './terrain.js';
@@ -27,6 +28,11 @@ export const CELL = 9; // rayon d'une case de la micro-grille, en pixels monde
 const K = Object.fromEntries(FRONT_KINDS.map((k, i) => [k, i]));
 const SIDE_RGB = [[52, 84, 138], [178, 42, 30]]; // Wehrmacht, Armée rouge
 const SIDE_LINE = ['#26303d', '#4a1610'];
+// Points des troupes : [ombre, couleur] par camp.
+const DOT_RGB = [['#1e2f4a', '#3a5a8e'], ['#5a170c', '#b0371f']];
+// Densité → points : par unité de densité (au plus max par case de contact), profondeur de la bande (pixels monde)
+// à faible et forte densité, échelle de densité, rayon ; à l'arrière, densité d'une case et d'un amas retenus.
+const DOTS = { per: 0.45, max: 14, depth0: 4, depth: 22, scale: 14, r: 1.1, rearCell: 6, group: 30 };
 const ORDER_INK = '#ffd23f'; // ordres du joueur
 const ORDER_HALO = 'rgba(24, 20, 10, 0.8)';
 const SPRITE_K = 1.7; // échelle des pièces vues de dessus (lisibles sans zoomer)
@@ -576,6 +582,7 @@ export class FrontRenderer extends Renderer {
       }
     }
     this.cur = { owner: own, open, dA, dB, vis: S.field(v.vis).data, viewer, conc, pockets };
+    this.dots = this.troopDots(viewer);
     if (!this.prev) this.prev = this.cur;
   }
 
@@ -600,10 +607,10 @@ export class FrontRenderer extends Renderer {
       const d = de ? dA[s] / Math.max(0.05, o[s]) : dB[s] / Math.max(0.05, 1 - o[s]);
       const rgb = SIDE_RGB[de ? 0 : 1];
       const enemy = b.viewer !== null && (de ? 0 : 1) !== b.viewer;
-      // Opacité et teinte : la masse s'épaissit et fonce avec la densité (arrières pâles, front et concentrations
-      // sombres) ; hors de vue, l'ennemi n'est qu'une estimation estompée.
-      const k = 1 - Math.exp(-d / 5), dark = 1 - 0.32 * k;
-      let alpha = (0.2 + 0.66 * k) * Math.min(1, open * 1.3);
+      // Teinte légère du camp (les troupes elles-mêmes sont des points le long du front, drawDots) ; hors de vue,
+      // l'ennemi est estompé.
+      const k = 1 - Math.exp(-d / 5), dark = 1;
+      let alpha = (0.15 + 0.05 * k) * Math.min(1, open * 1.3);
       if (enemy) alpha *= 0.6 + 0.4 * vis;
       px[s * 4] = rgb[0] * dark;
       px[s * 4 + 1] = rgb[1] * dark;
@@ -646,18 +653,10 @@ export class FrontRenderer extends Renderer {
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(this.massCanvas, 0, 0, this.sampler.w * this.sampler.step, this.sampler.h * this.sampler.step);
 
-    // Concentrations : contours de densité de chaque camp (les masses voisines fusionnent).
-    for (const { side, levels } of this.cur.conc) {
-      ctx.strokeStyle = SIDE_LINE[side];
-      for (const { a, wd, segs } of levels) {
-        ctx.globalAlpha = a;
-        ctx.lineWidth = wd;
-        strokeSegments(ctx, segs);
-      }
-    }
     ctx.globalAlpha = 1;
     this.drawScars();
     this.drawHouses(view.viewer ?? null, true);
+    this.drawDots(now);
     this.drawWorks(view.viewer ?? null);
     this.drawRails(view.viewer ?? null);
     const spears = f.phase === 'resolve' ? [...this.spearheads(view.viewer ?? null), ...this.armorTrails(view.viewer ?? null)] : [];
@@ -716,6 +715,125 @@ export class FrontRenderer extends Renderer {
       ctx.stroke();
       ctx.setLineDash([]);
     }
+  }
+
+  // ---------- Troupes : points le long du front ----------
+
+  // Points de chaque camp, pour le camp observateur : une bande serrée contre la ligne de front, d'autant plus
+  // profonde et fournie que le secteur est dense ; à l'arrière, seulement les amas (garnisons, réserves) de plus
+  // de 300 hommes, avec leur effectif. Positions tirées d'un générateur par case : stables d'un tick à l'autre.
+  troopDots(viewer) {
+    const f = this.front, { N, nb, W } = this.map;
+    const mem = viewer === null ? null : f.memory[viewer];
+    const ownerOf = (i) => (viewer === null || f.owner[i] === viewer ? f.owner[i] : mem.owner[i]);
+    const densOf = (i, o) => (viewer === null || o === viewer ? f.dens[i] : mem.est[i]);
+    const visOf = (i, o) => viewer === null || o === viewer || f.vision[viewer][i];
+    const hot = new Uint8Array(N);
+    const e = f.tickEdges ?? [];
+    if (f.phase === 'resolve') for (let k = 0; k < e.length; k += 3) hot[e[k]] = 1;
+    const dots = [[], []], groups = [];
+    const contactSeeds = [];
+    // 1. Bande au contact : depuis chaque case de contact, des points tirés entre la frontière et l'intérieur.
+    for (let i = 0; i < N; i++) {
+      const o = ownerOf(i);
+      if (o < 0) continue;
+      const foes = [];
+      for (let d = 0; d < 6; d++) { const j = nb[i * 6 + d]; if (j >= 0 && ownerOf(j) === 1 - o) foes.push(j); }
+      if (!foes.length) continue;
+      contactSeeds.push(i);
+      // Densité du secteur : la case et ses voisines du même camp.
+      let sum = densOf(i, o), n = 1;
+      for (let d = 0; d < 6; d++) { const j = nb[i * 6 + d]; if (j >= 0 && ownerOf(j) === o) { sum += densOf(j, o); n++; } }
+      const S = sum / n, k = 1 - Math.exp(-S / DOTS.scale);
+      const count = Math.min(DOTS.max, Math.round(S * DOTS.per));
+      if (!count) continue;
+      const r = createRng(i * 7919 + 13);
+      const c = this.center(i);
+      // Normale : de la frontière (milieu avec les cases ennemies) vers l'intérieur de la case.
+      let mx = 0, my = 0;
+      for (const j of foes) { const q = this.center(j); mx += (c.x + q.x) / 2; my += (c.y + q.y) / 2; }
+      mx /= foes.length; my /= foes.length;
+      let nx = c.x - mx, ny = c.y - my;
+      const L = Math.hypot(nx, ny) || 1;
+      nx /= L; ny /= L;
+      const depth = DOTS.depth0 + DOTS.depth * k;
+      const seen = visOf(i, o);
+      for (let q = 0; q < count; q++) {
+        const d = 1.2 + depth * Math.pow(r.next(), 1.8), lat = (r.next() - 0.5) * CELL * 1.7;
+        dots[o].push(mx + nx * d - ny * lat, my + ny * d + nx * lat, hot[i] && d < 6 ? -nx : 0, hot[i] && d < 6 ? -ny : 0, r.next() * 6.3, seen ? 1 : 0.55);
+      }
+    }
+    // 2. Arrière : amas de plus de 300 hommes, loin du contact.
+    const dist = bfsDistance(nb, N, contactSeeds, (i) => ownerOf(i) >= 0, 6);
+    const rear = [];
+    for (let i = 0; i < N; i++) { const o = ownerOf(i); if (o >= 0 && dist[i] > 4 && densOf(i, o) > DOTS.rearCell) rear.push(i); }
+    rear.sort((a, b) => densOf(b, ownerOf(b)) - densOf(a, ownerOf(a)));
+    const taken = new Uint8Array(N);
+    let tries = 0;
+    for (const i of rear) {
+      if (taken[i]) continue;
+      if (++tries > 40) break;
+      const o = ownerOf(i);
+      if (!visOf(i, o) && o !== viewer && viewer !== null) continue;
+      const around = bfsDistance(nb, N, [i], (j) => ownerOf(j) === o, 2);
+      let agg = 0, cx = 0, cy = 0;
+      for (let j = 0; j < N; j++) {
+        if (around[j] > 2 || taken[j]) continue;
+        const d = densOf(j, o);
+        agg += d; const p = this.center(j); cx += p.x * d; cy += p.y * d;
+        taken[j] = 1;
+      }
+      if (agg < DOTS.group) continue;
+      cx /= agg; cy /= agg;
+      const r = createRng(i * 104729 + 7), R = 3 + Math.sqrt(agg) * 0.9, n = Math.min(60, Math.round(agg * 0.35));
+      for (let q = 0; q < n; q++) { const a = r.next() * 6.3, d = Math.sqrt(r.next()) * R; dots[o].push(cx + Math.cos(a) * d * 1.15, cy + Math.sin(a) * d * 0.9, 0, 0, r.next() * 6.3, 1); }
+      groups.push({ x: cx, y: cy + R + 7, side: o, men: Math.round((agg * f.cfg.men) / 50) * 50 });
+    }
+    // Chaque point reste de son côté du trait du front (champ de partage lissé, celui qui dessine la ligne).
+    const S = this.sampler, own = this.cur?.owner;
+    if (own) {
+      for (const o of [0, 1]) {
+        const a = dots[o], out = [];
+        for (let k = 0; k < a.length; k += 6) {
+          const gx = Math.max(0, Math.min(S.w - 1, Math.round(a[k] / S.step))), gy = Math.max(0, Math.min(S.h - 1, Math.round(a[k + 1] / S.step)));
+          const v = own[gy * S.w + gx];
+          if (o === 0 ? v < 0.55 : v > 0.45) continue;
+          for (let q = 0; q < 6; q++) out.push(a[k + q]);
+        }
+        dots[o] = out;
+      }
+    }
+    void W;
+    return { dots, groups };
+  }
+
+  drawDots(now) {
+    const D = this.dots;
+    if (!D) return;
+    const { ctx, cam } = this;
+    const px = 1 / cam.s, r = Math.max(DOTS.r, 1.05 * px);
+    for (const s of [0, 1]) {
+      const a = D.dots[s];
+      for (const pass of [0, 1]) {
+        for (const alpha of [1, 0.55]) {
+          ctx.beginPath();
+          for (let k = 0; k < a.length; k += 6) {
+            if (a[k + 5] !== alpha) continue;
+            // Les points d'une case qui attaque avancent par bonds vers l'ennemi, puis reviennent (boucle).
+            const hop = a[k + 2] || a[k + 3] ? ((now * 0.0025 + a[k + 4]) % 4) : 0;
+            const x = a[k] + a[k + 2] * hop + (pass ? 0 : 0.35 * r), y = a[k + 1] + a[k + 3] * hop + (pass ? 0 : 0.35 * r);
+            ctx.moveTo(x + r, y);
+            ctx.arc(x, y, r, 0, Math.PI * 2);
+          }
+          ctx.globalAlpha = alpha;
+          ctx.fillStyle = DOT_RGB[s][pass];
+          ctx.fill();
+        }
+      }
+    }
+    ctx.globalAlpha = 1;
+    // Effectifs des amas de l'arrière.
+    if (cam.s > 0.7) for (const g of D.groups) this.tag(`≈ ${g.men.toLocaleString('fr-FR')} h`, g.x, g.y, g.side === 0 ? '#c9d6ec' : '#f0c4b8', px);
   }
 
   // ---------- Cratères ----------

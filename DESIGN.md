@@ -575,3 +575,17 @@ densités. Le moteur garde des points d'accroche pour cela.
   de DCA sur leur route ; un avion abattu part en vrille dans la fumée et s'écrase.
 - Mesure (6 batailles) : 2 groupes d'artillerie détruits par l'aviation au total, 34 avions abattus ; équilibre
   inchangé sur 42 batailles (attaquant 17, défenseur 14).
+
+### Troupes : des points massés le long du front
+
+- Le dégradé opaque et les courbes de concentration disparaissent. Chaque camp n'a plus qu'une teinte légère
+  (opacité 0,15 à 0,2) ; ses troupes sont des points (`frontrender.js`, troopDots) :
+  - au contact, une bande serrée contre la ligne : depuis chaque case de contact, 0,45 point par unité de densité du
+    secteur (la case et ses voisines, 14 au plus), tirés entre la frontière et l'intérieur, de plus en plus rares en
+    profondeur ; la bande s'épaissit avec la densité (4 à 26 pixels monde). Un secteur faible se voit à sa bande mince.
+    Chaque point reste de son côté du trait du front ;
+  - à l'arrière, seulement les amas de plus de 300 hommes (garnisons, réserves) : un petit essaim et son effectif ;
+  - positions tirées d'un générateur par case, stables d'un tick à l'autre ; les points d'une case qui attaque
+    avancent par bonds. Chez l'ennemi, les points reprennent son estimation, estompés hors de vue.
+- Essais écartés avant ce choix (maquettes) : groupes de fantassins sur toute la carte, hachures de carte, courbes
+  d'isodensité, voile pâle et trous de combat.
