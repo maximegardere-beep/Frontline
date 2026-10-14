@@ -18,6 +18,7 @@ import { MIN_POCKET, ARMOR_ATK } from './frontinput.js';
 import { FrontFx } from './frontfx.js';
 import { GUN_KINDS, visibleGuns } from './frontguns.js';
 import { visibleArmor } from './frontarmor.js';
+import { railPoint } from './frontsupply.js';
 import { SPRITE_PAL, piece, tank, howitzer, towed, mortar, rocket, pit, dust } from './frontsprites.js';
 
 export const CELL = 9; // rayon d'une case de la micro-grille, en pixels monde
@@ -293,6 +294,36 @@ export class FrontRenderer extends Renderer {
       this.worksKey = key;
     }
     this.ctx.drawImage(this.worksLayer, 0, 0, this.worldW, this.worldH);
+  }
+
+  // Têtes de ligne (dépôts) : pointillé brun et caisses, derrière ses propres lignes. Au-delà d'environ 5 cases en
+  // avant, la poussée faiblit (frontsupply.js).
+  drawRails(viewer) {
+    const f = this.front;
+    if (!f.rail) return;
+    const { ctx, cam } = this;
+    const px = 1 / cam.s;
+    for (const s of viewer === null ? [0, 1] : [viewer]) {
+      const pts = [];
+      for (let r = 0; r < f.map.H; r += 2) { const p = railPoint(f, s, r); if (p.x > 0 && p.x < f.rightX) pts.push(this.toWorld(p)); }
+      if (pts.length < 2) continue;
+      ctx.strokeStyle = 'rgba(96, 70, 40, 0.55)';
+      ctx.lineWidth = 1.6 * px;
+      ctx.setLineDash([2 * px, 5 * px]);
+      ctx.beginPath();
+      splineTo(ctx, pts);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      for (let k = 2; k < pts.length; k += 6) {
+        const p = pts[k], w = 5 * Math.max(1, px);
+        ctx.fillStyle = 'rgba(140, 104, 60, 0.9)';
+        ctx.strokeStyle = 'rgba(60, 42, 24, 0.9)';
+        ctx.lineWidth = 0.8 * px;
+        ctx.fillRect(p.x - w / 2, p.y - w / 2, w, w);
+        ctx.strokeRect(p.x - w / 2, p.y - w / 2, w, w);
+        ctx.beginPath(); ctx.moveTo(p.x - w / 2, p.y - w / 2); ctx.lineTo(p.x + w / 2, p.y + w / 2); ctx.stroke();
+      }
+    }
   }
 
   paintWorks(viewer) {
@@ -605,6 +636,7 @@ export class FrontRenderer extends Renderer {
     }
     ctx.globalAlpha = 1;
     this.drawWorks(view.viewer ?? null);
+    this.drawRails(view.viewer ?? null);
     const spears = f.phase === 'resolve' ? [...this.spearheads(view.viewer ?? null), ...this.armorTrails(view.viewer ?? null)] : [];
     this.drawSpearMass(spears);
     this.fx.drawGlow(ctx, now);

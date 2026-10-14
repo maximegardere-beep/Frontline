@@ -208,6 +208,7 @@ function frontRules() {
         <li><b>Masses.</b> Plus d'unités : chaque camp est une masse de troupes, plus sombre où elle est dense. Le trait noir est le front. Hors de vue, l'ennemi n'est qu'une estimation estompée.</li>
         <li><b>Le matin.</b> Le jeu est en pause. Donnez autant de vecteurs d'infanterie ou de repli que vous voulez : les troupes autour du départ s'y engagent et poussent vers la cible. Un vecteur draine son voisinage : là où il prend, le front se dégarnit, et deux vecteurs proches se partagent les mêmes hommes. La jauge « Troupes engagées » plafonne à ${Math.round((fui.front?.cfg.engageCap ?? 0.6) * 100)} % : au-delà, tous vos vecteurs sont réduits d'autant.</li>
         <li><b>Outils.</b> Infanterie : large, lente, tenace. Blindés : vos formations (divisions de Panzer, corps blindés), visibles sur la carte ; touchez-en une puis son objectif. Elle rejoint le front par vos lignes (vite sur route, mal en forêt, jamais à travers une rivière sans pont), perce, dépose ses grenadiers dans les cases prises et exploite ; riposte, hérissons, villes et forêts lui coûtent des chars, elle consomme du carburant, se refait la nuit si elle est ravitaillée, et meurt encerclée. Repli ordonné : les troupes décrochent avec moins de pertes. Ligne de défense (${c.maxLines} nouvelles par jour, 4 chantiers au plus) : un chantier de plusieurs jours, trois fois plus lent au contact de l'ennemi. Tranchées en un jour (défense de l'infanterie, à moitié pour qui les prend), barbelés en deux (l'assaut d'infanterie qui les traverse s'use), hérissons antichar en trois (les chars y perdent élan et vitesse). Barbelés et hérissons gênent quiconque les traverse, dans les deux sens. Un barrage les détruit (l'artillerie lourde vient seule à bout des hérissons) et fait sauter les ponts ; les ruines restent sur la carte. Barrage : une zone pilonnée au début de la journée, même dans le brouillard, par un groupe d'artillerie qui l'a à portée (une mission par groupe et par jour). Artillerie : touchez un groupe puis sa destination ; en batterie il tire à 100 %, en appui mobile à 40 %, en déplacement pas du tout. Sans mission, il frappe les assaillants à sa portée ; un groupe dont la position tombe est perdu. Réserves : chaque appui fait monter des renforts en ligne.</li>
+        <li><b>Ravitaillement et fatigue.</b> Vos têtes de ligne (pointillé brun, caisses) suivent le front de deux cases par nuit, plus vite le long des routes. À plus de cinq cases en avant, vos attaques faiblissent et vos blindés brûlent plus de carburant : une percée s'essouffle d'elle-même. Des troupes qui attaquent s'usent ; la nuit en efface la moitié : alternez les secteurs. Une part des pertes du jour rejoint chaque nuit.</li>
         <li><b>La journée.</b> Une vingtaine de secondes, sans intervention : le combat compare les pressions de part et d'autre du front, selon la densité, le terrain, le retranchement et la qualité des troupes. Le bouton discret « Passer » abrège la journée.</li>
         <li><b>Défense élastique.</b> Sans ordre, les troupes colmatent d'elles-mêmes les secteurs menacés.</li>
         <li><b>Encerclement.</b> Des troupes coupées de leur bord de carte forment une poche, qui fond d'environ 30 % par jour. Chaque matin, choisissez pour les vôtres : statu quo, Festung (se resserrer, tenir et fondre moins vite) ou percée d'évasion vers un point que vous touchez.</li>
@@ -530,7 +531,8 @@ function probeAt(p) {
   if (side < 0) text = terrain;
   else if (omni || side === s) {
     const pocket = bigPockets(f, side).find((q) => q.cells.includes(i));
-    text = `${side === s && !omni ? 'Vos troupes' : SIDE_NAME[side]} : ${fmtMen(men(sum))} dans la zone · ${terrain}${pocket ? ` · poche ${pocketName(f, pocket)}` : ''}`;
+    const tired = f.fatigue?.[i] ?? 0, sup = f.supplyK?.[side][i] ?? 1;
+    text = `${side === s && !omni ? 'Vos troupes' : SIDE_NAME[side]} : ${fmtMen(men(sum))} dans la zone · ${terrain}${pocket ? ` · poche ${pocketName(f, pocket)}` : ''}${tired > 0.25 ? ` · troupes éprouvées (fatigue ${Math.round(tired * 100)} %)` : ''}${sup < 0.95 ? ` · loin des dépôts (poussée ${Math.round(sup * 100)} %)` : ''}`;
   } else {
     const n = men(sum);
     const age = visible ? '' : seen < Infinity ? ` (vu il y a ${hoursAgo(seen)})` : '';
@@ -907,7 +909,7 @@ function armorItem(f, a, planning) {
   const state = a.attacking ? 'à l\'attaque' : a.target ? (planning ? 'objectif fixé' : 'en marche') : 'en réserve';
   const sel = fui.armor === a.id;
   return `<li class="f-gun${sel ? ' sel' : ''}">
-    <p><button class="linkish" data-armor-sel="${a.id}" aria-pressed="${sel}"><b>${escHtml(a.name)}</b></button> · ${Math.round(a.tanks)} chars · ${expLabel(a.exp)} · carburant ${Math.round(a.fuel * 100)} % · <em>${state}</em></p>
+    <p><button class="linkish" data-armor-sel="${a.id}" aria-pressed="${sel}"><b>${escHtml(a.name)}</b></button> · ${Math.round(a.tanks)} chars · ${expLabel(a.exp)} · carburant ${Math.round(a.fuel * 100)} %${(a.fatigue ?? 0) > 0.15 ? ` · fatigue ${Math.round(a.fatigue * 100)} %` : ''}${(f.supplyK?.[a.side][a.cell] ?? 1) < 0.95 ? ` · loin de ses dépôts` : ''} · <em>${state}</em></p>
     ${planning && a.target ? `<div class="seg"><button class="btn btn-sm" data-armor-halt="${a.id}">Halte</button></div>` : ''}
   </li>`;
 }

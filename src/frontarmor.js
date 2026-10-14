@@ -134,7 +134,9 @@ export function armorPressure(front, push) {
       const dn = (front.centers.x[own] - front.centers.x[a.cell]) * dx + (front.centers.y[own] - front.centers.y[a.cell]) * dy;
       if (dn > dj * 1.05) continue;
     }
-    const base = a.tanks * R.shock * front.quality[a.side] * expFactor(a.exp);
+    // Ravitaillement (dépôts loin derrière) et fatigue réduisent le choc.
+    const sup = front.supplyK?.[a.side][a.cell] ?? 1;
+    const base = a.tanks * R.shock * front.quality[a.side] * expFactor(a.exp) * sup * (1 - 0.4 * (a.fatigue ?? 0));
     const hit = (k, share) => {
       const v = base * share * front.map.atkA[k] * (1 - 0.6 * (front.at?.[k] ?? 0));
       if (v <= 0) return;
@@ -150,7 +152,8 @@ export function armorPressure(front, push) {
     }
     a.attacking = true;
     a.aim = j;
-    a.fuel = Math.max(0, a.fuel - R.fuelAttack);
+    a.fuel = Math.max(0, a.fuel - R.fuelAttack / Math.max(0.5, sup));
+    a.fatigue = Math.min(1, (a.fatigue ?? 0) + 0.04);
   }
   return { hits, def };
 }

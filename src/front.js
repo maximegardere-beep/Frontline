@@ -11,6 +11,7 @@ import { MOUNTAIN, computeTerrain } from './terrain.js';
 import { SEASON } from './conditions.js';
 import { findPockets, bfsDistance } from './path.js';
 import { emptyField, frontNeed, frontTick } from './combat.js';
+import { initSupply, updateSupplyK, advanceRails, restTroops } from './frontsupply.js';
 import { createArmor, armorAfter, armorNight, updateArmorSightings, ARMOR_SETUP } from './frontarmor.js';
 import { WORKS, initWorks, defenderBelt, barrageWorks, captureWorks, buildTick, trenchFor } from './frontworks.js';
 import { initScore, eveningScore, noteCapture, scoreBreakdown, GRADES } from './frontscore.js';
@@ -21,8 +22,8 @@ export const sideIndex = (s) => (s === 'DE' ? 0 : 1);
 
 // Réglages d'une bataille (index 0 : Wehrmacht, 1 : Armée rouge ; qualité contre quantité).
 export const FRONT_SETUP = {
-  days: 10,
-  ticks: 30, // ticks par journée
+  days: 15,
+  ticks: 24, // ticks par journée
   troops: [5800, 6000], // densité totale sur la carte au départ (équilibrage après formations et artillerie)
   reserve: [600, 700], // pool logistique initial
   reinforce: [240, 280], // renforts quotidiens, au prorata du bord de carte ravitaillé
@@ -36,7 +37,7 @@ export const FRONT_SETUP = {
   lineWidth: 1.8, // demi-largeur de la bande retranchée (unités de grille ; deux cases voisines sont à 1,73)
   // Groupes d'artillerie (frontguns.js) : une mission de barrage par groupe et par jour, dans sa portée.
   guns: [['div', 'div', 'heavy'], ['div', 'mortar', 'rocket']],
-  barrageTicks: 6, // le barrage martèle la zone pendant les premiers ticks de la journée
+  barrageTicks: 5, // le barrage martèle la zone pendant les premiers ticks de la journée
   retreatCover: 0.33, // usure subie par les troupes qui décrochent en bon ordre
   chunk: 80, // densité déposée par clic de déploiement
   vision: 5, // portée de reconnaissance, en cases, depuis toute case occupée
@@ -47,6 +48,7 @@ export const FRONT_SETUP = {
   attackReserve: 1.8, // multiplicateur du pool logistique initial de l'attaquant
   attackReinforce: 1.3, // multiplicateur de ses renforts quotidiens
   entrenchDepth: 6, // profondeur (en cases depuis le front) du retranchement initial du défenseur
+  recover: 0.2, // part des pertes du jour qui rejoint la nuit (réserves)
   entrenchDef: 0.4, // bonus de défense d'une case pleinement retranchée (+40 %)
   goalShare: 0.75, // part des villes du défenseur que l'attaquant doit tenir au dernier jour (arrondie au-dessus)
 };
@@ -171,6 +173,7 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
   front.armor = createArmor(front, cfg.armor ?? ARMOR_SETUP);
   updateGunSightings(front);
   updateArmorSightings(front);
+  initSupply(front);
   initScore(front);
   flog(front, 'day', `— Jour 1 : ${map.name} · ${FRONT_WEATHER[front.weather].label} —`);
   return front;
@@ -592,13 +595,14 @@ export function beginDay(front) {
   for (const s of [0, 1]) for (const l of front.lines[s]) for (const i of l.cells) front.lineMask[i] = 1;
   front.phase = 'resolve';
   front.tick = 0;
-  front.dayStart = { troops: [troops(front, 0), troops(front, 1)], territory: [territory(front, 0), territory(front, 1)], losses: front.stats.losses.slice() };
+  front.dayStart = { troops: [troops(front, 0), troops(front, 1)], territory: [territory(front, 0), territory(front, 1)], losses: front.stats.losses.slice(), pocket: front.stats.pocket.slice() };
 }
 
 // Un tick : flux et pression (combat.js), puis ravitaillement, malus des poches, brouillard, victoire.
 export function stepTick(front) {
   if (front.phase !== 'resolve') return [];
   const early = [];
+  updateSupplyK(front);
   applyWorks(front, early);
   rebuildFields(front, 0);
   rebuildFields(front, 1);
@@ -718,6 +722,15 @@ function endDay(front) {
   }
   gunsNight(front);
   armorNight(front);
+  advanceRails(front);
+  restTroops(front);
+  // Nuit : une part des pertes du jour rejoint (blessés légers, isolés), hors troupes perdues dans les poches.
+  if (front.dayStart) {
+    for (const s of [0, 1]) {
+      const lost = front.stats.losses[s] - front.dayStart.losses[s] - (front.stats.pocket[s] - (front.dayStart.pocket?.[s] ?? 0));
+      if (lost > 0) front.reserve[s] += lost * c.recover;
+    }
+  }
   eveningScore(front);
   const d = front.dayStart;
   if (d) {

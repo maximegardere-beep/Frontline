@@ -4,6 +4,7 @@
 import { tileAt, terrainDefense, edgeFlow, flowFor } from './terrain.js';
 import { WORKS } from './frontworks.js';
 import { armorPressure, armorRiposte, armorRemaining } from './frontarmor.js';
+import { FATIGUE } from './frontsupply.js';
 import { bfsDistance } from './path.js';
 import { hexDistance, DIR_VECTORS } from './hex.js';
 import { unitStats } from './units.js';
@@ -89,8 +90,8 @@ export function moraleCheck(map, unit, hpBefore, rng, { forced = false, isolated
 // Tout est calculé sur l'état de début de tick puis appliqué : aucun camp ne joue « avant » l'autre.
 
 export const FRONT_RULES = {
-  SKIRMISH: 0.0006, // usure mutuelle au contact, par tick (front calme : ~1,5 % de pertes par jour)
-  ASSAULT: 0.06, // pertes infligées par unité de pression
+  SKIRMISH: 0.00036, // usure mutuelle au contact, par tick (front calme : ~1 % de pertes par jour)
+  ASSAULT: 0.036, // pertes infligées par unité de pression (−40 % : batailles moins meurtrières)
   DEF_FIRE: 0.8, // riposte de la case assaillie
   BREAK: 1.6, // la pression doit dépasser BREAK × la défense pour entamer la case
   BREACH: 0.35, // remplissage de la jauge de brèche par tick, par point de rapport pression / défense au-delà de BREAK
@@ -187,7 +188,9 @@ export function frontTick(front) {
           else {
             // Ouvrages neutres : barbelés contre l'infanterie, obstacles antichar contre les blindés.
             const obst = (1 - WORKS.wireAssault * (1 - armored) * (front.wire?.[j] ?? 0)) * (1 - WORKS.atShock * armored * (front.at?.[j] ?? 0));
-            const v = dens[i] * w * S.atk[i] * quality[s] * share * (1 - armored + armored * map.atkA[j]) * obst;
+            // Ravitaillement (dépôts trop loin) et fatigue des assaillants (frontsupply.js).
+            const sup = (front.supplyK?.[s][i] ?? 1) * (1 - FATIGUE.effect * (front.fatigue?.[i] ?? 0));
+            const v = dens[i] * w * S.atk[i] * quality[s] * share * (1 - armored + armored * map.atkA[j]) * obst * sup;
             push[j] += v;
             edges.push(i, j, v);
           }
@@ -315,6 +318,16 @@ export function frontTick(front) {
   }
   for (let j = 0; j < N; j++) if (!pressed[j] && breach[j] > 0) breach[j] = breach[j] * R.BREACH_DECAY < 0.01 ? 0 : breach[j] * R.BREACH_DECAY;
   front.tickLoss = loss; // pertes par case de ce tick (sons et effets du front)
+  // Fatigue : les cases qui ont poussé s'usent ; une case prise hérite de la fatigue de ses assaillants.
+  if (front.fatigue) {
+    for (let k = 0; k < edges.length; k += 3) front.fatigue[edges[k]] = Math.min(1, front.fatigue[edges[k]] + FATIGUE.gain);
+    for (const e of events) {
+      if (e.kind !== 'capture') continue;
+      let m = 0;
+      for (let d = 0; d < 6; d++) { const n = nb[e.i * 6 + d]; if (n >= 0 && owner[n] === e.side) m = Math.max(m, front.fatigue[n]); }
+      front.fatigue[e.i] = m;
+    }
+  }
   front.tickEdges = edges; // poussées de ce tick : [assaillant, visé, pression] × n (obus des blindés)
   front.tickArmor = AR.hits; // poussées des formations blindées : [formation, visé, pression] × n
   return events;

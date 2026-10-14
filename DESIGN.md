@@ -418,3 +418,17 @@ densités. Le moteur garde des points d'accroche pour cela.
 - Résultat sur 2 × 90 batailles IA contre IA (graines différentes) : Wehrmacht 32 à 38 %, Armée rouge 39 à 42 %,
   indécis 23 à 26 % ; attaquant 40 à 44 %, défenseur 32 à 34 %. L'écart restant est dans le bruit de mesure (± 5 %).
 - Le serpentement de l'IA reste à reprendre (branche `claude/doctrine-wip`).
+
+### Rythme : plus lent, plus long, moins meurtrier
+
+- Mesure de départ (14 batailles IA) : 90 cases prises par jour, jusqu'à 13 colonnes d'avance en une journée, pertes
+  de 53 % (Wehrmacht) et 59 % (Armée rouge) en 10 jours.
+- Plus de limite du nombre d'attaques : la seule limite est la part des troupes engagées (60 % au plus ; au-delà, tous
+  les vecteurs sont réduits d'autant), affichée en jauge dans l'onglet Ordres et sur les outils Infanterie et Repli.
+- 15 jours de 24 ticks ; usure et assauts −40 % ; chaque nuit, 20 % des pertes du jour (hors poches) rejoignent.
+- `frontsupply.js` : têtes de ligne par ligne de carte, qui suivent le front de 3,5 unités par nuit (+2,5 avec une
+  route), jamais à moins de 4 unités ; au-delà de 9 unités en avant, la poussée décroît jusqu'à 35 % (formations
+  blindées : choc réduit, carburant consommé plus vite) ; une poche plafonne à 75 %. Fatigue : +0,03 par tick de
+  poussée, −45 % de poussée au plein, la moitié s'efface la nuit, une case prise hérite de la fatigue des assaillants.
+- Mesure après : 43 cases prises par jour, avance d'une journée 8 colonnes au plus. Les pertes rapportées aux effectifs
+  de départ restent hautes (renforts de 15 jours compris), à revoir avec l'équilibrage.

@@ -282,6 +282,7 @@ dernier mouvement observé : c'est la base pour anticiper et placer ses barrages
 | `src/frontscore.js` | Objectifs du front : score de l'offensive, issues graduées, objectifs secondaires tirés au briefing |
 | `src/frontworks.js` | Ouvrages : tranchées, barbelés, obstacles antichar, ponts ; chantiers, dégâts, ruines persistantes |
 | `src/frontarmor.js` | Formations blindées : chars, expérience, carburant, grenadiers ; marche, choc, exploitation, pertes, ravitaillement |
+| `src/frontsupply.js` | Ravitaillement (têtes de ligne, point culminant logistique) et fatigue des troupes |
 | `src/frontsprites.js` | Pièces vues de dessus dessinées en code : chars, obusiers, mortiers, Katioucha, camions, épaulements |
 | `src/frontrender.js` | Rendu du front : masses fondues, ligne de front, ordres, poches |
 | `src/frontui.js` | Interface du front : briefing, outils, journée animée, bilans, sons |
