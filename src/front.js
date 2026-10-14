@@ -11,6 +11,7 @@ import { MOUNTAIN, computeTerrain } from './terrain.js';
 import { SEASON } from './conditions.js';
 import { findPockets, bfsDistance } from './path.js';
 import { emptyField, frontNeed, frontTick } from './combat.js';
+import { WORKS, initWorks, defenderBelt, barrageWorks, captureWorks, buildTick, trenchFor } from './frontworks.js';
 import { initScore, eveningScore, noteCapture, scoreBreakdown, GRADES } from './frontscore.js';
 import { GUN_KINDS, GUN_RULES, createGuns, gunFor, gunPower, moveGuns, supportFire, gunsNight, updateGunSightings } from './frontguns.js';
 
@@ -154,12 +155,8 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
     // découvrir), et toujours les abords des villes.
     const works = makeNoise(createRng(`works:${seed}`));
     const nearTown = bfsDistance(map.nb, N, map.towns.map((t) => t.i), () => true, 3);
-    for (let i = 0; i < N; i++) {
-      if (owner[i] !== def || dist[i] >= cfg.entrenchDepth) continue;
-      const row = Math.floor(i / W);
-      const sector = Math.min(1, Math.max(0.1, (works(row * 0.09, 3.3, 2) - 0.3) * 2.2));
-      front.entrench[i] = nearTown[i] <= 3 ? 1 : sector;
-    }
+    initWorks(front);
+    defenderBelt(front, def, dist, (i) => Math.min(1, Math.max(0.1, (works(Math.floor(i / W) * 0.09, 3.3, 2) - 0.3) * 2.2)), nearTown, cfg.entrenchDepth);
   }
   // Objectif de l'attaquant : tenir au 10e jour au moins la moitié des villes que le défenseur avait au départ.
   front.defTowns = map.towns.filter((t) => owner[t.i] === def).map((t) => t.i);
@@ -261,11 +258,13 @@ function segDist(a, b, x, y) {
   return Math.hypot(x - (a.x + t * vx), y - (a.y + t * vy));
 }
 
-// Ligne de défense : les cases amies le long du trait se retranchent pendant la journée (plein bonus au soir)
-// et attirent les troupes voisines.
-export function addLine(front, s, a, b) {
+// Ligne de défense : un chantier sur plusieurs jours (frontworks.js). Les cases amies le long du trait se
+// retranchent (niveau 1), puis se couvrent de barbelés (2) et d'obstacles antichar (3) ; elles attirent les troupes
+// voisines tant que le chantier dure.
+export function addLine(front, s, a, b, level = 2) {
   if (front.phase !== 'plan') return { error: 'Les ordres se donnent le matin.' };
-  if (front.lines[s].length >= front.cfg.maxLines) return { error: `${front.cfg.maxLines} lignes de défense au plus par journée.` };
+  if (front.lines[s].filter((l) => l.day === front.day).length >= front.cfg.maxLines) return { error: `${front.cfg.maxLines} nouvelles lignes de défense au plus par journée.` };
+  if (front.lines[s].length >= WORKS.maxSites) return { error: `${WORKS.maxSites} chantiers au plus en même temps : attendez qu'une ligne soit achevée, ou retirez-en une.` };
   let L = len(a, b);
   if (L < 3) return { error: 'Ligne trop courte.' };
   if (L > front.cfg.lineLen) { b = { x: a.x + ((b.x - a.x) * front.cfg.lineLen) / L, y: a.y + ((b.y - a.y) * front.cfg.lineLen) / L }; L = front.cfg.lineLen; }
@@ -277,7 +276,9 @@ export function addLine(front, s, a, b) {
     else if (front.owner[i] >= 0) foreign++;
   }
   if (cells.length < foreign) return { error: 'Une ligne de défense se trace dans vos lignes.' };
-  const line = { id: nextVectorId++, side: s, a: { ...a }, b: { ...b }, cells };
+  // Axe du chantier : la tranchée continue (dessinée) court sur les cases les plus proches du trait.
+  const core = new Set(cells.filter((i) => segDist(a, b, front.centers.x[i], front.centers.y[i]) <= 0.9));
+  const line = { id: nextVectorId++, side: s, a: { ...a }, b: { ...b }, cells, core, level: Math.max(1, Math.min(3, level)), day: front.day };
   front.lines[s].push(line);
   return line;
 }
@@ -294,6 +295,15 @@ export function addBarrage(front, s, at, gunId = null) {
   const b = { id: nextVectorId++, side: s, x: at.x, y: at.y, r: K.r, gun: g.id };
   front.barrages[s].push(b);
   return b;
+}
+
+// Niveau d'ouvrage d'un chantier : 1 tranchées, 2 + barbelés, 3 + antichar.
+export function setLineLevel(front, s, id, level) {
+  const l = front.lines[s].find((x) => x.id === id);
+  if (!l) return { error: 'Ligne introuvable.' };
+  if (front.phase !== 'plan') return { error: 'Les ordres se donnent le matin.' };
+  l.level = Math.max(1, Math.min(3, level));
+  return l;
 }
 
 export function removeOrder(front, s, id) {
@@ -401,7 +411,7 @@ export function rebuildFields(front, s) {
   F.w.fill(0); F.dx.fill(0); F.dy.fill(0); F.speed.fill(0); F.atk.fill(0); F.skirm.fill(1); F.cover.fill(1);
   const rsum = new Float32Array(N); // part de chaque case engagée dans un repli ordonné
   // Retranchement : bonus de défense des cases fortifiées (défenseur au départ, puis lignes de défense).
-  for (let i = 0; i < N; i++) F.fort[i] = owner[i] === s ? 1 + front.cfg.entrenchDef * front.entrench[i] : 1;
+  for (let i = 0; i < N; i++) F.fort[i] = owner[i] === s ? 1 + front.cfg.entrenchDef * trenchFor(front, i, s) : 1;
   const add = (i, w, dx, dy, speed, atk) => {
     const l = Math.hypot(dx, dy) || 1;
     wsum[i] += w;
@@ -576,13 +586,14 @@ export function stepTick(front) {
   supportFire(front, front.tickEdges);
   moveGuns(front, events);
   for (const e of events) {
+    if (e.kind === 'bridge') { flog(front, 'bridge', `Un pont s'effondre sous les obus, près de ${nearestTownName(front, e.i)}.`, e.side); continue; }
     if (e.kind !== 'gunLost') continue;
     const g = front.guns.find((x) => x.id === e.id);
     flog(front, 'gun', `${g.name} (${FRONT_SIDES[g.side] === 'DE' ? 'Wehrmacht' : 'Armée rouge'}) ${e.counter ? 'réduit au silence par la contre-batterie' : 'débordé et perdu'}.`, g.side);
   }
   for (const e of events) {
     if (e.kind !== 'capture') continue;
-    front.entrench[e.i] = 0; // une case prise perd son retranchement
+    captureWorks(front, e.i); // barbelés coupés, tranchées bouleversées
     const town = front.map.towns.find((t) => t.i === e.i);
     noteCapture(front, e.i, e.side);
     if (town) flog(front, 'town', `${FRONT_SIDES[e.side] === 'DE' ? 'La Wehrmacht' : 'L\'Armée rouge'} prend ${town.name}.`, e.side);
@@ -618,10 +629,9 @@ export function stepTick(front) {
 // contre-batterie : un barrage use les groupes ennemis pris dans sa zone.
 function applyWorks(front, events) {
   const c = front.cfg;
+  let bridges = false;
   for (const s of [0, 1]) {
-    for (const l of front.lines[s]) {
-      for (const i of l.cells) if (front.owner[i] === s) front.entrench[i] = Math.min(1, front.entrench[i] + 1 / c.ticks);
-    }
+    buildTick(front, s);
     if (front.tick >= c.barrageTicks) continue;
     for (const b of front.barrages[s]) {
       const g = front.guns.find((x) => x.id === b.gun);
@@ -631,12 +641,15 @@ function applyWorks(front, events) {
       g.fired = front.clock;
       const k = p * FRONT_WEATHER[front.weather].barrage;
       for (let i = 0; i < front.map.N; i++) {
-        if (front.owner[i] !== 1 - s) continue;
+        if (front.owner[i] < 0) continue;
         if (Math.hypot(front.centers.x[i] - b.x, front.centers.y[i] - b.y) > b.r) continue;
+        // Ouvrages (des deux camps) et ponts dans la zone ; les troupes ennemies seulement.
+        const blown = barrageWorks(front, i, k * (K.works / 0.12), g.kind === 'heavy');
+        if (blown) { bridges = true; events.push({ ...blown, side: s }); }
+        if (front.owner[i] !== 1 - s) continue;
         const l = front.dens[i] * K.rate * k;
         front.dens[i] -= l;
         front.stats.losses[1 - s] += l;
-        front.entrench[i] = Math.max(0, front.entrench[i] - K.works * k);
       }
       for (const e of front.guns) {
         if (e.side !== 1 - s || e.lost || Math.hypot(e.x - b.x, e.y - b.y) > b.r) continue;
@@ -645,6 +658,16 @@ function applyWorks(front, events) {
       }
     }
   }
+  if (bridges) applyWeather(front); // pont détruit : le terrain change
+}
+
+function nearestTownName(front, i) {
+  let best = null, bd = Infinity;
+  for (const t of front.map.towns) {
+    const d = Math.hypot(front.centers.x[t.i] - front.centers.x[i], front.centers.y[t.i] - front.centers.y[i]);
+    if (d < bd) { bd = d; best = t; }
+  }
+  return best?.name ?? 'la ligne';
 }
 
 // Résout toute la journée d'un coup (tests, simulations IA contre IA).
@@ -664,7 +687,7 @@ function endDay(front) {
     front.reserve[s] += add;
     front.lastOrders[s] = front.orders[s].filter((v) => !v.pocket);
     front.orders[s] = [];
-    front.lines[s] = [];
+    front.lines[s] = front.lines[s].filter((l) => !l.done); // chantiers en cours : ils continuent demain
     front.barrages[s] = [];
     front.deployments[s] = [];
   }

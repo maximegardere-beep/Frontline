@@ -104,7 +104,7 @@ export function planFront(front, s) {
     // Ligne de défense parallèle au front, 2 à 3 cases en arrière.
     const h = point(front, sec.head);
     const back = -dirX * 3;
-    const r = addLine(front, s, { x: h.x + back, y: h.y - 6 }, { x: h.x + back, y: h.y + 6 });
+    const r = addLine(front, s, { x: h.x + back, y: h.y - 6 }, { x: h.x + back, y: h.y + 6 }, sec.ratio < 0.5 ? 3 : 2);
     if (!r.error) lines++;
   }
   // Réserves : presque tout le pool monte en ligne chaque matin (en garder trop, c'est les laisser dormir pendant

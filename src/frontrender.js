@@ -82,6 +82,8 @@ const mixTo = (a, b, t) => a + (b - a) * t;
 
 export class FrontRenderer extends Renderer {
   setMap(front) {
+    this.worksLayer = null;
+    this.worksKey = null;
     this.front = front;
     this.map = front.map;
     this.worldW = Math.ceil((this.map.W + 0.5) * CELL * SQRT3);
@@ -277,6 +279,137 @@ export class FrontRenderer extends Renderer {
     this.layer = off;
   }
 
+  // Ouvrages (frontworks.js), sur un calque mis en cache et refait quand ils changent : tranchées en zigzag avec leur
+  // parapet côté ennemi, barbelés en petites croix devant, hérissons antichar plus loin ; ruines grises et cratères ;
+  // ponts détruits. Ceux de l'ennemi n'apparaissent qu'une fois observés.
+  drawWorks(viewer) {
+    const f = this.front;
+    if (!f.wire) return;
+    const key = `${f.worksVersion}:${viewer}:${f.clock}`;
+    if (this.worksKey !== key) {
+      // Refait au plus une fois par tick (clé : version des ouvrages, camp, horloge).
+      if (this.worksKey?.split(':')[0] !== String(f.worksVersion) || this.worksKey?.split(':')[1] !== String(viewer)) this.paintWorks(viewer);
+      this.worksKey = key;
+    }
+    this.ctx.drawImage(this.worksLayer, 0, 0, this.worldW, this.worldH);
+  }
+
+  paintWorks(viewer) {
+    const f = this.front, map = this.map;
+    const scale = Math.min(2, this.layerScale ?? 1);
+    if (!this.worksLayer) {
+      this.worksLayer = document.createElement('canvas');
+      this.worksLayer.width = Math.ceil(this.worldW * scale);
+      this.worksLayer.height = Math.ceil(this.worldH * scale);
+    }
+    const ctx = this.worksLayer.getContext('2d');
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, this.worksLayer.width, this.worksLayer.height);
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    const mem = viewer === null ? null : f.memory[viewer];
+    const known = (i) => !mem || f.owner[i] === viewer || mem.seen[i] >= 0;
+    const { N, nb } = map;
+    const zig = (a, b, amp) => {
+      const dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy) || 1, nx = -dy / L, ny = dx / L;
+      ctx.moveTo(a.x, a.y);
+      for (let k = 1; k < 4; k++) { const t = k / 4, o = (k % 2 ? 1 : -1) * amp; ctx.lineTo(a.x + dx * t + nx * o, a.y + dy * t + ny * o); }
+      ctx.lineTo(b.x, b.y);
+    };
+    for (let i = 0; i < N; i++) {
+      const t = f.entrench[i], wr = f.wreck[i];
+      if (!f.trenchLine[i] || (t < 0.08 && !(wr & 1)) || !known(i)) continue;
+      const p = this.center(i);
+      const ex = f.trenchSide[i] === 1 ? -1 : 1;
+      const live = t >= 0.08;
+      const links = [];
+      // Liaisons vers les voisines de tranchée (sauf est-ouest : une tranchée court le long du front).
+      for (const d of [1, 2]) { const j = nb[i * 6 + d]; if (j >= 0 && f.trenchLine[j] && (f.entrench[j] >= 0.08 || f.wreck[j] & 1) && known(j)) links.push(this.center(j)); }
+      const path = () => {
+        ctx.beginPath();
+        if (links.length) for (const q of links) zig(p, q, 1.5);
+        else zig({ x: p.x, y: p.y - CELL * 0.6 }, { x: p.x, y: p.y + CELL * 0.6 }, 1.5);
+      };
+      if (live) {
+        ctx.save();
+        ctx.translate(ex * 1.3, 0);
+        path();
+        ctx.strokeStyle = `rgba(226, 208, 168, ${0.35 + 0.4 * t})`;
+        ctx.lineWidth = 0.9;
+        ctx.stroke();
+        ctx.restore();
+        path();
+        ctx.strokeStyle = `rgba(58, 44, 30, ${0.3 + 0.55 * t})`;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      } else {
+        // Ruine : tranchée effondrée, en pointillé gris, et un cratère.
+        ctx.setLineDash([1.5, 2.5]);
+        path();
+        ctx.strokeStyle = 'rgba(96, 90, 80, 0.6)';
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+        ctx.setLineDash([]);
+        const r = createRng(i * 13 + 5);
+        ctx.beginPath();
+        ctx.arc(p.x + (r.next() - 0.5) * 6, p.y + (r.next() - 0.5) * 6, 1.6 + r.next() * 1.2, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(60, 52, 44, 0.45)';
+        ctx.fill();
+      }
+    }
+    for (let i = 0; i < N; i++) {
+      const w = f.wire[i], a = f.at[i], wr = f.wreck[i];
+      if ((w < 0.1 && a < 0.1 && !(wr & 6)) || !known(i)) continue;
+      const p = this.center(i);
+      const ex = f.trenchSide[i] === 1 ? -1 : f.trenchSide[i] === 0 ? 1 : (f.owner[i] === 1 ? -1 : 1);
+      const r = createRng(i * 7 + 1);
+      if (w >= 0.1 && f.trenchLine[i]) {
+        // Barbelés : petites croix en ligne, devant la tranchée.
+        ctx.strokeStyle = `rgba(36, 34, 30, ${0.35 + 0.5 * w})`;
+        ctx.lineWidth = 0.55;
+        ctx.beginPath();
+        for (let k = -1; k <= 1; k++) {
+          const x = p.x + ex * 5, y = p.y + k * 4.2;
+          ctx.moveTo(x - 1.3, y - 1.3); ctx.lineTo(x + 1.3, y + 1.3);
+          ctx.moveTo(x + 1.3, y - 1.3); ctx.lineTo(x - 1.3, y + 1.3);
+        }
+        ctx.moveTo(p.x + ex * 5, p.y - 5.5); ctx.lineTo(p.x + ex * 5, p.y + 5.5);
+        ctx.stroke();
+      } else if (wr & 2 && f.trenchLine[i]) {
+        ctx.strokeStyle = 'rgba(90, 86, 78, 0.55)';
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        for (let k = 0; k < 3; k++) { const x = p.x + ex * 5 + (r.next() - 0.5) * 5, y = p.y + (r.next() - 0.5) * 9, an = r.next() * Math.PI; ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(an) * 2, y + Math.sin(an) * 2); }
+        ctx.stroke();
+      }
+      if (a >= 0.1 || wr & 4) {
+        // Hérissons tchèques : trois poutrelles croisées ; renversés et gris s'ils sont détruits.
+        const ok = a >= 0.1;
+        ctx.strokeStyle = ok ? `rgba(44, 42, 40, ${0.4 + 0.5 * a})` : 'rgba(110, 104, 96, 0.5)';
+        ctx.lineWidth = ok ? 0.8 : 0.6;
+        ctx.beginPath();
+        for (let k = -1; k <= 1; k += 2) {
+          const x = p.x + ex * 9, y = p.y + k * 3.5, s = ok ? 1.8 : 1.4, rot = ok ? 0 : r.next() * 2;
+          for (let q = 0; q < 3; q++) { const an = rot + (q * Math.PI) / 3; ctx.moveTo(x - Math.cos(an) * s, y - Math.sin(an) * s); ctx.lineTo(x + Math.cos(an) * s, y + Math.sin(an) * s); }
+        }
+        ctx.stroke();
+      }
+    }
+    // Ponts détruits : tablier rompu, débris dans l'eau.
+    for (let i = 0; i < N; i++) {
+      if (map.bridge[i] !== 2) continue;
+      const p = this.center(i);
+      ctx.fillStyle = 'rgb(104, 148, 170)';
+      ctx.beginPath(); ctx.arc(p.x, p.y, CELL * 0.75, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgb(110, 84, 56)';
+      ctx.fillRect(p.x - CELL * 0.9, p.y - 2.4, CELL * 0.45, 4.8);
+      ctx.fillRect(p.x + CELL * 0.45, p.y - 2.4, CELL * 0.45, 4.8);
+      ctx.fillStyle = 'rgba(40, 32, 24, 0.7)';
+      for (let k = 0; k < 4; k++) { ctx.beginPath(); ctx.arc(p.x + (k - 1.5) * 2, p.y + (k % 2 ? 1.5 : -1.2), 0.9, 0, Math.PI * 2); ctx.fill(); }
+    }
+  }
+
   drawWater(ctx) {
     const map = this.map;
     if (!map.river) return;
@@ -470,6 +603,7 @@ export class FrontRenderer extends Renderer {
       }
     }
     ctx.globalAlpha = 1;
+    this.drawWorks(view.viewer ?? null);
     const spears = f.phase === 'resolve' ? this.spearheads(view.viewer ?? null) : [];
     this.drawSpearMass(spears);
     this.fx.drawGlow(ctx, now);

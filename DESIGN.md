@@ -373,3 +373,20 @@ densités. Le moteur garde des points d'accroche pour cela.
   marais 0,2 / 0,6, ville 0,6 / 0,6, rivière 0,08 / 0,5, route × 1,5). Le moteur mélange selon la part blindée de chaque
   poussée (déduite de sa puissance de choc). L'IA n'engage ses blindés que sur un axe praticable.
 - Biomes ajoutés : montagne (chaînes de crêtes percées de cols), grande forêt, grand fleuve.
+
+### Ouvrages : tranchées, barbelés, obstacles antichar, ponts
+
+- `frontworks.js` remplace le retranchement invisible : trois niveaux par case. Tranchées (défense de l'infanterie,
+  + 40 % au plein ; à moitié pour qui les prend, tournées du mauvais côté), barbelés (neutres : −40 % de pression
+  d'infanterie et +50 % de riposte contre l'assaut qui les traverse), obstacles antichar (neutres : −60 % de choc et
+  −70 % d'avance blindés).
+- Lignes de défense = chantiers sur plusieurs jours (tranchées 1 jour, barbelés 2, antichar 3 ; trois fois plus lent
+  au contact), niveau réglable dans le panneau, 2 nouveaux par jour et 4 en cours au plus. La ceinture initiale du
+  défenseur : deux lignes continues (au contact et 4 cases en arrière), barbelés devant les secteurs solides, fossé et
+  hérissons aux abords des villes.
+- Destruction : un barrage arrache les barbelés, bouleverse les tranchées, use à peine les hérissons (sauf l'artillerie
+  lourde) et fait sauter les ponts (la case redevient rivière). Un assaut qui prend une case coupe ses barbelés. Un
+  ouvrage tombé en ruine laisse une trace grise persistante (cratères, barbelés épars, hérissons renversés) tant qu'on
+  ne le reconstruit pas.
+- Dessin discret : seules les lignes continues sont tracées (zigzag sombre et parapet clair côté ennemi), barbelés en
+  petites croix devant, hérissons plus loin ; ouvrages ennemis visibles une fois observés.

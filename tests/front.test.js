@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createFront, runDay, beginDay, stepTick, addVector, troops, FRONT_SETUP } from '../src/front.js';
 import { generateFrontMap } from '../src/mapgen.js';
-import { MOUNTAIN } from '../src/terrain.js';
+import { MOUNTAIN, computeTerrain } from '../src/terrain.js';
+const computeTerrainFor = (f) => computeTerrain(f.map, false);
 
 // Case allemande au contact la plus proche de la ligne row.
 function frontCell(f, row) {
@@ -159,7 +160,11 @@ test('ligne de défense : retranchement complet au soir, les troupes s\'y porten
   assert.ok(!line.error && line.cells.length > 20, line.error);
   const before = line.cells.reduce((s, i) => s + f.dens[i], 0);
   runDay(f);
-  assert.ok(line.cells.every((i) => f.owner[i] !== 0 || f.entrench[i] > 0.95), 'retranchée au soir');
+  const contact = (i) => [0, 1, 2, 3, 4, 5].some((d) => { const j = f.map.nb[i * 6 + d]; return j >= 0 && f.owner[j] === 1; });
+  const calm = line.cells.filter((i) => f.owner[i] === 0 && !contact(i));
+  assert.ok(calm.length > 10 && calm.every((i) => f.entrench[i] > 0.95), 'retranchée au soir (hors contact)');
+  assert.ok(calm.every((i) => f.wire[i] > 0.1) && calm.some((i) => f.wire[i] < 0.9), 'barbelés en cours (deux jours)');
+  assert.ok(f.lines[0].some((l) => l.id === line.id), 'le chantier continue demain');
   assert.ok(line.cells.reduce((s, i) => s + f.dens[i], 0) > before, 'renforcée');
   const east = pt(f, 32 * f.map.W + f.map.W - 8), east2 = pt(f, 44 * f.map.W + f.map.W - 8);
   assert.ok(addLine(f, 0, east, east2).error, 'pas de ligne en territoire ennemi');
@@ -213,6 +218,40 @@ test('artillerie : groupes à portée, posture contre puissance, camouflage, per
   stepTick(f);
   assert.ok(h.lost, 'groupe débordé perdu');
   assert.ok(f.log.some((l) => /débordé et perdu/.test(l.text)), 'au journal');
+});
+
+test('ouvrages : barbelés et antichar freinent l\'assaut, un barrage les détruit et laisse des ruines, ponts', async () => {
+  const { WORKS, barrageWorks, blowBridge } = await import('../src/frontworks.js');
+  const { addBarrage } = await import('../src/front.js');
+  // Même assaut d'infanterie, avec ou sans barbelés devant.
+  const take = (wire) => {
+    const f = createFront({ seed: 'wire', attacker: 'DE' });
+    f.reserve = [0, 0];
+    for (let i = 0; i < f.map.N; i++) if (f.owner[i] === 1) { f.wire[i] = wire; f.at[i] = 0; }
+    const from = sideFront(f, 0, 32);
+    addVector(f, 0, 'infantry', from, { x: f.centers.x[from] + 20, y: f.centers.y[from] });
+    runDay(f);
+    return f.stats.captured[0];
+  };
+  const open = take(0), wired = take(1);
+  assert.ok(wired < open, `barbelés : ${wired} cases prises contre ${open}`);
+  // Barrage sur des barbelés pleins : ils tombent, la ruine reste.
+  const f = createFront({ seed: 'wire', attacker: 'DE' });
+  const i = sideFront(f, 1, 32);
+  f.wire[i] = 1; f.peak[i] |= 2;
+  for (let t = 0; t < 6; t++) barrageWorks(f, i, 1, false);
+  assert.ok(f.wire[i] < WORKS.wreckAt && (f.wreck[i] & 2), 'barbelés détruits, ruine persistante');
+  // Pont : détruit, il redevient rivière.
+  const g = createFront({ seed: 'pont', biome: 'fleuve', attacker: 'DE' });
+  const b = [...Array(g.map.N).keys()].find((k) => g.map.bridge[k] === 1);
+  if (b !== undefined) {
+    const before = g.map.flowA[b];
+    blowBridge(g, b);
+    computeTerrainFor(g);
+    assert.equal(g.map.bridge[b], 2);
+    assert.ok(g.map.flowA[b] < before * 0.3, 'plus de pont : les blindés ne passent plus');
+  }
+  void addBarrage;
 });
 
 test('repli ordonné : moins de pertes qu\'en tenant face à une percée', () => {

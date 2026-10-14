@@ -2,6 +2,7 @@
 // la physique du front : flux de densité et pression différentielle (voir frontTick en fin de fichier).
 
 import { tileAt, terrainDefense, edgeFlow, flowFor } from './terrain.js';
+import { WORKS } from './frontworks.js';
 import { bfsDistance } from './path.js';
 import { hexDistance, DIR_VECTORS } from './hex.js';
 import { unitStats } from './units.js';
@@ -173,7 +174,7 @@ export function frontTick(front) {
         if (j < 0 || owner[j] < 0) continue;
         const dot = DIR_VECTORS[d].x * S.dx[i] + DIR_VECTORS[d].y * S.dy[i];
         if (dot <= 0.05) continue;
-        q[d] = dot * dot * (owner[j] === s ? edgeFlow(map, i, j, armored) : Math.max(0.25 - 0.19 * armored, flowFor(map, j, armored)));
+        q[d] = dot * dot * (owner[j] === s ? edgeFlow(map, i, j, armored) : Math.max(0.25 - 0.19 * armored, flowFor(map, j, armored)) * (1 - WORKS.atFlow * armored * (front.at?.[j] ?? 0)));
         sum += q[d];
       }
       if (sum > 0) {
@@ -183,7 +184,9 @@ export function frontTick(front) {
           const j = nb[i * 6 + d], share = q[d] / sum;
           if (owner[j] === s) { delta[i] -= moving * share; delta[j] += moving * share; }
           else {
-            const v = dens[i] * w * S.atk[i] * quality[s] * share * (1 - armored + armored * map.atkA[j]);
+            // Ouvrages neutres : barbelés contre l'infanterie, obstacles antichar contre les blindés.
+            const obst = (1 - WORKS.wireAssault * (1 - armored) * (front.wire?.[j] ?? 0)) * (1 - WORKS.atShock * armored * (front.at?.[j] ?? 0));
+            const v = dens[i] * w * S.atk[i] * quality[s] * share * (1 - armored + armored * map.atkA[j]) * obst;
             push[j] += v;
             edges.push(i, j, v);
           }
@@ -228,7 +231,7 @@ export function frontTick(front) {
     const F = push[j], D = defense(j);
     // Une troupe qui décroche en bon ordre (repli) subit moins de pertes d'assaut : elle cède le terrain au lieu de le tenir.
     loss[j] += (R.ASSAULT * F * field[owner[j]].cover[j]) / (map.def[j] * field[owner[j]].fort[j]);
-    const riposte = R.ASSAULT * R.DEF_FIRE * D * Math.sqrt(Math.min(1, F / Math.max(D, 1e-6)));
+    const riposte = R.ASSAULT * R.DEF_FIRE * D * Math.sqrt(Math.min(1, F / Math.max(D, 1e-6))) * (1 + WORKS.wireCost * (front.wire?.[j] ?? 0));
     for (let k = 0; k < edges.length; k += 3) if (edges[k + 1] === j) loss[edges[k]] += riposte * (edges[k + 2] / F);
   }
 
