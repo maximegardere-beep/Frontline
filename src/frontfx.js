@@ -14,10 +14,10 @@ const TRACER = ['#fff27a', '#ff7a3c']; // Wehrmacht (jaune), Armée rouge (orang
 // Obus en cloche par type de pièce (frontguns.js) : obus par tick de barrage, durée de vol (ms, + par pixel),
 // hauteur de la cloche (part de la distance), rayon de l'explosion. Les mortiers tirent haut, les Katioucha tendu.
 const ARC = {
-  div: { n: 12, life: 450, perPx: 4.5, maxLife: 1600, h: 0.38, r: 6 },
-  heavy: { n: 8, life: 600, perPx: 5, maxLife: 1900, h: 0.42, r: 9 },
-  mortar: { n: 14, life: 500, perPx: 6, maxLife: 1500, h: 0.7, r: 5 },
-  rocket: { n: 14, life: 350, perPx: 2.6, maxLife: 1000, h: 0.18, r: 6.5, rocket: true },
+  div: { n: 12, life: 900, perPx: 9, maxLife: 3200, h: 0.38, r: 6 },
+  heavy: { n: 8, life: 1200, perPx: 10, maxLife: 3800, h: 0.42, r: 9 },
+  mortar: { n: 14, life: 1000, perPx: 12, maxLife: 3000, h: 0.7, r: 5 },
+  rocket: { n: 14, life: 700, perPx: 5, maxLife: 2000, h: 0.18, r: 6.5, rocket: true },
 };
 const MAX_PARTS = 2400;
 // Panaches de fumée : bouffées émises en continu par les foyers (incendies, combats intenses), poussées par le vent.
@@ -300,7 +300,8 @@ export class FrontFx {
   arc(x0, y0, x1, y1, t0, A, late = false) {
     const d = Math.hypot(x1 - x0, y1 - y0);
     const life = Math.min(A.maxLife, A.life + d * A.perPx);
-    this.parts.push({ k: 'arc', t0, life, x0, y0, x1, y1, h: d * A.h, u0: late ? 0.6 : 0, rocket: !!A.rocket });
+    // Cloche haute même à courte portée (batteries juste derrière le front) : sinon on ne la voit pas.
+    this.parts.push({ k: 'arc', t0, life, x0, y0, x1, y1, h: Math.max(d * A.h, A.rocket ? 18 : 40), u0: late ? 0.6 : 0, rocket: !!A.rocket });
     this.blast(x1, y1, t0 + life, A.r + Math.random() * A.r * 0.4);
   }
 
@@ -317,8 +318,11 @@ export class FrontFx {
     if (!small) this.parts.push({ k: 'scorch', t0, life: 14000, x, y, r: r * (0.6 + Math.random() * 0.3) });
   }
 
-  // Traînées des obus en cloche : un trait qui s'épaissit vers la tête (fumée grise pour les roquettes), puis la tête.
+  // Obus en cloche, au-dessus des unités (ils volent) : traînée qui s'épaissit vers la tête (fumée grise pour les
+  // roquettes), halo, puis la tête.
   drawArcs(ctx, now, px) {
+    ctx.save();
+    ctx.lineCap = 'round';
     const SEG = 7;
     for (const p of this.parts) {
       if (p.k !== 'arc' || now < p.t0 || now > p.t0 + p.life) continue;
@@ -326,27 +330,32 @@ export class FrontFx {
       if (u < p.u0) continue;
       const pt = (v) => ({ x: p.x0 + (p.x1 - p.x0) * v, y: p.y0 + (p.y1 - p.y0) * v - p.h * 4 * v * (1 - v) });
       const fade = Math.min(1, (u - p.u0) * 12);
-      const tail = p.rocket ? 0.3 : 0.16;
+      const tail = p.rocket ? 0.35 : 0.25;
       let a = pt(Math.max(p.u0, u - tail));
       for (let q = 1; q <= SEG; q++) {
         const b = pt(Math.max(p.u0, u - tail * (1 - q / SEG)));
         const k = q / SEG;
         ctx.globalAlpha = fade * k * (p.rocket ? 0.55 : 0.85);
         ctx.strokeStyle = p.rocket ? 'rgb(176, 170, 158)' : 'rgb(255, 226, 150)';
-        ctx.lineWidth = Math.max(0.5, (p.rocket ? 0.8 + 1.6 * k : 0.4 + 1.1 * k)) * Math.max(1, px);
+        ctx.lineWidth = (p.rocket ? 1 + 2 * k : 0.6 + 1.6 * k) * Math.max(1, px);
         ctx.beginPath();
         ctx.moveTo(a.x, a.y);
         ctx.lineTo(b.x, b.y);
         ctx.stroke();
         a = b;
       }
+      const R = Math.max(3.5, 8 * px);
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = fade * 0.7;
+      ctx.drawImage(this.glowSprite(), a.x - R, a.y - R, R * 2, R * 2);
+      ctx.globalCompositeOperation = 'source-over';
       ctx.globalAlpha = fade;
       ctx.fillStyle = '#fff6d8';
       ctx.beginPath();
-      ctx.arc(a.x, a.y, Math.max(0.9, 1.3 * px), 0, Math.PI * 2);
+      ctx.arc(a.x, a.y, Math.max(1.3, 2.2 * px), 0, Math.PI * 2);
       ctx.fill();
     }
-    ctx.globalAlpha = 1;
+    ctx.restore();
   }
 
   // Sol noirci : sous les masses de troupes.
@@ -427,17 +436,11 @@ export class FrontFx {
         ctx.stroke();
       }
     }
-    this.drawArcs(ctx, now, px);
     ctx.globalCompositeOperation = 'lighter';
     for (const p of parts) {
       if (now < p.t0 || now > p.t0 + p.life) continue;
       const u = (now - p.t0) / p.life;
-      if (p.k === 'arc') {
-        if (u < p.u0) continue;
-        const z = p.h * 4 * u * (1 - u), x = p.x0 + (p.x1 - p.x0) * u, y = p.y0 + (p.y1 - p.y0) * u - z, R = Math.max(2.5, 4 * px);
-        ctx.globalAlpha = Math.min(1, (u - p.u0) * 12) * 0.7;
-        ctx.drawImage(this.glowSprite(), x - R, y - R, R * 2, R * 2);
-      } else if (p.k === 'muzzle') {
+      if (p.k === 'muzzle') {
         // Départ de coup : éclair minuscule, qui crépite (mitrailleuse : plusieurs éclats).
         if (((now - p.t0) / 45 | 0) % 2) continue;
         ctx.globalAlpha = 1 - u * 0.5;

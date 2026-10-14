@@ -517,3 +517,15 @@ densités. Le moteur garde des points d'accroche pour cela.
 - Mesure (84 batailles IA contre IA, même graine) : avant, attaquant 44 % / défenseur 37 % / nuls 19 %, Wehrmacht 35 %
   / Armée rouge 46 %, 5,9 encerclements ; après, 51 / 21 / 27, Wehrmacht 33 / Armée rouge 39, 5,4 encerclements.
   L'offensive y gagne un peu, comme attendu.
+
+### Rythme : journée plus lente, front moins mobile
+
+- Une journée dure une minute (20 s auparavant) : 2,5 s par tick, le barrage du matin dure ~12 s. Les obus en cloche
+  volent 0,9 à 3,8 s, montent d'au moins 40 pixels même à courte portée (les batteries sont souvent juste derrière le
+  front) et sont dessinés au-dessus des unités, avec une traînée et une tête plus grosses à toutes les échelles.
+- Front moins mobile : poussée de l'infanterie 0,3 → 0,18 et des blindés 0,7 → 0,45 par tick, formations blindées
+  4 ticks au moins entre deux cases prises (2 auparavant). Le colmatage élastique ralentit d'autant (0,25 → 0,12),
+  sinon toute offensive s'enlisait ; seuil de rupture 1,6 → 1,45, réserves de l'attaquant ×2 et renforts ×1,6
+  pour garder l'équilibre.
+- Mesure (42 batailles IA contre IA) : cases prises par jour 40 → 32,5, pire journée (médiane) 84 → 63 ; victoires
+  de l'attaquant 21 → 19, du défenseur 14 → 15.

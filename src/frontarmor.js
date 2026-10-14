@@ -29,7 +29,7 @@ export const ARMOR_RULES = {
   tankLoss: 0.9, // chars perdus par unité de riposte reçue
   wear: 0.3, // part des pertes de densité de sa case qui touchent aussi ses chars
   speed: 0.8, // unités de grille par tick en marche (× fluidité blindée)
-  cooldown: 2, // ticks au moins entre deux cases prises
+  cooldown: 4, // ticks au moins entre deux cases prises
   fuelAttack: 0.025, // carburant par tick d'attaque
   fuelMove: 0.008, // par tick de marche
   refuel: 0.6, // la nuit, ravitaillée

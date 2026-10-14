@@ -93,12 +93,12 @@ export const FRONT_RULES = {
   SKIRMISH: 0.00036, // usure mutuelle au contact, par tick (front calme : ~1 % de pertes par jour)
   ASSAULT: 0.036, // pertes infligées par unité de pression (−40 % : batailles moins meurtrières)
   DEF_FIRE: 0.8, // riposte de la case assaillie
-  BREAK: 1.6, // la pression doit dépasser BREAK × la défense pour entamer la case
+  BREAK: 1.45, // la pression doit dépasser BREAK × la défense pour entamer la case
   BREACH: 0.35, // remplissage de la jauge de brèche par tick, par point de rapport pression / défense au-delà de BREAK
   BREACH_DECAY: 0.7, // la jauge se vide quand la pression cesse
   FORT_EXP: 3, // seuil de la jauge = (terrain × retranchement) ^ FORT_EXP : forcer une ligne fortifiée prend du temps
   ADVANCE: 0.4, // part de la densité des assaillants qui entre dans la case conquise
-  ELASTIC: 0.25, // vitesse du colmatage élastique (trop rapide, il rendait toute percée impossible)
+  ELASTIC: 0.12, // vitesse du colmatage élastique (trop rapide, il rendait toute percée impossible ; ralenti avec le front)
   FRONT_NEED: 7, // besoin d'une case de front (le besoin décroît de moitié environ par case vers l'arrière)
   REAR_NEED: 0.4, // besoin d'une case d'arrière
   THREAT: 0.15, // besoin supplémentaire par unité de densité ennemie au contact

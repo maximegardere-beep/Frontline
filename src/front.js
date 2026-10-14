@@ -47,8 +47,8 @@ export const FRONT_SETUP = {
   festungDrain: 0.6, // une poche en Festung, resserrée et rationnée, perd ses troupes moins vite
   men: 10, // hommes par unité de densité (affichage)
   // Rôles : l'attaquant a plus de réserves et de renforts ; le défenseur part retranché.
-  attackReserve: 1.8, // multiplicateur du pool logistique initial de l'attaquant
-  attackReinforce: 1.3, // multiplicateur de ses renforts quotidiens
+  attackReserve: 2, // multiplicateur du pool logistique initial de l'attaquant
+  attackReinforce: 1.6, // multiplicateur de ses renforts quotidiens
   entrenchDepth: 6, // profondeur (en cases depuis le front) du retranchement initial du défenseur
   recover: 0.2, // part des pertes du jour qui rejoint la nuit (réserves)
   entrenchDef: 0.4, // bonus de défense d'une case pleinement retranchée (+40 %)
@@ -60,8 +60,8 @@ export const FRONT_SETUP = {
 // qui avance à chaque tick ; atk : puissance de choc ; maxLen : longueur maximale, en cases.
 // Les blindés, rapides, drainent fort leur point de départ : si la réserve s'assèche, la percée s'arrête.
 export const VECTOR_TYPES = {
-  infantry: { label: 'Infanterie', sigma: 3.2, catch: 5.5, speed: 0.3, atk: 1.2, maxLen: 22 },
-  armor: { label: 'Blindés', sigma: 1.8, catch: 6.5, speed: 0.7, atk: 1.8, maxLen: 42 },
+  infantry: { label: 'Infanterie', sigma: 3.2, catch: 5.5, speed: 0.18, atk: 1.2, maxLen: 22 },
+  armor: { label: 'Blindés', sigma: 1.8, catch: 6.5, speed: 0.45, atk: 1.8, maxLen: 42 },
   // Repli ordonné : vers l'arrière, sans pousser l'ennemi ; le terrain cédé n'est perdu que s'il vient l'occuper.
   retreat: { label: 'Repli', sigma: 2.8, catch: 5, speed: 0.3, atk: 0, maxLen: 20, retreat: true },
   // Fixation : une bande large qui presse l'ennemi sans chercher à prendre de cases, à pertes réduites ; les cases

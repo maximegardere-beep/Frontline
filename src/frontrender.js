@@ -684,6 +684,7 @@ export class FrontRenderer extends Renderer {
     this.drawObjectiveMarks();
     this.drawPockets(view.viewer ?? null);
     this.drawGuns(view);
+    this.fx.drawArcs(ctx, now, 1 / cam.s);
     if (view.orders) this.drawFrontOrders(view.orders, view.viewer);
     if (view.preview) this.drawFrontOrders(view.preview, view.viewer, 0.55);
     if (view.origin != null && view.origin >= 0) {
