@@ -13,8 +13,8 @@ import { hexToPixel, pixelToHex, SQRT3 } from './hex.js';
 import { createRng } from './rng.js';
 import { makeNoise } from './mapgen.js';
 import { FRONT_KINDS } from './terrain.js';
-import { FRONT_WEATHER, POCKET_MODES, pocketName } from './front.js';
-import { MIN_POCKET } from './frontinput.js';
+import { FRONT_WEATHER, POCKET_MODES, VECTOR_TYPES, pocketName } from './front.js';
+import { MIN_POCKET, ARMOR_ATK } from './frontinput.js';
 import { FrontFx } from './frontfx.js';
 
 export const CELL = 9; // rayon d'une case de la micro-grille, en pixels monde
@@ -397,6 +397,8 @@ export class FrontRenderer extends Renderer {
       }
     }
     ctx.globalAlpha = 1;
+    const spears = f.phase === 'resolve' ? this.spearheads(view.viewer ?? null) : [];
+    this.drawSpearMass(spears);
     this.fx.drawGlow(ctx, now);
 
     // Ligne de front : partage des deux camps, épaisse et sombre.
@@ -408,6 +410,7 @@ export class FrontRenderer extends Renderer {
     ctx.lineWidth = 2.4;
     strokeSegments(ctx, line);
     this.fx.drawOver(ctx, now, 1 / cam.s);
+    this.drawSpearTips(spears);
 
     this.drawTowns(view.viewer ?? null);
     this.drawPockets(view.viewer ?? null);
@@ -480,6 +483,117 @@ export class FrontRenderer extends Renderer {
         ctx.fillStyle = '#1d1a12';
         ctx.fillText(label, c.x, c.y);
       }
+    }
+  }
+
+  // Fers de lance blindés de la journée : pour chaque vecteur blindé, les cases que ses chars entraînent (puissance de
+  // choc des blindés) et sa tête, la plus avancée le long de l'axe. L'ennemi n'apparaît que là où on le voit.
+  spearheads(viewer) {
+    const f = this.front;
+    const { N } = this.map;
+    const cx = f.centers.x, cy = f.centers.y;
+    const out = [];
+    for (const s of [0, 1]) {
+      let n = 0;
+      for (const v of f.orders[s]) {
+        if (v.type !== 'armor') continue;
+        n++;
+        const F = f.field[s], T = VECTOR_TYPES.armor;
+        const L = Math.hypot(v.to.x - v.from.x, v.to.y - v.from.y) || 1;
+        const ux = (v.to.x - v.from.x) / L, uy = (v.to.y - v.from.y) / L;
+        const cells = [];
+        let best = [];
+        for (let i = 0; i < N; i++) {
+          if (f.owner[i] !== s || F.atk[i] < ARMOR_ATK || F.w[i] < 0.3 || f.dens[i] < 1) continue;
+          if (viewer !== null && s !== viewer && !f.vision[viewer][i]) continue;
+          // Seules les cases que ce vecteur entraîne lui-même : son couloir (jusqu'à son extrémité) et sa zone de ramassage.
+          const rx = cx[i] - v.from.x, ry = cy[i] - v.from.y;
+          const t = rx * ux + ry * uy, perp = Math.abs(rx * -uy + ry * ux);
+          if (t > L + 1 || (t >= 0 ? perp > T.sigma * 1.1 : Math.hypot(rx, ry) > T.catch)) continue;
+          cells.push(i);
+          best.push([t, i]);
+        }
+        if (!cells.length) continue;
+        // Tête : moyenne des trois cases les plus avancées (plus stable qu'une case seule).
+        best = best.sort((a, b) => b[0] - a[0]).slice(0, 3);
+        const hx = best.reduce((a, [, i]) => a + cx[i], 0) / best.length, hy = best.reduce((a, [, i]) => a + cy[i], 0) / best.length;
+        out.push({ side: s, cells, head: { x: hx, y: hy }, ux, uy, from: v.from, name: s === 0 ? `Pz.Gr. ${n}` : `${n}${n === 1 ? 'er' : 'e'} C. blindé` });
+      }
+    }
+    return out;
+  }
+
+  // Masse blindée : hachures serrées, de la couleur sombre du camp, sur les cases entraînées par les chars.
+  drawSpearMass(spears) {
+    if (!spears.length) return;
+    const { ctx } = this;
+    for (const sp of spears) {
+      if (!this.hatch?.[sp.side]) {
+        const c = document.createElement('canvas');
+        c.width = c.height = 8;
+        const g = c.getContext('2d');
+        g.strokeStyle = SIDE_LINE[sp.side];
+        g.lineWidth = 2.2;
+        g.beginPath();
+        g.moveTo(-2, 10); g.lineTo(10, -2);
+        g.moveTo(-2, 2); g.lineTo(2, -2);
+        g.moveTo(6, 10); g.lineTo(10, 6);
+        g.stroke();
+        this.hatch ??= [];
+        this.hatch[sp.side] = ctx.createPattern(c, 'repeat');
+      }
+      ctx.save();
+      ctx.beginPath();
+      for (const i of sp.cells) {
+        const p = this.toWorld({ x: this.front.centers.x[i], y: this.front.centers.y[i] });
+        ctx.moveTo(p.x + CELL * 0.95, p.y);
+        ctx.arc(p.x, p.y, CELL * 0.95, 0, Math.PI * 2);
+      }
+      ctx.clip();
+      ctx.globalAlpha = 0.75;
+      ctx.fillStyle = this.hatch[sp.side];
+      ctx.fillRect(0, 0, this.worldW, this.worldH);
+      ctx.restore();
+    }
+  }
+
+  // Tête de percée : une pointe de flèche épaisse orientée selon l'axe, qui avance avec les chars, et le nom du groupe.
+  drawSpearTips(spears) {
+    const { ctx } = this;
+    for (const sp of spears) {
+      const h = this.toWorld(sp.head), a = this.toWorld(sp.from);
+      const ang = Math.atan2(sp.uy, sp.ux);
+      const rgb = SIDE_RGB[sp.side];
+      // Sillage : de l'origine à la tête, trait large et translucide.
+      ctx.strokeStyle = `rgba(${rgb[0] * 0.6}, ${rgb[1] * 0.6}, ${rgb[2] * 0.6}, 0.45)`;
+      ctx.lineWidth = CELL * 1.1;
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(h.x, h.y);
+      ctx.stroke();
+      // Pointe : chevron plein, cerné de clair.
+      const R = CELL * 2.4;
+      const pt = (r, da) => [h.x + Math.cos(ang + da) * r, h.y + Math.sin(ang + da) * r];
+      ctx.beginPath();
+      ctx.moveTo(...pt(R, 0));
+      ctx.lineTo(...pt(R * 1.05, 2.45));
+      ctx.lineTo(...pt(R * 0.25, Math.PI));
+      ctx.lineTo(...pt(R * 1.05, -2.45));
+      ctx.closePath();
+      ctx.fillStyle = SIDE_LINE[sp.side];
+      ctx.strokeStyle = 'rgba(250, 240, 210, 0.9)';
+      ctx.lineWidth = 1.6;
+      ctx.fill();
+      ctx.stroke();
+      ctx.font = '700 10px "IBM Plex Sans Condensed", "Arial Narrow", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const ly = h.y + (Math.sin(ang) > 0.3 ? -R - 8 : R + 8);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(250, 240, 210, 0.85)';
+      ctx.strokeText(sp.name, h.x, ly);
+      ctx.fillStyle = SIDE_LINE[sp.side];
+      ctx.fillText(sp.name, h.x, ly);
     }
   }
 

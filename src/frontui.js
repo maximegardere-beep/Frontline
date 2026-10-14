@@ -511,7 +511,11 @@ function frontLocate(x, y) {
 function tickSounds(events, tick, T) {
   if (!sound.live || fui.skip || stillMotion()) return;
   const f = fui.front, s = fui.side, items = [];
-  for (const sp of combatSpots(f, s)) items.push({ k: 'fire', n: 1 + sp.loss * 0.5, armor: sp.armor, ...frontLocate(sp.x, sp.y) });
+  for (const sp of combatSpots(f, s)) {
+    // Front calme (aucun assaut dans le secteur) : quelques coups épars, pas à chaque tick.
+    if (sp.assault > 0) items.push({ k: 'fire', n: 1 + sp.loss * 0.5, armor: sp.armor, ...frontLocate(sp.x, sp.y) });
+    else if (Math.random() < 0.35) items.push({ k: 'fire', n: 1, armor: 0, ...frontLocate(sp.x, sp.y) });
+  }
   if (tick < f.cfg.barrageTicks && f.phase === 'resolve') {
     for (const side of [0, 1]) {
       for (const b of f.barrages[side]) {

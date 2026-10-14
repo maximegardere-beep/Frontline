@@ -53,33 +53,41 @@ export class FrontFx {
     const jit = (v) => v + (Math.random() - 0.5) * 0.9;
     const at = () => now + Math.random() * dur;
     const glow = [];
+    // Combats actifs : cases assaillies (et, moins, leurs assaillants) et cases qui viennent de changer de mains.
+    // Ailleurs, le front calme ne fait qu'échanger quelques tirs épars.
+    const hot = new Float32Array(N);
+    const e = front.tickEdges ?? [];
+    for (let k = 0; k < e.length; k += 3) { hot[e[k + 1]] += e[k + 2]; hot[e[k]] += e[k + 2] * 0.5; }
+    for (const ev of events) if (ev.kind === 'capture') hot[ev.i] += 2;
     if (loss) {
       for (let i = 0; i < N; i++) {
         const l = loss[i], s = front.owner[i];
         if (!(l > 0) || s < 0 || !seen(i) || !shown(i)) continue;
-        // Lueur : échelle logarithmique, l'escarmouche (≈ 0,02 par tick) luit à peine, l'assaut (0,2 à 1) flambe.
-        const a = Math.min(1, Math.log1p(l / 0.02) / Math.log1p(50));
-        glow.push(cx[i] * C, cy[i] * C, a, i * 1.7);
+        const h = hot[i];
+        // Lueur : échelle logarithmique, réservée aux combats actifs ou aux pertes nettes ; l'assaut (0,2 à 1) flambe.
+        if (h > 0 || l > 0.06) glow.push(cx[i] * C, cy[i] * C, Math.min(1, Math.log1p(l / 0.02) / Math.log1p(50)), i * 1.7);
         // Tirs reçus par la case i, venus de ses voisines ennemies.
         const foes = [];
         for (let d = 0; d < 6; d++) { const j = nb[i * 6 + d]; if (j >= 0 && front.owner[j] === 1 - s) foes.push(j); }
         if (!foes.length) continue;
-        let shots = 0.3 + l * 30;
-        shots = Math.min(7, Math.floor(shots) + (Math.random() < shots % 1 ? 1 : 0));
+        let shots;
+        if (h > 0) {
+          shots = 1 + l * 12 + Math.min(2, h * 0.15);
+          shots = Math.min(7, Math.floor(shots) + (Math.random() < shots % 1 ? 1 : 0));
+        } else shots = Math.random() < 0.04 + l * 1.5 ? 1 : 0; // front calme : un coup de temps en temps
         for (let k = 0; k < shots; k++) {
           const j = foes[(Math.random() * foes.length) | 0];
           const from = { x: jit(cx[j]) * C, y: jit(cy[j]) * C }, to = { x: jit(cx[i]) * C, y: jit(cy[i]) * C };
           const t = at(), side = 1 - s;
-          if (Math.random() < 0.25) this.burstMG(from, to, t, side);
+          if (h > 0 && Math.random() < 0.3) this.burstMG(from, to, t, side);
           else this.tracer(from, to, t, side, 160 + Math.random() * 80, 1);
           // Riposte : la case touchée tire aussi.
-          if (Math.random() < 0.6) this.tracer(to, { x: jit(cx[j]) * C, y: jit(cy[j]) * C }, at(), s, 160 + Math.random() * 80, 1);
+          if (Math.random() < (h > 0 ? 0.6 : 0.3)) this.tracer(to, { x: jit(cx[j]) * C, y: jit(cy[j]) * C }, at(), s, 160 + Math.random() * 80, 1);
         }
       }
     }
     this.glow = glow;
     // Blindés : obus le long des poussées dont l'assaillant est surtout blindé, et antichars en face.
-    const e = front.tickEdges ?? [];
     for (let k = 0; k < e.length; k += 3) {
       const i = e[k], j = e[k + 1], v = e[k + 2];
       const s = front.owner[i];

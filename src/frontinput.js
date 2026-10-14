@@ -86,7 +86,7 @@ export function combatSpots(front, s, max = 3, block = 8) {
   if (!loss) return [];
   const { W, H, N } = front.map;
   const bw = Math.ceil(W / block), bh = Math.ceil(H / block);
-  const sum = new Float32Array(bw * bh), sx = new Float32Array(bw * bh), sy = new Float32Array(bw * bh), arm = new Float32Array(bw * bh);
+  const sum = new Float32Array(bw * bh), sx = new Float32Array(bw * bh), sy = new Float32Array(bw * bh), arm = new Float32Array(bw * bh), hot = new Float32Array(bw * bh);
   const blockOf = (i) => Math.floor(Math.floor(i / W) / block) * bw + Math.floor((i % W) / block);
   for (let i = 0; i < N; i++) {
     const l = loss[i];
@@ -98,10 +98,11 @@ export function combatSpots(front, s, max = 3, block = 8) {
   }
   const e = front.tickEdges ?? [];
   for (let k = 0; k < e.length; k += 3) {
-    const i = e[k], a = front.owner[i];
-    if (a >= 0 && front.field[a].atk[i] >= ARMOR_ATK) arm[blockOf(e[k + 1])] += e[k + 2];
+    const i = e[k], a = front.owner[i], b = blockOf(e[k + 1]);
+    hot[b] += e[k + 2];
+    if (a >= 0 && front.field[a].atk[i] >= ARMOR_ATK) arm[b] += e[k + 2];
   }
   const spots = [];
-  for (let b = 0; b < bw * bh; b++) if (sum[b] > 0.3) spots.push({ x: sx[b] / sum[b], y: sy[b] / sum[b], loss: sum[b], armor: arm[b] });
+  for (let b = 0; b < bw * bh; b++) if (sum[b] > 0.3) spots.push({ x: sx[b] / sum[b], y: sy[b] / sum[b], loss: sum[b], armor: arm[b], assault: hot[b] });
   return spots.sort((a, b) => b.loss - a.loss).slice(0, max);
 }
