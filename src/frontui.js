@@ -456,6 +456,7 @@ function launchDay() {
   fui.probe = null;
   fui.dayStats = takeStats();
   beginDay(f);
+  fui.r.fx.clear();
   fui.acc = 0;
   fui.skip = false;
   fui.ending = false;
@@ -485,6 +486,8 @@ function startLoop() {
       const events = stepTick(f);
       fui.r.snapshot(viewer());
       tickSounds(events, tick, T);
+      if (!fui.skip && !stillMotion()) fui.r.fx.spawn(f, viewer(), now, T, fui.r.viewRect(), events);
+      else fui.r.fx.glow = [];
       if (f.phase !== 'resolve') fui.ending = true;
       if (fui.skip) break; // une image par tick, même en accéléré
     }
@@ -508,7 +511,7 @@ function frontLocate(x, y) {
 function tickSounds(events, tick, T) {
   if (!sound.live || fui.skip || stillMotion()) return;
   const f = fui.front, s = fui.side, items = [];
-  for (const sp of combatSpots(f, s)) items.push({ k: 'fire', n: 1 + sp.loss * 0.5, ...frontLocate(sp.x, sp.y) });
+  for (const sp of combatSpots(f, s)) items.push({ k: 'fire', n: 1 + sp.loss * 0.5, armor: sp.armor, ...frontLocate(sp.x, sp.y) });
   if (tick < f.cfg.barrageTicks && f.phase === 'resolve') {
     for (const side of [0, 1]) {
       for (const b of f.barrages[side]) {
@@ -532,6 +535,7 @@ function stopLoop() {
 
 function endOfDay() {
   stopLoop();
+  fui.r.fx.clear();
   fui.ending = false;
   fui.skip = false;
   resnap();
@@ -594,15 +598,33 @@ function dayClock() {
   return { frac, text: `${Math.floor(mins / 60)} h ${String(mins % 60).padStart(2, '0')}` };
 }
 
+// Pendant la journée, l'horloge (et « Passer ») prend la place du bouton de lancement.
 function renderClock() {
   const f = fui.front;
   const el = byId('f-clock');
   el.hidden = f.phase !== 'resolve' && !fui.ending;
+  byId('f-go').hidden = !el.hidden;
   if (el.hidden) return;
   const c = dayClock();
   byId('f-clock-time').textContent = c.text;
-  byId('f-clock-bar').style.width = `${(c.frac * 100).toFixed(1)}%`;
+  byId('f-clock-track').style.setProperty('--p', `${(c.frac * 100).toFixed(1)}%`);
   byId('f-skip').disabled = fui.skip;
+}
+
+// Panneau latéral (ou tiroir, en portrait) réduit : la carte prend tout l'écran ; il n'en reste qu'un rail
+// (déplier, vue d'ensemble, son) et le bouton du jour. Mémorisé d'une partie à l'autre.
+const SIDE_KEY = 'frontline.front.collapsed';
+function setCollapsed(on) {
+  const side = byId('f-side'), btn = byId('f-collapse');
+  side.classList.toggle('collapsed', on);
+  byId('front-app').classList.toggle('side-collapsed', on);
+  btn.setAttribute('aria-expanded', String(!on));
+  btn.setAttribute('aria-label', on ? 'Déplier le panneau' : 'Réduire le panneau');
+  btn.title = `${on ? 'Déplier' : 'Réduire'} le panneau (P)`;
+  try { localStorage.setItem(SIDE_KEY, on ? '1' : '0'); } catch { /* stockage indisponible */ }
+}
+function storedCollapsed() {
+  try { return localStorage.getItem(SIDE_KEY) === '1'; } catch { return false; }
 }
 
 const PHASE = { plan: 'Ordres du matin', resolve: 'Journée en cours', over: 'Terminée' };
@@ -625,8 +647,9 @@ function refreshFront() {
   fui.weather.set(f.weather, 'day');
   sound.setWeather(f.weather);
   const go = byId('f-go');
-  go.textContent = f.phase === 'plan' ? `Lancer le jour ${f.day}` : f.phase === 'resolve' ? 'Journée en cours…' : 'Rapport final';
-  go.disabled = f.phase === 'resolve';
+  byId('f-go-label').textContent = f.phase === 'plan' ? `Lancer le jour ${f.day}` : 'Rapport final';
+  go.title = f.phase === 'plan' ? `Lancer le jour ${f.day} (Entrée)` : 'Rapport final';
+  go.setAttribute('aria-label', go.title);
   renderTools();
   renderClock();
   document.querySelectorAll('[data-ftab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.ftab === fui.tab)));
@@ -699,6 +722,7 @@ function renderOrders() {
   byId('f-repeat')?.addEventListener('click', repeatYesterday);
   byId('f-undo')?.addEventListener('click', undoReserve);
   byId('f-tab-orders').classList.toggle('badge', planning && pockets.length > 0);
+  byId('f-collapse').classList.toggle('badge', planning && pockets.length > 0);
 }
 
 function fstat(label, value) { return `<div class="stat"><dt>${label}</dt><dd>${value}</dd></div>`; }
@@ -792,8 +816,8 @@ function bind() {
   }, { passive: false });
   canvas.addEventListener('gesturestart', (e) => e.preventDefault());
   const zoom = (k) => { r.zoomAt(k, r.vw / 2, r.vh / 2); queueFrontDraw(); };
-  byId('f-zoom-in').addEventListener('click', () => zoom(1.35));
-  byId('f-zoom-out').addEventListener('click', () => zoom(1 / 1.35));
+  byId('f-collapse').addEventListener('click', () => setCollapsed(!byId('f-side').classList.contains('collapsed')));
+  setCollapsed(storedCollapsed());
   byId('f-zoom-fit').addEventListener('click', () => { r.fitAll(); queueFrontDraw(); });
   byId('f-sound').addEventListener('click', () => fui.hooks.toggleSound?.());
   document.querySelectorAll('#f-tools [data-tool]').forEach((b) => b.addEventListener('click', () => setTool(b.dataset.tool)));
@@ -802,9 +826,8 @@ function bind() {
   byId('f-help').addEventListener('click', showHelp);
   byId('f-menu').addEventListener('click', () => fui.hooks.showMenu());
   document.querySelectorAll('[data-ftab]').forEach((b) => b.addEventListener('click', () => {
-    const side = byId('front-app').querySelector('.side');
-    if (fui.tab === b.dataset.ftab) side.classList.toggle('collapsed');
-    else side.classList.remove('collapsed');
+    // En portrait, toucher l'onglet déjà ouvert replie le tiroir.
+    setCollapsed(fui.tab === b.dataset.ftab && !byId('f-side').classList.contains('collapsed'));
     fui.tab = b.dataset.ftab;
     refreshFront();
   }));
@@ -815,11 +838,28 @@ function bind() {
     else if (e.key === 'Escape') cancelTool();
     else if (e.key === 'Enter') { if (fui.front.phase === 'resolve') fui.skip = true; else launchDay(); }
     else if (e.key === 'u' || e.key === 'U') undoReserve();
+    else if (e.key === 'p' || e.key === 'P') byId('f-collapse').click();
+    else if (e.key === '+' || e.key === '=') zoom(1.35);
+    else if (e.key === '-') zoom(1 / 1.35);
+    else if (e.key === '0') { r.fitAll(); queueFrontDraw(); }
   });
   new ResizeObserver(() => {
     if (!frontActive()) return;
     fui.weather.resize();
+    // Le panneau se replie ou se déplie : la carte garde le même centre (ou reste cadrée en entier si elle l'était) ;
+    // Si la carte couvrait tout l'écran, elle le couvre encore (pas de bandes vides en dépliant la vue).
+    const c = r.cam, fit = r.worldW && c.s <= r.fitScale() * 1.001;
+    const cover = () => Math.max(r.vw / r.worldW, r.vh / r.worldH);
+    const covered = r.worldW && c.s >= cover() * 0.999;
+    const mx = c.x + r.vw / 2 / c.s, my = c.y + r.vh / 2 / c.s;
     r.resize();
+    if (fit) r.fitAll();
+    else {
+      if (covered) c.s = Math.max(c.s, cover());
+      c.x = mx - r.vw / 2 / c.s;
+      c.y = my - r.vh / 2 / c.s;
+      r.clampCam();
+    }
     drawFront();
   }).observe(canvas.parentElement);
 }

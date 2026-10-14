@@ -5,7 +5,8 @@
 //   opaque où il est dense ; des contours de densité font apparaître les concentrations qui fusionnent
 //   (métaballes) ; le front est la ligne de partage, épaisse et sombre ;
 // - brouillard : l'ennemi est dessiné d'après ce que le joueur en sait (densité estimée), estompé hors de vue ;
-// - ordres au crayon rouge, poches, villes.
+// - combats (frontfx.js) : lueurs au contact, tirs traçants, obus, barrages ;
+// - ordres à l'encre jaune, poches, villes.
 
 import { Renderer, splineTo, blobPath, contourSegments, strokeSegments, ELEV_STOPS, PALETTE } from './render.js';
 import { hexToPixel, pixelToHex, SQRT3 } from './hex.js';
@@ -14,6 +15,8 @@ import { makeNoise } from './mapgen.js';
 import { FRONT_KINDS } from './terrain.js';
 import { FRONT_WEATHER, POCKET_MODES, pocketName } from './front.js';
 import { MIN_POCKET } from './frontinput.js';
+import { FrontFx } from './frontfx.js';
+import { drawUnits } from './frontunits.js';
 
 export const CELL = 9; // rayon d'une case de la micro-grille, en pixels monde
 
@@ -83,6 +86,7 @@ export class FrontRenderer extends Renderer {
     this.worldH = Math.ceil((this.map.H - 1) * 1.5 * CELL + 2 * CELL);
     this.cache = {};
     this.wrecks = [];
+    this.fx = new FrontFx(CELL);
     this.sampler = makeSampler(this.map, this.worldW, this.worldH, 4, CELL * 1.25);
     // Montagnes : chaque case reçoit la case praticable la plus proche, dont elle prend le camp dans le rendu
     // (sinon la ligne de partage contourne chaque massif).
@@ -117,9 +121,16 @@ export class FrontRenderer extends Renderer {
     return { x: x / CELL, y: y / CELL, i: inside ? h.row * this.map.W + h.col : -1 };
   }
 
+  // Partie du monde visible à l'écran (pixels monde).
+  viewRect() {
+    const c = this.cam;
+    return { x0: c.x, y0: c.y, x1: c.x + this.vw / c.s, y1: c.y + this.vh / c.s };
+  }
+
   initialView(side) {
-    if (this.vw >= 760) return this.fitAll();
-    this.cam.s = Math.max(this.fitScale(), Math.min(1.1, this.vh / this.worldH));
+    // Grand écran : toute la carte. Téléphone (portrait ou paysage) : la carte couvre l'écran, sans bandes vides.
+    if (this.vw >= 760 && this.vh >= 480) return this.fitAll();
+    this.cam.s = Math.max(this.fitScale(), this.vw / this.worldW, Math.min(1.1, this.vh / this.worldH));
     const ownX = side === 'SU' ? this.worldW * 0.62 : this.worldW * 0.38;
     this.cam.x = ownX - this.vw / this.cam.s / 2;
     this.cam.y = (this.worldH - this.vh / this.cam.s) / 2;
@@ -368,6 +379,9 @@ export class FrontRenderer extends Renderer {
       ctx.fillRect(0, 0, this.worldW, this.worldH);
     }
 
+    const now = view.now ?? performance.now();
+    this.fx.drawGround(ctx, now);
+
     if (!this.cur) this.snapshot(view.viewer ?? null);
     const fields = this.frontImage(Math.max(0, Math.min(1, view.t ?? 1)));
     ctx.imageSmoothingEnabled = true;
@@ -383,6 +397,7 @@ export class FrontRenderer extends Renderer {
       }
     }
     ctx.globalAlpha = 1;
+    this.fx.drawGlow(ctx, now);
 
     // Ligne de front : partage des deux camps, épaisse et sombre.
     const line = contourSegments(fields.o, 0.5);
@@ -392,6 +407,8 @@ export class FrontRenderer extends Renderer {
     ctx.strokeStyle = '#1d1a12';
     ctx.lineWidth = 2.4;
     strokeSegments(ctx, line);
+    drawUnits(ctx, f, view.viewer ?? null, this.unitStyle, CELL, 1 / cam.s);
+    this.fx.drawOver(ctx, now, 1 / cam.s);
 
     this.drawTowns(view.viewer ?? null);
     this.drawPockets(view.viewer ?? null);

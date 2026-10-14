@@ -73,8 +73,15 @@ défenseur, est tiré de la graine et annoncé au briefing, avec l'objectif : le
 - **Poches** : des troupes coupées de leur bord de carte fondent d'environ 30 % par jour. Chaque matin, pour
   chacune des vôtres : statu quo, Festung (se resserrer et tenir, en fondant moins vite) ou percée d'évasion
   (toucher ensuite sa direction).
-- **La journée** se déroule seule en une vingtaine de secondes, de 6 h à 20 h ; « Passer › » l'abrège
-  (`Entrée`). On entend les fusillades des secteurs au contact, les barrages du matin, les villes qui tombent.
+- **La journée** se déroule seule en une vingtaine de secondes, de 6 h à 20 h ; l'horloge prend la place du
+  bouton de lancement, « Passer » l'abrège (`Entrée`). Sur la carte, le front s'embrase là où l'on se bat : lueur
+  d'autant plus vive que les pertes sont lourdes, tirs traçants des deux camps (jaunes allemands, orange
+  soviétiques), rafales de mitrailleuse, obus là où les blindés poussent ; au matin, les barrages pilonnent leur
+  zone, laissant fumée et sol noirci. On entend les fusillades et mitrailleuses des secteurs au contact, les
+  canons des blindés, les salves des barrages, les villes qui tombent.
+- **Le panneau** (à droite, ou en bas en portrait) se replie avec le chevron (`P`) : la carte prend tout l'écran,
+  il ne reste qu'un rail avec la vue d'ensemble (`0`), le son (`M`) et le bouton du jour. Zoom au pincer ou à la
+  molette (`+` / `−` au clavier).
 - **Le soir**, un bilan : vos pertes, celles de l'ennemi estimées, le terrain, l'objectif, les renforts et la
   météo du lendemain.
 - **Victoire** au soir du 10e jour : l'attaquant gagne s'il tient assez de villes ★, sinon le défenseur a tenu.
@@ -270,6 +277,8 @@ dernier mouvement observé : c'est la base pour anticiper et placer ses barrages
 | `src/front.js` | Front stratégique : état, ordres, journée en ticks, poches, brouillard, victoire |
 | `src/frontai.js` | IA du front (ne lit que sa mémoire du brouillard) |
 | `src/frontinput.js` | Saisie du front sans DOM : case autour du doigt, estimation au toucher, foyers de combat |
+| `src/frontfx.js` | Effets de combat du front : lueurs au contact, tirs traçants, obus, barrages |
+| `src/frontunits.js` | Symboles d'unités du front (prototype : points, bataillons, symboles OTAN) |
 | `src/frontrender.js` | Rendu du front : masses fondues, ligne de front, ordres, poches |
 | `src/frontui.js` | Interface du front : briefing, outils, journée animée, bilans, sons |
 

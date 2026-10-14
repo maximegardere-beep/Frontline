@@ -258,7 +258,7 @@ partagés. Entrée « Front stratégique » au menu, sous les deux camps du mode
   (la percée demande de toucher sa direction). Point rouge sur l'onglet quand une poche attend.
 - Sans outil, toucher la carte : nos troupes comptées dans un rayon de 3 cases, l'ennemi estimé en fourchette
   (avec l'âge de l'observation hors de vue).
-- Journée : ~20 s (30 ticks de 667 ms), horloge de 6 h à 20 h en haut à gauche, bouton discret « Passer › »
+- Journée : ~20 s (30 ticks de 667 ms), horloge de 6 h à 20 h à la place du bouton de lancement, bouton discret « Passer »
   (ticks restants à 45 ms, une image par tick). Le menu met la journée en pause.
 - Bilan du soir : nos pertes exactes, celles de l'ennemi en fourchette, terrain gagné ou cédé, objectif, villes
   prises et encerclements, renforts, météo du lendemain, poches en attente. Le journal masque le bilan chiffré
@@ -301,3 +301,19 @@ densités. Le moteur garde des points d'accroche pour cela.
 - **Soutien aérien** aléatoire, appui de la Luftwaffe ou des Sturmoviks.
 - **Carte de campagne stratégique** reliant les batailles (choisir son axe d'attaque).
 - **Difficulté réglable** dans le menu (budget ennemi), à partir des réglages `ENEMY_BUDGETS` / `ENEMY_GROWTH`.
+
+### Retours de jeu : plein écran, effets de combat (après la v1)
+
+- Panneau réductible (chevron, `P`, mémorisé) : replié, un rail étroit à droite (ou une barre sous la carte en
+  portrait) garde la vue d'ensemble, le son et le bouton du jour ; la carte garde son centre et couvre l'écran.
+  Les boutons + / − sont retirés de la carte (pincer, molette, `+` / `−`), vue d'ensemble et son passent dans le
+  rail. Sur téléphone en paysage, la carte couvre l'écran au lieu d'être entière avec des bandes vides.
+- Effets (`frontfx.js`, purement visuels, lus dans `front.tickLoss` et `front.tickEdges` après chaque tick) :
+  lueur par case au contact, échelle logarithmique des pertes (escarmouche ≈ 0,02 par tick à peine visible,
+  assaut 0,2 à 1 flamboyant) ; tirs traçants reçus par chaque case (0,3 + 30 × pertes, 7 au plus, riposte 60 %),
+  une fois sur quatre en rafale de mitrailleuse ; obus là où l'assaillant est surtout blindé (puissance de choc
+  ≥ 1,45), avec antichars en riposte ; barrages : 16 explosions par tick et par zone pendant les 6 ticks du matin,
+  fumée 3 s, sol noirci 14 s. Seulement là où l'on a des troupes ou une vue, et seulement à l'écran ; rien en
+  accéléré ni en mouvement réduit. ~55 images/s en émulation iPhone pendant les barrages.
+- Sons : rafales de mitrailleuse, canons plus proches où les blindés poussent, 4 explosions par tick et par
+  barrage.

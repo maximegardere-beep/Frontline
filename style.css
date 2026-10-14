@@ -479,10 +479,6 @@ kbd {
   .map-tools { flex-direction: row; top: auto; bottom: 8px; right: 8px; }
   .directive-bar { max-width: calc(100% - 20px); }
 }
-@media (max-height: 500px) and (orientation: landscape) {
-  .front-app .map-tools { flex-direction: column; top: 8px; bottom: auto; }
-  .front-app .order-bar { right: 64px; }
-}
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
@@ -547,30 +543,32 @@ kbd {
 .hint.error { background: rgba(122, 34, 22, 0.92); }
 .front-app .hint { max-width: calc(100% - 20px); }
 
+/* Horloge de la journée : à la place du bouton de lancement, dans le panneau. */
 .day-clock {
-  position: absolute;
-  top: 10px;
-  left: max(10px, env(safe-area-inset-left, 0px));
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 4px 4px 4px 10px;
-  border: 1px solid rgba(0, 0, 0, 0.5);
-  border-radius: 4px;
-  background: rgba(44, 49, 36, 0.88);
+  min-height: 48px;
+  padding: 4px 4px 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--desk-3);
 }
-.clock-time { font: 700 14px var(--f-mono); font-variant-numeric: tabular-nums; min-width: 6.5ch; }
-.clock-track { width: clamp(70px, 18vw, 160px); height: 4px; background: rgba(0, 0, 0, 0.45); border-radius: 2px; overflow: hidden; }
-.clock-track i { display: block; height: 100%; width: 0; background: var(--brass); }
+.day-clock[hidden] { display: none; }
+.clock-time { font: 700 15px var(--f-mono); font-variant-numeric: tabular-nums; min-width: 6.5ch; }
+.clock-track { flex: 1; min-width: 40px; height: 4px; background: rgba(0, 0, 0, 0.45); border-radius: 2px; overflow: hidden; }
+.clock-track i { display: block; height: 100%; width: var(--p, 0%); background: var(--brass); }
 .clock-skip {
-  min-height: 36px;
+  min-height: 40px;
   padding: 2px 10px;
   border: 0;
   background: transparent;
   color: var(--muted);
-  font: 500 12px var(--f-body);
+  font: 500 13px var(--f-body);
+  white-space: nowrap;
   cursor: pointer;
 }
+.clock-skip svg { width: 13px; height: 13px; vertical-align: -2px; }
 .clock-skip:disabled { opacity: 0.5; }
 @media (hover: hover) { .clock-skip:hover:not(:disabled) { color: var(--text); } .otool:hover:not(:disabled) { border-color: var(--brass); } }
 
@@ -608,3 +606,48 @@ kbd {
 .front-pick .btn::before { content: ''; display: inline-block; width: 18px; height: 12px; margin-right: 8px; border: 1px solid var(--ink); vertical-align: -1px; }
 .front-pick [data-front="DE"]::before { background: var(--de); }
 .front-pick [data-front="SU"]::before { background: var(--su); }
+
+/* Panneau du front : rail (replier, onglets en mobile, vue d'ensemble, son), panneaux, bouton du jour.
+   Replié, il ne reste que le rail : une colonne étroite à droite, ou une barre sous la carte en portrait. */
+.f-side .rail { order: -2; display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--line); flex: none; }
+.f-side .rail .tool { width: 40px; height: 40px; position: relative; }
+.rail-toggle svg { transition: transform 0.2s; }
+.f-side.collapsed .rail-toggle svg { transform: rotate(180deg); }
+.tool.badge::after { content: ''; position: absolute; top: 5px; right: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--pencil); }
+.btn-go { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.go-i { width: 15px; height: 15px; flex: none; }
+.front-app.side-collapsed .desk { grid-template-columns: minmax(0, 1fr) 60px; }
+.f-side.collapsed .panels, .f-side.collapsed .tabs { display: none; }
+.f-side.collapsed .rail { flex-direction: column; padding: 8px 0; border-bottom: 0; }
+.f-side.collapsed .dock { order: 1; margin-top: auto; padding: 8px; border: 0; }
+.f-side.collapsed .go-l, .f-side.collapsed .clock-time, .f-side.collapsed .skip-l { display: none; }
+.f-side.collapsed .btn-go { width: 44px; min-height: 44px; padding: 0; }
+.f-side.collapsed .day-clock { flex-direction: column; gap: 8px; padding: 10px 0 2px; }
+.f-side.collapsed .clock-track { flex: none; width: 4px; height: 90px; min-width: 0; }
+.f-side.collapsed .clock-track i { width: 100%; height: var(--p, 0%); }
+.f-side.collapsed .clock-skip { padding: 2px 8px; }
+.front-app .order-bar { right: 10px; }
+
+@media (max-width: 820px) and (orientation: portrait), (max-width: 600px) {
+  .f-side .rail { padding: 0 4px; gap: 2px; }
+  .f-side .tabs { flex: 1; min-width: 0; border-bottom: 0; }
+  .f-side .tab { padding-inline: 2px; }
+  .f-side .tab[aria-selected="true"]::after { content: none; }
+  .rail-toggle svg { transform: rotate(90deg); }
+  .f-side.collapsed .rail-toggle svg { transform: rotate(-90deg); }
+  .front-app.side-collapsed .desk { grid-template-columns: minmax(0, 1fr); }
+  .f-side.collapsed { flex-direction: row; align-items: center; gap: 4px; padding: 6px 12px 6px 4px; padding-bottom: max(6px, env(safe-area-inset-bottom, 0px)); }
+  .f-side.collapsed .rail { flex-direction: row; padding: 0; gap: 2px; }
+  .f-side.collapsed .dock { flex: 1; min-width: 0; margin: 0; padding: 0; }
+  .f-side.collapsed .go-l, .f-side.collapsed .clock-time, .f-side.collapsed .skip-l { display: inline; }
+  .f-side.collapsed .btn-go { width: 100%; }
+  .f-side.collapsed .day-clock { flex-direction: row; gap: 8px; padding: 2px 2px 2px 10px; }
+  .f-side.collapsed .clock-track { flex: 1; width: auto; height: 4px; min-width: 30px; }
+  .f-side.collapsed .clock-track i { width: var(--p, 0%); height: 100%; }
+}
+@media (max-height: 500px) and (orientation: landscape) {
+  .f-side .rail { padding: 4px 6px; gap: 2px; }
+  .f-side .tabs { flex: 1; min-width: 0; border-bottom: 0; }
+  .f-side .tab { min-height: 40px; padding-inline: 2px; letter-spacing: 0.04em; }
+  .f-side .rail .tool { width: 36px; height: 36px; }
+}

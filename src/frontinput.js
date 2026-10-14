@@ -3,6 +3,9 @@
 // - estimation des forces dans une zone touchée, à travers le brouillard ;
 // - foyers de combat d'un tick, pour les sons.
 
+// Case dont la poussée est surtout blindée (puissance de choc moyenne des vecteurs : infanterie 1,2, blindés 1,8).
+export const ARMOR_ATK = 1.45;
+
 // Une poche de moins de 200 hommes (enclave de montagne, débris) ne mérite ni contour, ni étiquette, ni ordre.
 export const MIN_POCKET = 20;
 
@@ -76,22 +79,29 @@ export function areaReport(front, s, p, i, R = 3, omni = false) {
 }
 
 // Foyers de combat du dernier tick, entendus par le camp s : pertes regroupées par blocs de 8 × 8 cases, là où
-// il a des troupes ou une vue. Renvoie au plus `max` foyers { x, y, loss } (grille), les plus violents d'abord.
+// il a des troupes ou une vue. Renvoie au plus `max` foyers { x, y, loss, armor } (grille), les plus violents
+// d'abord ; armor : pression des poussées blindées dans le bloc (on y entend les canons).
 export function combatSpots(front, s, max = 3, block = 8) {
   const loss = front.tickLoss;
   if (!loss) return [];
   const { W, H, N } = front.map;
   const bw = Math.ceil(W / block), bh = Math.ceil(H / block);
-  const sum = new Float32Array(bw * bh), sx = new Float32Array(bw * bh), sy = new Float32Array(bw * bh);
+  const sum = new Float32Array(bw * bh), sx = new Float32Array(bw * bh), sy = new Float32Array(bw * bh), arm = new Float32Array(bw * bh);
+  const blockOf = (i) => Math.floor(Math.floor(i / W) / block) * bw + Math.floor((i % W) / block);
   for (let i = 0; i < N; i++) {
     const l = loss[i];
     if (!(l > 0) || !(front.owner[i] === s || front.vision[s]?.[i])) continue;
-    const b = Math.floor(Math.floor(i / W) / block) * bw + Math.floor((i % W) / block);
+    const b = blockOf(i);
     sum[b] += l;
     sx[b] += l * front.centers.x[i];
     sy[b] += l * front.centers.y[i];
   }
+  const e = front.tickEdges ?? [];
+  for (let k = 0; k < e.length; k += 3) {
+    const i = e[k], a = front.owner[i];
+    if (a >= 0 && front.field[a].atk[i] >= ARMOR_ATK) arm[blockOf(e[k + 1])] += e[k + 2];
+  }
   const spots = [];
-  for (let b = 0; b < bw * bh; b++) if (sum[b] > 0.3) spots.push({ x: sx[b] / sum[b], y: sy[b] / sum[b], loss: sum[b] });
+  for (let b = 0; b < bw * bh; b++) if (sum[b] > 0.3) spots.push({ x: sx[b] / sum[b], y: sy[b] / sum[b], loss: sum[b], armor: arm[b] });
   return spots.sort((a, b) => b.loss - a.loss).slice(0, max);
 }

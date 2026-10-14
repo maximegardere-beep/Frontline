@@ -100,17 +100,6 @@
     <section class="board" aria-label="Carte du front">
       <canvas id="f-map" class="map-canvas"></canvas>
       <canvas id="f-weather" class="weather-canvas" aria-hidden="true"></canvas>
-      <div class="map-tools">
-        <button class="tool" id="f-zoom-in" aria-label="Zoomer">+</button>
-        <button class="tool" id="f-zoom-out" aria-label="Dézoomer">−</button>
-        <button class="tool" id="f-zoom-fit" aria-label="Voir toute la carte"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 8V3h5M12 3h5v5M17 12v5h-5M8 17H3v-5" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
-        <button class="tool sound-toggle" id="f-sound" aria-label="Couper le son" aria-pressed="true" title="Son (M)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 7.5h3l4.5-4v13l-4.5-4H3z" fill="currentColor"/><path class="snd-on" d="M13.5 7a4 4 0 010 6M15.5 4.5a7.5 7.5 0 010 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path class="snd-off" d="M13.5 7.5l5 5m0-5l-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
-      </div>
-      <div class="day-clock" id="f-clock" hidden>
-        <span class="clock-time" id="f-clock-time"></span>
-        <span class="clock-track"><i id="f-clock-bar"></i></span>
-        <button class="clock-skip" id="f-skip" title="Passer la journée (Entrée)">Passer ›</button>
-      </div>
       <div class="order-bar" id="f-tools" role="toolbar" aria-label="Ordres du matin">
         <button class="otool" data-tool="infantry" aria-pressed="false" title="Vecteur d'infanterie (1)"><span class="tool-l">Inf.</span><span class="tool-n"></span></button>
         <button class="otool" data-tool="armor" aria-pressed="false" title="Percée blindée (2)"><span class="tool-l">Blindés</span><span class="tool-n"></span></button>
@@ -121,12 +110,17 @@
       </div>
       <p class="hint" id="f-hint" hidden></p>
     </section>
-    <aside class="side">
-      <nav class="tabs" role="tablist" aria-label="Panneaux">
-        <button class="tab" role="tab" data-ftab="orders" id="f-tab-orders">Ordres</button>
-        <button class="tab" role="tab" data-ftab="forces">Forces</button>
-        <button class="tab" role="tab" data-ftab="log">Journal</button>
-      </nav>
+    <aside class="side f-side" id="f-side">
+      <div class="rail">
+        <button class="tool rail-toggle" id="f-collapse" aria-expanded="true" aria-controls="f-side" aria-label="Réduire le panneau" title="Réduire le panneau (P)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 4l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <nav class="tabs" role="tablist" aria-label="Panneaux">
+          <button class="tab" role="tab" data-ftab="orders" id="f-tab-orders">Ordres</button>
+          <button class="tab" role="tab" data-ftab="forces">Forces</button>
+          <button class="tab" role="tab" data-ftab="log">Journal</button>
+        </nav>
+        <button class="tool" id="f-zoom-fit" aria-label="Voir toute la carte" title="Voir toute la carte (0)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 8V3h5M12 3h5v5M17 12v5h-5M8 17H3v-5" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
+        <button class="tool sound-toggle" id="f-sound" aria-label="Couper le son" aria-pressed="true" title="Son (M)"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 7.5h3l4.5-4v13l-4.5-4H3z" fill="currentColor"/><path class="snd-on" d="M13.5 7a4 4 0 010 6M15.5 4.5a7.5 7.5 0 010 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path class="snd-off" d="M13.5 7.5l5 5m0-5l-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+      </div>
       <div class="panels">
         <section class="panel" id="f-orders" data-fpanel="orders" aria-live="polite"></section>
         <section class="panel" id="f-forces" data-fpanel="forces"></section>
@@ -136,7 +130,12 @@
         </section>
       </div>
       <div class="dock">
-        <button class="btn btn-primary btn-go" id="f-go">Lancer la journée</button>
+        <button class="btn btn-primary btn-go" id="f-go" title="Lancer la journée (Entrée)"><svg class="go-i" viewBox="0 0 20 20" aria-hidden="true"><path d="M6 4l10 6-10 6z" fill="currentColor"/></svg><span class="go-l" id="f-go-label">Lancer la journée</span></button>
+        <div class="day-clock" id="f-clock" hidden>
+          <span class="clock-time" id="f-clock-time"></span>
+          <span class="clock-track" id="f-clock-track"><i></i></span>
+          <button class="clock-skip" id="f-skip" title="Passer la journée (Entrée)" aria-label="Passer la journée"><span class="skip-l">Passer</span> <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 4l7 6-7 6zM10 4l7 6-7 6z" fill="currentColor"/></svg></button>
+        </div>
       </div>
     </aside>
   </main>

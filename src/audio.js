@@ -139,6 +139,12 @@ class AudioBoard {
     this.burst(t, { type: 'lowpass', f0: far ? 500 : 1400, f1: 120, peak: 0.8 * k, attack: 0.004, decay: heavy ? 1.1 : 0.7 }, dest);
   }
 
+  // Rafale de mitrailleuse lointaine : claquements secs et rapprochés.
+  mg(t, dest) {
+    const n = 5 + ((Math.random() * 4) | 0), v = 0.9 + Math.random() * 0.2;
+    for (let i = 0; i < n; i++) this.burst(t + i * 0.065, { type: 'bandpass', f0: 1100 * v, q: 1.1, peak: 0.16, attack: 0.001, decay: 0.05 }, dest);
+  }
+
   whistle(t, dur, dest) {
     if (dur < 0.25) return;
     const f0 = 1500 + Math.random() * 400;
@@ -201,13 +207,14 @@ class AudioBoard {
       if (s.k === 'fire') {
         const n = Math.min(8, Math.round(s.n)); // sobre : jusqu'à trois foyers par tick, sur iPhone
         for (let i = 0; i < n; i++) this.rifle(at(), dest, true);
-        for (let i = 0; i < Math.min(2, Math.floor(s.n / 4)); i++) this.cannon(at(), dest, true, Math.random() < 0.3);
+        for (let i = 0; i < Math.min(2, Math.floor(s.n / 3)); i++) this.mg(at(0.7), dest);
+        // Blindés au contact : départs de canons plus nombreux et plus proches.
+        const guns = s.armor > 0 ? Math.min(3, 1 + Math.floor(s.armor * 0.2)) : Math.min(2, Math.floor(s.n / 4));
+        for (let i = 0; i < guns; i++) this.cannon(at(), dest, !(s.armor > 0 && i === 0), Math.random() < 0.3);
       } else if (s.k === 'barrage') {
-        for (let i = 0; i < 2; i++) {
-          const t = at(0.6);
-          this.whistle(t, 0.45, dest);
-          this.blast(t + 0.45, 12 + Math.random() * 8, dest, false);
-        }
+        // Salve : quelques sifflements, puis une grêle d'explosions sur toute la durée du tick.
+        for (let i = 0; i < 2; i++) this.whistle(at(0.4), 0.45, dest);
+        for (let i = 0; i < 4; i++) this.blast(t0 + 0.3 + Math.random() * dur, 10 + Math.random() * 10, dest, false);
       } else if (s.k === 'town') this.blast(t0, 24, dest, true);
       else if (s.k === 'pocket') {
         this.burst(t0, { type: 'bandpass', f0: 1600, q: 0.8, peak: 0.1, attack: 0.01, decay: 0.18 }, dest);
