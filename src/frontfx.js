@@ -11,6 +11,22 @@ import { ARMOR_ATK } from './frontinput.js';
 
 const TRACER = ['#fff27a', '#ff7a3c']; // Wehrmacht (jaune), Armée rouge (orange)
 const MAX_PARTS = 1600;
+// Panaches de fumée : bouffées émises en continu par les foyers (incendies, combats intenses), poussées par le vent.
+const PLUME = { rate: 0.008, life: 5200, max: 700, grow: 20, drift: 0.011 }; // bouffées par ms et par foyer à plein, vie (ms), …
+
+// Bouffée de fumée : disque flou d'une couleur.
+function puffSprite(rgb) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 48;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(24, 24, 0, 24, 24, 24);
+  grad.addColorStop(0, `rgba(${rgb}, 1)`);
+  grad.addColorStop(0.5, `rgba(${rgb}, 0.55)`);
+  grad.addColorStop(1, `rgba(${rgb}, 0)`);
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 48, 48);
+  return c;
+}
 
 function glowSprite() {
   const c = document.createElement('canvas');
@@ -31,11 +47,73 @@ export class FrontFx {
     this.parts = []; // { k, t0, life, ... } en pixels monde, temps en ms (performance.now)
     this.glow = []; // [x, y, intensité, phase] × n, lueurs du dernier tick
     this.sprite = null;
+    this.plumes = []; // bouffées des panaches { t0, x, y, dark }
+    this.sources = {}; // foyers de l'image en cours, par nature : [x, y, force] × n
+    this.wind = { x: 1, y: 0, k: 0.6 }; // direction (unitaire) et force (0 à 1) du vent du jour
+    this.still = false; // mouvement réduit ou journée accélérée : pas de nouvelles bouffées
+    this.lastPlume = 0;
   }
 
   clear() {
     this.parts.length = 0;
     this.glow = [];
+    this.plumes.length = 0;
+  }
+
+  glowSprite() { return (this.sprite ??= glowSprite()); }
+
+  // Flamme : cœur clair, bord orange, sans halo large.
+  fireSprite() {
+    if (this.fire) return this.fire;
+    const c = (this.fire = document.createElement('canvas'));
+    c.width = c.height = 32;
+    const g = c.getContext('2d');
+    const grad = g.createRadialGradient(16, 16, 0, 16, 16, 16);
+    grad.addColorStop(0, 'rgba(255, 232, 160, 1)');
+    grad.addColorStop(0.3, 'rgba(255, 140, 44, 0.8)');
+    grad.addColorStop(0.65, 'rgba(210, 64, 20, 0.2)');
+    grad.addColorStop(1, 'rgba(180, 40, 10, 0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 32, 32);
+    return c;
+  }
+
+  // Foyers d'une nature ('fire', 'battle', …) pour l'image en cours.
+  plumeSources(list, kind) { this.sources[kind] = list; }
+
+  // Panaches : émission depuis les foyers, puis bouffées qui grossissent, s'éclaircissent et dérivent sous le vent.
+  drawPlumes(ctx, now) {
+    this.smokeDark ??= puffSprite('62, 58, 54');
+    this.smokeLight ??= puffSprite('132, 126, 116');
+    const dt = Math.min(100, Math.max(0, now - (this.lastPlume || now)));
+    this.lastPlume = now;
+    const P = this.plumes;
+    if (!this.still) {
+      for (const list of Object.values(this.sources)) {
+        for (let k = 0; k < list.length; k += 3) {
+          let n = PLUME.rate * dt * list[k + 2];
+          n = Math.floor(n) + (Math.random() < n % 1 ? 1 : 0);
+          for (let q = 0; q < n; q++) P.push({ t0: now - Math.random() * dt, x: list[k] + (Math.random() - 0.5) * 1.5, y: list[k + 1] + (Math.random() - 0.5) * 1.5, ph: Math.random() * 6, s: list[k + 2] });
+        }
+      }
+      if (P.length > PLUME.max) P.splice(0, P.length - PLUME.max);
+    }
+    if (!P.length) return;
+    const w = this.wind, v = PLUME.drift * (0.35 + w.k);
+    let alive = 0;
+    for (const p of P) {
+      const age = now - p.t0, u = age / PLUME.life;
+      if (u >= 1 || u < 0) continue;
+      alive++;
+      // Le vent pousse ; la bouffée monte aussi un peu (vers le haut de l'écran) et ondule.
+      const wob = Math.sin(age * 0.002 + p.ph) * 3 * u;
+      const x = p.x + w.x * v * age - w.y * wob, y = p.y + w.y * v * age + w.x * wob - 4 * u;
+      const R = 1.8 + PLUME.grow * u * (0.6 + 0.4 * p.s) / (0.6 + w.k);
+      ctx.globalAlpha = 0.26 * (1 - u) * Math.min(1, u * 10) * (0.5 + 0.5 * p.s);
+      ctx.drawImage(u < 0.3 ? this.smokeDark : this.smokeLight, x - R, y - R, R * 2, R * 2);
+    }
+    ctx.globalAlpha = 1;
+    if (P.length > 200 && alive < P.length * 0.7) this.plumes = P.filter((p) => now - p.t0 < PLUME.life);
   }
 
   // front : état après le tick ; viewer : camp observateur (null : tout) ; now, dur : fenêtre du tick (ms) ;
@@ -313,5 +391,5 @@ export class FrontFx {
     if (parts.length > 200 || !live) this.parts = parts.filter((p) => now < p.t0 + p.life);
   }
 
-  busy(now) { return this.glow.length > 0 || this.parts.some((p) => now < p.t0 + p.life); }
+  busy(now) { return this.glow.length > 0 || this.plumes.length > 0 || this.parts.some((p) => now < p.t0 + p.life); }
 }

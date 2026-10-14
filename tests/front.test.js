@@ -4,6 +4,7 @@ import { createFront, runDay, beginDay, stepTick, addVector, troops, FRONT_SETUP
 import { generateFrontMap } from '../src/mapgen.js';
 import { MOUNTAIN, computeTerrain } from '../src/terrain.js';
 const computeTerrainFor = (f) => computeTerrain(f.map, false);
+const applyWeatherOf = (f) => computeTerrain(f.map, false, f.ruin);
 
 // Case allemande au contact la plus proche de la ligne row.
 function frontCell(f, row) {
@@ -441,4 +442,31 @@ test('formations blindées : en réserve sans ordre, elles percent vers leur obj
   beginDay(f);
   stepTick(f);
   assert.ok(b.lost, 'formation encerclée détruite');
+});
+
+test('villes sous le feu : la défense fond puis remonte dans les ruines, les chars s\'y empêtrent, barrage et prise abîment', async () => {
+  const { RUINS, ruinBonus } = await import('../src/terrain.js');
+  const { ruinTown, stepTick } = await import('../src/front.js');
+  assert.equal(ruinBonus(0), RUINS.intact);
+  assert.ok(ruinBonus(RUINS.troughAt) < ruinBonus(0) && ruinBonus(1) > ruinBonus(RUINS.troughAt), 'creux à mi-destruction, remontée dans les ruines');
+  const f = createFront({ seed: 'ruines', biome: 'bourg', attacker: 'DE' });
+  const c = f.townCells.find((i) => !f.map.river[i]);
+  const intact = { def: f.map.def[c], flowA: f.map.flowA[c], atkA: f.map.atkA[c] };
+  ruinTown(f, c, RUINS.troughAt);
+  assert.ok(f.map.def[c] < intact.def, 'ville en flammes : défense en baisse');
+  ruinTown(f, c, 1);
+  assert.equal(f.ruin[c], 1);
+  assert.ok(f.map.def[c] > intact.def * 0.9 && f.map.def[c] < intact.def, 'ruines : la défense remonte, sans dépasser la ville intacte');
+  assert.ok(f.map.flowA[c] < intact.flowA * 0.5 && f.map.atkA[c] < intact.atkA * 0.6, 'les chars s\'empêtrent dans les décombres');
+  // La météo recalcule le terrain sans oublier les ruines.
+  applyWeatherOf(f);
+  assert.ok(f.map.flowA[c] < intact.flowA * 0.5);
+  // Un barrage sur une ville l'abîme.
+  const g = createFront({ seed: 'ruines', biome: 'bourg', attacker: 'DE' });
+  const t = g.townCells.find((i) => !g.map.river[i]);
+  const gun = g.guns.find((x) => x.side === 0);
+  beginDay(g);
+  g.barrages[0].push({ id: 99, gun: gun.id, x: g.centers.x[t], y: g.centers.y[t], r: 1 });
+  for (let k = 0; k < g.cfg.barrageTicks; k++) stepTick(g);
+  assert.ok(g.ruin[t] > 0.1, `barrage : ruine ${g.ruin[t].toFixed(2)}`);
 });

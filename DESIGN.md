@@ -453,3 +453,19 @@ densités. Le moteur garde des points d'accroche pour cela.
 - Mesure (60 à 72 batailles IA contre IA par année, attaquant tiré selon le scénario) : 1941 Wehrmacht 38 % / Armée
   rouge 38 % ; 1942 35 / 37 ; 1943 38 / 47 ; 1944 31 / 60 (beaucoup de fins anticipées : l'effondrement allemand y
   échappe au score). Indécis 10 à 28 %.
+
+### Villes sous le feu
+
+- Chaque case de ville porte une destruction de 0 à 1 (`front.ruin`) : +0,04 par tick de barrage divisionnaire à
+  pleine puissance (lourde +0,07, mortiers et Katioucha moins), +0,03 par unité de densité perdue dans la case, +0,15
+  quand un assaut l'emporte. Elle ne se répare pas.
+- Effet Stalingrad (`terrain.js`, RUINS) : le bonus défensif passe de +70 % (intacte) à +30 % à mi-destruction, quand la
+  ville brûle et s'effondre, puis remonte à +60 % dans les ruines complètes, une forteresse pour l'infanterie. Les
+  décombres coûtent 20 % de fluidité à l'infanterie, 55 % aux blindés (route comprise) et 45 % de leur choc.
+  Bombarder une ville avant l'assaut paie donc, mais la raser rend la tâche à nouveau plus dure.
+- Mesure (IA contre IA) : une ville prise d'assaut finit « endommagée » (≈ 0,2) ; seuls les combats de rue prolongés
+  du biome « grande ville » la mettent en ruines.
+- Rendu : les maisons sont dessinées à chaque image selon leur case (toit qui disparaît, murs noircis, puis tas de
+  gravats gris, au-dessus des masses pour rester lisibles) ; chaque hausse de destruction attise un incendie qui
+  s'éteint en un jour environ, avec un panache de fumée poussé par le vent. Chez l'ennemi, l'état n'est connu que des
+  cases déjà observées, et les flammes ne se voient qu'à portée de vue.

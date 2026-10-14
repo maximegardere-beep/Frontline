@@ -532,7 +532,7 @@ function probeAt(p) {
   const omni = viewer() === null;
   const { side, sum, visible, age: seen } = areaReport(f, s, p, i, R, omni);
   fui.probe = { x: p.x, y: p.y, r: R };
-  const terrain = describeCell(f.map, i);
+  const terrain = describeCell(f.map, i, f.ruin?.[i]);
   let text;
   if (side < 0) text = terrain;
   else if (omni || side === s) {
@@ -620,6 +620,7 @@ function startLoop() {
     fui.last = now;
     if (byId('overlay').hidden) fui.acc += dt;
     const T = tickMs();
+    fui.r.fx.still = fui.skip || stillMotion();
     while (fui.acc >= T) {
       if (fui.ending) { fui.acc = T; return endOfDay(); }
       fui.acc -= T;

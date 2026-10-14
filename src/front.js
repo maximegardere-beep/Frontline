@@ -7,7 +7,7 @@
 import { createRng, hashString } from './rng.js';
 import { generateFrontMap, makeNoise } from './mapgen.js';
 import { cellCenters, pixelToHex } from './hex.js';
-import { MOUNTAIN, computeTerrain } from './terrain.js';
+import { MOUNTAIN, TOWN, RUINS, computeTerrain, cellTerrain } from './terrain.js';
 import { SEASON } from './conditions.js';
 import { findPockets, bfsDistance } from './path.js';
 import { emptyField, frontNeed, frontTick } from './combat.js';
@@ -119,6 +119,7 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
     season: Math.max(0, Math.min(SEASON.length - 1, season)),
     weather: 'clear',
     entrench: new Float32Array(N), // 0 à 1 : retranchement de chaque case (défense × 1 + entrenchDef × e)
+    ruin: new Float32Array(N), // 0 à 1 : destruction des cases de ville (terrain.js, RUINS)
     orders: [[], []],
     lastOrders: [[], []],
     lines: [[], []], // lignes de défense du jour
@@ -172,6 +173,8 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
   }
   // Villes ★ : celles du défenseur au départ (score de l'offensive, frontscore.js).
   front.defTowns = map.towns.filter((t) => owner[t.i] === def).map((t) => t.i);
+  front.townCells = [];
+  for (let i = 0; i < N; i++) if (map.kind[i] === TOWN) front.townCells.push(i);
   front.goal = Math.max(1, Math.ceil(front.defTowns.length * cfg.goalShare - 1e-9));
   front.initial = [troops(front, 0) + front.reserve[0], troops(front, 1) + front.reserve[1]];
   front.memory = [0, 1].map((s) => ({ owner: Int8Array.from(owner), est: new Float32Array(N), seen: new Int32Array(N).fill(-1) }));
@@ -199,7 +202,14 @@ function rollWeather(front) {
 
 // Le gel rend les marais et les rivières praticables : terrain recalculé.
 export function applyWeather(front) {
-  computeTerrain(front.map, !!FRONT_WEATHER[front.weather].frozen);
+  computeTerrain(front.map, !!FRONT_WEATHER[front.weather].frozen, front.ruin);
+}
+
+// Villes sous le feu : la case de ville i s'abîme de amount (barrage, combat, prise) ; son terrain est recalculé.
+export function ruinTown(front, i, amount) {
+  if (front.map.kind[i] !== TOWN || !(amount > 0) || front.ruin[i] >= 1) return;
+  front.ruin[i] = Math.min(1, front.ruin[i] + amount);
+  cellTerrain(front.map, i, !!FRONT_WEATHER[front.weather].frozen, front.ruin[i]);
 }
 
 export const visionRange = (front) => Math.max(1, front.cfg.vision + FRONT_WEATHER[front.weather].vision);
@@ -624,6 +634,7 @@ export function stepTick(front) {
   const densBefore = Float32Array.from(front.dens);
   const events = frontTick(front);
   events.push(...early);
+  for (const t of front.townCells) ruinTown(front, t, front.tickLoss[t] * RUINS.combat);
   armorAfter(front, front.tickLoss, densBefore, events);
   supportFire(front, front.tickEdges);
   moveGuns(front, events);
@@ -637,6 +648,7 @@ export function stepTick(front) {
   for (const e of events) {
     if (e.kind !== 'capture') continue;
     captureWorks(front, e.i); // barbelés coupés, tranchées bouleversées
+    ruinTown(front, e.i, RUINS.capture);
     const town = front.map.towns.find((t) => t.i === e.i);
     noteCapture(front, e.i, e.side);
     if (town) flog(front, 'town', `${FRONT_SIDES[e.side] === 'DE' ? 'La Wehrmacht' : 'L\'Armée rouge'} prend ${town.name}.`, e.side);
@@ -689,6 +701,7 @@ function applyWorks(front, events) {
         if (Math.hypot(front.centers.x[i] - b.x, front.centers.y[i] - b.y) > b.r) continue;
         // Ouvrages (des deux camps) et ponts dans la zone ; les troupes ennemies seulement.
         const blown = barrageWorks(front, i, k * (K.works / 0.12), g.kind === 'heavy');
+        ruinTown(front, i, RUINS.barrage * k * (K.works / 0.12));
         if (blown) { bridges = true; events.push({ ...blown, side: s }); }
         if (front.owner[i] !== 1 - s) continue;
         const l = front.dens[i] * K.rate * k;

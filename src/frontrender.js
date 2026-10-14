@@ -29,6 +29,7 @@ const SIDE_LINE = ['#26303d', '#4a1610'];
 const ORDER_INK = '#ffd23f'; // ordres du joueur
 const ORDER_HALO = 'rgba(24, 20, 10, 0.8)';
 const SPRITE_K = 1.7; // échelle des pièces vues de dessus (lisibles sans zoomer)
+const FIRE = { decay: 0.965, gain: 5, min: 0.08 }; // incendies : déclin par tick, attisement par point de destruction
 
 
 // Poids de lissage d'un point de la carte : la case sous le point et ses voisines (noyau gaussien).
@@ -92,6 +93,9 @@ export class FrontRenderer extends Renderer {
     this.worldH = Math.ceil((this.map.H - 1) * 1.5 * CELL + 2 * CELL);
     this.cache = {};
     this.wrecks = [];
+    this.houses = [];
+    this.fire = new Float32Array(front.map.N); // incendies des villes (visuel) : 0 à 1, attisés par la destruction
+    this.ruinSeen = Float32Array.from(front.ruin ?? new Float32Array(front.map.N));
     this.fx = new FrontFx(CELL);
     this.sampler = makeSampler(this.map, this.worldW, this.worldH, 4, CELL * 1.25);
     // Montagnes : chaque case reçoit la case praticable la plus proche, dont elle prend le camp dans le rendu
@@ -259,12 +263,11 @@ export class FrontRenderer extends Renderer {
           ctx.stroke();
         }
       } else if (k === K.town) {
+        // Maisons : dessinées à chaque image selon l'état de la ville (drawHouses). th : ordre d'effondrement.
         for (let t = 0; t < 4; t++) {
           const hx = p.x + (r.next() - 0.5) * CELL * 1.3, hy = p.y + (r.next() - 0.5) * CELL * 1.2;
-          ctx.fillStyle = PALETTE.house;
-          ctx.fillRect(hx - 2.2, hy - 1.8, 4.4, 3.6);
-          ctx.fillStyle = PALETTE.roof;
-          ctx.fillRect(hx - 2.2, hy - 1.8, 4.4, 1.5);
+          const q = createRng(c * 31 + t);
+          this.houses.push({ c, x: hx, y: hy, th: q.next(), fire: q.next(), ph: q.next() * 10, shape: [0, 1, 2, 3, 4, 5].map(() => 0.6 + q.next() * 0.7) });
         }
       }
     }
@@ -534,6 +537,7 @@ export class FrontRenderer extends Renderer {
 
   // Instantané lissé, à appeler après chaque tick ; le rendu interpole entre les deux derniers.
   snapshot(viewer) {
+    this.updateFires();
     const v = this.viewOf(viewer);
     const S = this.sampler;
     const open = S.field(v.open).data;
@@ -619,6 +623,7 @@ export class FrontRenderer extends Renderer {
 
     const now = view.now ?? performance.now();
     this.fx.drawGround(ctx, now);
+    this.drawHouses(view.viewer ?? null, false);
 
     if (!this.cur) this.snapshot(view.viewer ?? null);
     const fields = this.frontImage(Math.max(0, Math.min(1, view.t ?? 1)));
@@ -635,11 +640,13 @@ export class FrontRenderer extends Renderer {
       }
     }
     ctx.globalAlpha = 1;
+    this.drawHouses(view.viewer ?? null, true);
     this.drawWorks(view.viewer ?? null);
     this.drawRails(view.viewer ?? null);
     const spears = f.phase === 'resolve' ? [...this.spearheads(view.viewer ?? null), ...this.armorTrails(view.viewer ?? null)] : [];
     this.drawSpearMass(spears);
     this.fx.drawGlow(ctx, now);
+    this.drawFires(view.viewer ?? null, now);
 
     // Ligne de front : partage des deux camps, épaisse et sombre.
     const line = contourSegments(fields.o, 0.5);
@@ -650,6 +657,7 @@ export class FrontRenderer extends Renderer {
     ctx.lineWidth = 2.4;
     strokeSegments(ctx, line);
     this.fx.drawOver(ctx, now, 1 / cam.s);
+    this.fx.drawPlumes(ctx, now);
     this.drawSpearTips(spears.filter((sp) => !sp.formation));
     this.drawArmor(view);
 
@@ -682,6 +690,99 @@ export class FrontRenderer extends Renderer {
       ctx.stroke();
       ctx.setLineDash([]);
     }
+  }
+
+  // ---------- Villes sous le feu ----------
+
+  // Incendies : chaque hausse de la destruction d'une case de ville l'attise ; ils s'éteignent en un jour environ.
+  updateFires() {
+    const f = this.front;
+    if (!f.ruin) return;
+    for (const c of f.townCells ?? []) {
+      const d = f.ruin[c] - this.ruinSeen[c];
+      this.ruinSeen[c] = f.ruin[c];
+      this.fire[c] = Math.min(1, this.fire[c] * FIRE.decay + Math.max(0, d) * FIRE.gain);
+    }
+  }
+
+  // Part effondrée d'une maison (0 intacte, 1 gravats) selon la destruction de sa case.
+  houseRuin(h) {
+    const r = this.front.ruin?.[h.c] ?? 0;
+    return Math.max(0, Math.min(1, (r - h.th * 0.75) / 0.3));
+  }
+
+  // Maisons : toit puis murs qui cèdent, gravats gris et sol noirci. Les intactes sous les masses, comme le terrain
+  // (damaged false) ; les abîmées par-dessus, pour que les ruines se lisent dans les deux camps (damaged true).
+  drawHouses(viewer, damaged) {
+    const { ctx } = this;
+    const f = this.front, mem = viewer === null ? null : f.memory[viewer];
+    for (const h of this.houses) {
+      // Chez l'ennemi : l'état connu, celui d'une case déjà observée ; sinon la ville d'avant-guerre.
+      const known = !mem || f.owner[h.c] === viewer || mem.seen[h.c] >= 0;
+      const u = known ? this.houseRuin(h) : 0;
+      if (u > 0 !== damaged) continue;
+      if (u <= 0) {
+        ctx.fillStyle = PALETTE.house;
+        ctx.fillRect(h.x - 2.2, h.y - 1.8, 4.4, 3.6);
+        ctx.fillStyle = PALETTE.roof;
+        ctx.fillRect(h.x - 2.2, h.y - 1.8, 4.4, 1.5);
+        continue;
+      }
+      ctx.fillStyle = `rgba(40, 30, 20, ${0.16 + 0.2 * u})`;
+      ctx.beginPath();
+      ctx.arc(h.x, h.y, 2.6 + 1.2 * u, 0, Math.PI * 2);
+      ctx.fill();
+      if (u < 1) {
+        // Éventrée : murs assombris, toit qui disparaît par un bout, trou noir à la place.
+        ctx.fillStyle = 'rgb(88, 66, 50)';
+        ctx.fillRect(h.x - 2.2, h.y - 1.8, 4.4, 3.6);
+        ctx.fillStyle = 'rgb(122, 56, 38)';
+        ctx.fillRect(h.x - 2.2, h.y - 1.8, 4.4 * (1 - u), 1.5);
+        ctx.fillStyle = 'rgba(26, 20, 14, 0.75)';
+        ctx.fillRect(h.x + 2.2 - 4.4 * u, h.y - 1.2, 4.4 * u * 0.9, 2.6);
+      } else {
+        // Gravats : tas gris irrégulier, quelques blocs.
+        ctx.fillStyle = 'rgb(146, 140, 128)';
+        ctx.beginPath();
+        for (let k = 0; k < 6; k++) {
+          const a = k * 1.047, d = 2.2 * h.shape[k];
+          if (k) ctx.lineTo(h.x + Math.cos(a) * d * 1.2, h.y + Math.sin(a) * d);
+          else ctx.moveTo(h.x + Math.cos(a) * d * 1.2, h.y + Math.sin(a) * d);
+        }
+        ctx.fill();
+        ctx.fillStyle = 'rgb(94, 90, 82)';
+        for (let k = 0; k < 3; k++) ctx.fillRect(h.x + (h.shape[k] - 0.95) * 5, h.y + (h.shape[k + 3] - 0.95) * 4, 1, 1);
+      }
+    }
+  }
+
+  // Flammes des maisons qui brûlent (lueur vacillante) ; leur fumée part en panache (frontfx.js).
+  drawFires(viewer, now) {
+    const f = this.front;
+    if (!f.ruin) return;
+    const { ctx } = this;
+    const seen = (c) => viewer === null || f.owner[c] === viewer || f.vision[viewer][c];
+    const sources = [], lit = new Set();
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (const h of this.houses) {
+      const heat = this.fire[h.c];
+      if (heat < FIRE.min || h.fire > heat * 1.4 || !seen(h.c)) continue;
+      const u = this.houseRuin(h);
+      if (u <= 0.05) continue;
+      const fl = 0.55 + 0.45 * Math.sin(now * 0.021 + h.ph) * Math.sin(now * 0.013 + h.ph * 2.1);
+      const R = 2.2 + 2.6 * heat;
+      ctx.globalAlpha = Math.min(1, 0.35 + 0.6 * heat) * fl;
+      ctx.drawImage(this.fx.fireSprite(), h.x - R, h.y - R, R * 2, R * 2);
+      ctx.fillStyle = '#ffdc8a';
+      ctx.beginPath();
+      ctx.arc(h.x + Math.sin(now * 0.03 + h.ph) * 0.5, h.y - 0.4, 0.7 + 0.6 * heat, 0, Math.PI * 2);
+      ctx.fill();
+      // Un panache par case en feu, au-dessus de sa première maison qui brûle.
+      if (!lit.has(h.c)) { lit.add(h.c); sources.push(h.x, h.y, heat); }
+    }
+    ctx.restore();
+    this.fx.plumeSources(sources, 'fire');
   }
 
   drawTowns(viewer) {
