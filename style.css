@@ -651,3 +651,16 @@ kbd {
   .f-side .tab { min-height: 40px; padding-inline: 2px; letter-spacing: 0.04em; }
   .f-side .rail .tool { width: 36px; height: 36px; }
 }
+
+/* Artillerie : groupes du panneau d'ordres. */
+.f-guns { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.f-gun { padding: 6px 8px; border: 1px solid var(--line); border-radius: 3px; }
+.f-gun.sel { border-color: #ffd23f; }
+.f-gun.lost { opacity: 0.5; }
+.f-gun p { margin: 0 0 6px; font-size: 14px; }
+.f-gun p:last-child { margin-bottom: 0; }
+.f-gun em { color: var(--muted); font-style: normal; font-size: 13px; }
+.f-sub.f-sub-art { color: var(--brass); }
+.linkish { padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; min-height: 32px; }
+.linkish[aria-pressed="true"] { color: #ffd23f; }
+.f-gun .seg .btn:disabled { opacity: 0.4; }

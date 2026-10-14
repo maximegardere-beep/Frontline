@@ -12,6 +12,7 @@
 
 import { addVector, addLine, addBarrage, deployReserve, setPocketMode, edgeCol, FRONT_WEATHER, VECTOR_TYPES } from './front.js';
 import { bfsDistance } from './path.js';
+import { GUN_KINDS, setGunOrder } from './frontguns.js';
 
 const SECTOR = 4; // un secteur toutes les 4 lignes
 
@@ -93,6 +94,7 @@ export function planFront(front, s) {
   if (!sectors.length) return;
   const dirX = s === 0 ? 1 : -1;
   for (const sec of sectors) sec.ratio = sec.own / (sec.foe * sec.foeDef);
+  planGuns(front, s);
 
   // 1. Défense : secteurs menacés (l'ennemi y est nettement plus fort).
   const threatened = [...sectors].filter((x) => x.ratio < (attacking ? 0.7 : 0.9)).sort((a, b) => a.ratio - b.ratio);
@@ -181,6 +183,37 @@ export function planFront(front, s) {
 
   // 4. Poches : réexamen chaque matin d'une poche restée au statu quo.
   for (const p of front.pockets[s]) if (p.info.mode === 'hold') choosePocket(front, p, true);
+}
+
+// Artillerie : chaque groupe se tient à mi-portée derrière le front connu. Trop près (menacé d'être débordé), il
+// recule ; trop loin pour tirer au-delà du front, il avance, en appui mobile si l'étape tient dans la journée.
+function planGuns(front, s) {
+  const { map, centers } = front;
+  const mem = front.memory[s];
+  const dirX = s === 0 ? 1 : -1;
+  for (const g of front.guns) {
+    if (g.side !== s || g.lost) continue;
+    const R = GUN_KINDS[g.kind].range;
+    let near = Infinity, nx = 0, ny = 0;
+    for (let i = 0; i < map.N; i++) {
+      if (mem.owner[i] !== 1 - s) continue;
+      const d = Math.hypot(centers.x[i] - g.x, centers.y[i] - g.y);
+      if (d < near) { near = d; nx = centers.x[i]; ny = centers.y[i]; }
+    }
+    if (near === Infinity) continue;
+    let want = null;
+    if (near < 4) want = { x: g.x - dirX * (R * 0.5 - near), y: g.y };
+    else if (near > R * 0.8) want = { x: nx - dirX * R * 0.5, y: ny };
+    if (!want) continue;
+    // Point d'arrivée : la case amie la plus proche du point voulu.
+    let best = null, bd = Infinity;
+    for (let i = 0; i < map.N; i++) {
+      if (front.owner[i] !== s || map.flow[i] <= 0) continue;
+      const d = Math.hypot(centers.x[i] - want.x, centers.y[i] - want.y);
+      if (d < bd) { bd = d; best = { x: centers.x[i], y: centers.y[i] }; }
+    }
+    if (best) setGunOrder(front, s, g.id, { dest: best, posture: near < 2.5 ? 'move' : undefined });
+  }
 }
 
 // Comportement d'une poche : tirage pondéré (brief) selon les troupes piégées et la distance aux lignes amies.

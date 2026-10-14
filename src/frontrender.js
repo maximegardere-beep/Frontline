@@ -16,6 +16,7 @@ import { FRONT_KINDS } from './terrain.js';
 import { FRONT_WEATHER, POCKET_MODES, VECTOR_TYPES, pocketName } from './front.js';
 import { MIN_POCKET, ARMOR_ATK } from './frontinput.js';
 import { FrontFx } from './frontfx.js';
+import { GUN_KINDS, visibleGuns } from './frontguns.js';
 
 export const CELL = 9; // rayon d'une case de la micro-grille, en pixels monde
 
@@ -414,6 +415,7 @@ export class FrontRenderer extends Renderer {
 
     this.drawTowns(view.viewer ?? null);
     this.drawPockets(view.viewer ?? null);
+    this.drawGuns(view);
     if (view.orders) this.drawFrontOrders(view.orders, view.viewer);
     if (view.preview) this.drawFrontOrders(view.preview, view.viewer, 0.55);
     if (view.origin != null && view.origin >= 0) {
@@ -594,6 +596,95 @@ export class FrontRenderer extends Renderer {
       ctx.strokeText(sp.name, h.x, ly);
       ctx.fillStyle = SIDE_LINE[sp.side];
       ctx.fillText(sp.name, h.x, ly);
+    }
+  }
+
+  // Groupes d'artillerie : symbole d'état-major (rectangle et point plein ; deux points pour la lourde, un chevron
+  // pour les roquettes), de taille constante à l'écran. Le matin, cercle de portée des siens (marqué pour le groupe
+  // sélectionné), trait vers sa destination et vers sa mission. L'ennemi repéré apparaît à sa dernière position vue.
+  drawGuns(view) {
+    const f = this.front;
+    if (!f.guns) return;
+    const { ctx, cam } = this;
+    const viewer = view.viewer ?? null;
+    const px = 1 / cam.s;
+    const planning = f.phase === 'plan';
+    for (const { g, x, y, known } of visibleGuns(f, viewer)) {
+      const c = this.toWorld({ x, y });
+      const own = viewer === null || g.side === viewer;
+      const sel = view.gun === g.id;
+      const K = GUN_KINDS[g.kind];
+      if (own && planning) {
+        ctx.beginPath();
+        ctx.arc(c.x, c.y, K.range * CELL, 0, Math.PI * 2);
+        ctx.setLineDash(sel ? [] : [3 * px, 5 * px]);
+        ctx.lineWidth = (sel ? 2 : 1) * px;
+        ctx.strokeStyle = sel ? ORDER_INK : 'rgba(29, 26, 18, 0.35)';
+        ctx.stroke();
+        ctx.setLineDash([]);
+        if (g.dest) {
+          const d = this.toWorld(g.dest);
+          ctx.strokeStyle = ORDER_INK;
+          ctx.lineWidth = 2 * px;
+          ctx.setLineDash([6 * px, 4 * px]);
+          ctx.beginPath();
+          ctx.moveTo(c.x, c.y);
+          ctx.lineTo(d.x, d.y);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.beginPath();
+          ctx.arc(d.x, d.y, 4 * px, 0, Math.PI * 2);
+          ctx.fillStyle = ORDER_INK;
+          ctx.fill();
+        }
+        for (const b of f.barrages[g.side]) {
+          if (b.gun !== g.id) continue;
+          const t = this.toWorld(b);
+          ctx.strokeStyle = 'rgba(255, 210, 63, 0.6)';
+          ctx.lineWidth = 1.2 * px;
+          ctx.beginPath();
+          ctx.moveTo(c.x, c.y);
+          ctx.lineTo(t.x, t.y);
+          ctx.stroke();
+        }
+      }
+      const w = 17 * px, h = 11 * px;
+      ctx.globalAlpha = known ? 1 : 0.55;
+      ctx.fillStyle = 'rgba(250, 240, 210, 0.92)';
+      ctx.strokeStyle = SIDE_LINE[g.side];
+      ctx.lineWidth = (sel ? 2.4 : 1.5) * px;
+      ctx.beginPath();
+      ctx.rect(c.x - w / 2, c.y - h / 2, w, h);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = SIDE_LINE[g.side];
+      const dot = (dx) => { ctx.beginPath(); ctx.arc(c.x + dx, c.y, 2.3 * px, 0, Math.PI * 2); ctx.fill(); };
+      if (g.kind === 'heavy') { dot(-3.2 * px); dot(3.2 * px); } else dot(0);
+      if (g.kind === 'rocket') {
+        ctx.beginPath();
+        ctx.moveTo(c.x - 5 * px, c.y - 1.5 * px);
+        ctx.lineTo(c.x, c.y - 4.5 * px);
+        ctx.lineTo(c.x + 5 * px, c.y - 1.5 * px);
+        ctx.lineWidth = 1.2 * px;
+        ctx.stroke();
+      }
+      if (sel) {
+        ctx.strokeStyle = ORDER_INK;
+        ctx.lineWidth = 2 * px;
+        ctx.strokeRect(c.x - w / 2 - 3 * px, c.y - h / 2 - 3 * px, w + 6 * px, h + 6 * px);
+      }
+      // Nom : au zoom rapproché, ou pour le groupe sélectionné.
+      if (sel || cam.s > 1.3) {
+        ctx.font = `600 ${10 * px}px "IBM Plex Sans Condensed", "Arial Narrow", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.lineWidth = 3 * px;
+        ctx.strokeStyle = 'rgba(250, 240, 210, 0.85)';
+        ctx.strokeText(g.name, c.x, c.y + h / 2 + 2 * px);
+        ctx.fillStyle = SIDE_LINE[g.side];
+        ctx.fillText(g.name, c.x, c.y + h / 2 + 2 * px);
+      }
+      ctx.globalAlpha = 1;
     }
   }
 

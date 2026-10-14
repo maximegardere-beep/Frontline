@@ -11,6 +11,7 @@ import { MOUNTAIN, FRONT_KINDS, cellFluidity, cellDefense } from './terrain.js';
 import { SEASON } from './conditions.js';
 import { findPockets, bfsDistance } from './path.js';
 import { emptyField, frontNeed, frontTick } from './combat.js';
+import { GUN_KINDS, GUN_RULES, createGuns, gunFor, gunPower, moveGuns, supportFire, gunsNight, updateGunSightings } from './frontguns.js';
 
 export const FRONT_SIDES = ['DE', 'SU'];
 export const sideIndex = (s) => (s === 'DE' ? 0 : 1);
@@ -29,12 +30,9 @@ export const FRONT_SETUP = {
   maxLines: 2, // lignes de défense par jour
   lineLen: 30, // longueur maximale d'une ligne, en cases
   lineWidth: 1.8, // demi-largeur de la bande retranchée (unités de grille ; deux cases voisines sont à 1,73)
-  barrages: [2, 2], // barrages de zone par jour (l'attaquant en a un de plus)
-  barrageRadius: 3, // rayon du cercle, en cases
-  barrageRange: 12, // distance maximale à ses propres lignes
+  // Groupes d'artillerie (frontguns.js) : une mission de barrage par groupe et par jour, dans sa portée.
+  guns: [['div', 'div', 'heavy'], ['div', 'div', 'div', 'rocket']],
   barrageTicks: 6, // le barrage martèle la zone pendant les premiers ticks de la journée
-  barrageRate: 0.04, // part de la densité ennemie détruite par tick dans la zone (~22 % en 6 ticks)
-  barrageWorks: 0.12, // retranchement détruit par tick dans la zone
   retreatCover: 0.33, // usure subie par les troupes qui décrochent en bon ordre
   chunk: 80, // densité déposée par clic de déploiement
   vision: 5, // portée de reconnaissance, en cases, depuis toute case occupée
@@ -140,6 +138,7 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
     for (let i = 0; i < N; i++) if (owner[i] === s) total += need[i] * map.flow[i] ** 0.5;
     for (let i = 0; i < N; i++) if (owner[i] === s) dens[i] = (cfg.troops[s] * need[i] * map.flow[i] ** 0.5) / total;
   }
+  front.guns = createGuns(front, cfg.guns);
   // Rôles : l'attaquant reçoit plus de réserves ; le défenseur est retranché sur quelques cases derrière le front.
   const att = front.attacker, def = 1 - att;
   front.reserve[att] = Math.round(front.reserve[att] * cfg.attackReserve);
@@ -171,6 +170,7 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
   rollWeather(front);
   updateSupply(front);
   updateMemory(front);
+  updateGunSightings(front);
   flog(front, 'day', `— Jour 1 : ${map.name} · ${FRONT_WEATHER[front.weather].label} —`);
   return front;
 }
@@ -293,18 +293,16 @@ export function addLine(front, s, a, b) {
   return line;
 }
 
-// Barrage de zone : un cercle martelé pendant les premiers ticks de la journée, même dans le brouillard.
-export function addBarrage(front, s, at) {
+// Barrage de zone : un cercle martelé pendant les premiers ticks de la journée, même dans le brouillard, par le groupe
+// d'artillerie disponible le plus puissant qui l'a à portée (gunId pour en imposer un).
+export function addBarrage(front, s, at, gunId = null) {
   if (front.phase !== 'plan') return { error: 'Les ordres se donnent le matin.' };
-  const max = front.cfg.barrages[s] + (s === front.attacker ? 1 : 0);
-  if (front.barrages[s].length >= max) return { error: `${max} barrages au plus par journée.` };
-  let near = Infinity;
-  for (let i = 0; i < front.map.N; i++) {
-    if (front.owner[i] !== s) continue;
-    near = Math.min(near, Math.hypot(front.centers.x[i] - at.x, front.centers.y[i] - at.y));
-  }
-  if (near > front.cfg.barrageRange) return { error: `Hors de portée : ${front.cfg.barrageRange} cases au plus de vos lignes.` };
-  const b = { id: nextVectorId++, side: s, x: at.x, y: at.y, r: front.cfg.barrageRadius };
+  const free = front.guns.filter((g) => g.side === s && gunPower(g) > 0 && !front.barrages[s].some((b) => b.gun === g.id));
+  if (!free.length) return { error: 'Aucun groupe d\'artillerie disponible : tous ont leur mission, ou sont en déplacement.' };
+  const g = gunId != null ? free.find((x) => x.id === gunId && Math.hypot(x.x - at.x, x.y - at.y) <= GUN_KINDS[x.kind].range) : gunFor(front, s, at);
+  if (!g) return { error: 'Hors de portée de vos groupes d\'artillerie disponibles.' };
+  const K = GUN_KINDS[g.kind];
+  const b = { id: nextVectorId++, side: s, x: at.x, y: at.y, r: K.r, gun: g.id };
   front.barrages[s].push(b);
   return b;
 }
@@ -580,10 +578,19 @@ export function beginDay(front) {
 // Un tick : flux et pression (combat.js), puis ravitaillement, malus des poches, brouillard, victoire.
 export function stepTick(front) {
   if (front.phase !== 'resolve') return [];
-  applyWorks(front);
+  const early = [];
+  applyWorks(front, early);
   rebuildFields(front, 0);
   rebuildFields(front, 1);
   const events = frontTick(front);
+  events.push(...early);
+  supportFire(front, front.tickEdges);
+  moveGuns(front, events);
+  for (const e of events) {
+    if (e.kind !== 'gunLost') continue;
+    const g = front.guns.find((x) => x.id === e.id);
+    flog(front, 'gun', `${g.name} (${FRONT_SIDES[g.side] === 'DE' ? 'Wehrmacht' : 'Armée rouge'}) ${e.counter ? 'réduit au silence par la contre-batterie' : 'débordé et perdu'}.`, g.side);
+  }
   for (const e of events) {
     if (e.kind !== 'capture') continue;
     front.entrench[e.i] = 0; // une case prise perd son retranchement
@@ -610,13 +617,15 @@ export function stepTick(front) {
   front.clock++;
   front.tick++;
   updateMemory(front);
+  updateGunSightings(front);
   checkFrontVictory(front);
   if (front.phase === 'resolve' && front.tick >= front.cfg.ticks) endDay(front);
   return events;
 }
 
-// Lignes de défense (retranchement qui monte au fil de la journée) et barrages de zone (premiers ticks).
-function applyWorks(front) {
+// Lignes de défense (retranchement qui monte au fil de la journée) et barrages de zone (premiers ticks), dont la
+// contre-batterie : un barrage use les groupes ennemis pris dans sa zone.
+function applyWorks(front, events) {
   const c = front.cfg;
   for (const s of [0, 1]) {
     for (const l of front.lines[s]) {
@@ -624,13 +633,24 @@ function applyWorks(front) {
     }
     if (front.tick >= c.barrageTicks) continue;
     for (const b of front.barrages[s]) {
+      const g = front.guns.find((x) => x.id === b.gun);
+      const p = g ? gunPower(g) : 0;
+      if (p <= 0) continue;
+      const K = GUN_KINDS[g.kind];
+      g.fired = front.clock;
+      const k = p * FRONT_WEATHER[front.weather].barrage;
       for (let i = 0; i < front.map.N; i++) {
         if (front.owner[i] !== 1 - s) continue;
         if (Math.hypot(front.centers.x[i] - b.x, front.centers.y[i] - b.y) > b.r) continue;
-        const l = front.dens[i] * c.barrageRate * FRONT_WEATHER[front.weather].barrage;
+        const l = front.dens[i] * K.rate * k;
         front.dens[i] -= l;
         front.stats.losses[1 - s] += l;
-        front.entrench[i] = Math.max(0, front.entrench[i] - c.barrageWorks);
+        front.entrench[i] = Math.max(0, front.entrench[i] - K.works * k);
+      }
+      for (const e of front.guns) {
+        if (e.side !== 1 - s || e.lost || Math.hypot(e.x - b.x, e.y - b.y) > b.r) continue;
+        e.str -= GUN_RULES.counter * k;
+        if (e.str < GUN_RULES.minStr) { e.lost = true; events.push({ kind: 'gunLost', side: e.side, id: e.id, counter: true }); }
       }
     }
   }
@@ -657,6 +677,7 @@ function endDay(front) {
     front.barrages[s] = [];
     front.deployments[s] = [];
   }
+  gunsNight(front);
   const d = front.dayStart;
   if (d) {
     const fmt = (s) => `${FRONT_SIDES[s]} −${Math.round((front.stats.losses[s] - d.losses[s]) * c.men).toLocaleString('fr-FR')} h`;

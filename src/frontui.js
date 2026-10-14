@@ -11,6 +11,7 @@ import {
   cellAtPoint, FRONT_WEATHER, POCKET_MODES, VECTOR_TYPES, sideIndex,
 } from './front.js';
 import { installAI } from './frontai.js';
+import { GUN_KINDS, GUN_POSTURES, gunPower, gunFor, setGunOrder } from './frontguns.js';
 import { FrontRenderer, CELL } from './frontrender.js';
 import { bigPockets, menRange, pickCell, areaReport, combatSpots } from './frontinput.js';
 import { WeatherLayer } from './weather.js';
@@ -36,7 +37,7 @@ const TOOLS = {
   armor: { label: 'Blindés', short: 'Blindés', taps: 2, hint: 'Percée blindée : touchez le départ, puis l\'objectif (loin, étroit, rapide).' },
   retreat: { label: 'Repli', short: 'Repli', taps: 2, hint: 'Repli ordonné : touchez le secteur à dégager, puis où se replier dans vos lignes.' },
   line: { label: 'Ligne de défense', short: 'Ligne', taps: 2, hint: 'Ligne de défense : touchez une extrémité, puis l\'autre, dans vos lignes.' },
-  barrage: { label: 'Barrage', short: 'Barrage', taps: 1, hint: 'Barrage de zone : touchez la zone à pilonner (jusqu\'à 12 cases de vos lignes).' },
+  barrage: { label: 'Barrage', short: 'Barrage', taps: 1, hint: 'Barrage de zone : touchez la zone à pilonner. Le groupe d\'artillerie disponible le plus puissant qui l\'a à portée tirera.' },
   reserve: { label: 'Réserves', short: 'Réserves', taps: 1, hint: 'Chaque appui fait monter 800 hommes en ligne autour du point touché.' },
 };
 
@@ -49,6 +50,7 @@ const fui = {
   tool: null,
   pending: null, // premier appui d'un ordre à deux appuis : { cell, point }
   breakout: null, // id de la poche dont on trace la percée
+  gun: null, // id du groupe d'artillerie sélectionné (le prochain appui fixe sa destination)
   hoverPoint: null,
   probe: null, // estimation au toucher : { x, y, r }
   tab: 'orders',
@@ -178,7 +180,7 @@ function frontRules() {
       <ol>
         <li><b>Masses.</b> Plus d'unités : chaque camp est une masse de troupes, plus sombre où elle est dense. Le trait noir est le front. Hors de vue, l'ennemi n'est qu'une estimation estompée.</li>
         <li><b>Le matin.</b> Le jeu est en pause. Donnez jusqu'à ${c.maxVectors} vecteurs (dont ${c.maxArmor} blindés) : les troupes autour du départ s'y engagent et poussent vers la cible. Un vecteur draine son voisinage : là où il prend, le front se dégarnit.</li>
-        <li><b>Outils.</b> Infanterie : large, lente, tenace. Blindés : étroits, rapides, profonds, mais ils s'enlisent sous la pluie. Repli ordonné : les troupes décrochent avec moins de pertes. Ligne de défense (${c.maxLines} par jour) : les cases le long du trait se retranchent au fil de la journée. Barrage : une zone pilonnée au début de la journée, même dans le brouillard. Réserves : chaque appui fait monter des renforts en ligne.</li>
+        <li><b>Outils.</b> Infanterie : large, lente, tenace. Blindés : étroits, rapides, profonds, mais ils s'enlisent sous la pluie. Repli ordonné : les troupes décrochent avec moins de pertes. Ligne de défense (${c.maxLines} par jour) : les cases le long du trait se retranchent au fil de la journée. Barrage : une zone pilonnée au début de la journée, même dans le brouillard, par un groupe d'artillerie qui l'a à portée (une mission par groupe et par jour). Artillerie : touchez un groupe puis sa destination ; en batterie il tire à 100 %, en appui mobile à 40 %, en déplacement pas du tout. Sans mission, il frappe les assaillants à sa portée ; un groupe dont la position tombe est perdu. Réserves : chaque appui fait monter des renforts en ligne.</li>
         <li><b>La journée.</b> Une vingtaine de secondes, sans intervention : le combat compare les pressions de part et d'autre du front, selon la densité, le terrain, le retranchement et la qualité des troupes. Le bouton discret « Passer » abrège la journée.</li>
         <li><b>Défense élastique.</b> Sans ordre, les troupes colmatent d'elles-mêmes les secteurs menacés.</li>
         <li><b>Encerclement.</b> Des troupes coupées de leur bord de carte forment une poche, qui fond d'environ 30 % par jour. Chaque matin, choisissez pour les vôtres : statu quo, Festung (se resserrer, tenir et fondre moins vite) ou percée d'évasion vers un point que vous touchez.</li>
@@ -297,6 +299,7 @@ function setTool(t) {
   if (!f || f.phase !== 'plan') return;
   fui.tool = fui.tool === t ? null : t;
   fui.pending = null;
+  fui.gun = null;
   fui.breakout = null;
   fui.probe = null;
   setHint(fui.tool ? TOOLS[fui.tool].hint : TOOLS_HELP());
@@ -306,6 +309,7 @@ function setTool(t) {
 
 function cancelTool() {
   fui.tool = null;
+  fui.gun = null;
   fui.pending = null;
   fui.breakout = null;
   setHint(TOOLS_HELP());
@@ -327,6 +331,20 @@ function onTap(p) {
   const f = fui.front;
   if (!f || !byId('overlay').hidden) return;
   const s = fui.side;
+  if (f.phase === 'plan' && !fui.tool && !fui.breakout) {
+    // Artillerie : toucher un de ses groupes le sélectionne ; l'appui suivant fixe sa destination.
+    const g = gunNear(p);
+    if (fui.gun != null) {
+      if (g && g.id === fui.gun) { fui.gun = null; setHint(TOOLS_HELP()); return refreshFront(); }
+      if (g) return selectGun(g.id);
+      let to = { x: p.x, y: p.y };
+      if (f.owner[cellAtPoint(f, to)] !== s) { const j = pickNear(p, 'near'); if (j >= 0) to = cellPoint(j); }
+      const r = setGunOrder(f, s, fui.gun, { dest: to });
+      if (!fail(r)) { placed(`${r.name} : ${GUN_POSTURES[r.posture].label.toLowerCase()} vers sa nouvelle position (${Math.round(GUN_POSTURES[r.posture].fire * 100)} % de sa puissance de feu aujourd'hui).`); fui.gun = null; }
+      return refreshFront();
+    }
+    if (g) return selectGun(g.id);
+  }
   if (f.phase !== 'plan' || (!fui.tool && !fui.breakout)) return probeAt(p);
 
   if (fui.breakout) {
@@ -339,7 +357,7 @@ function onTap(p) {
   const tool = fui.tool;
   if (tool === 'barrage') {
     const r = addBarrage(f, s, { x: p.x, y: p.y });
-    if (!fail(r)) { placed('Barrage réglé : la zone sera pilonnée au lever du jour.'); fui.tool = null; }
+    if (!fail(r)) { placed(`Barrage réglé : ${f.guns.find((g) => g.id === r.gun).name} pilonnera la zone au lever du jour.`); fui.tool = null; }
     return refreshFront();
   }
   if (tool === 'reserve') {
@@ -380,6 +398,34 @@ function onTap(p) {
     if (!fail(r)) placed(`${VECTOR_TYPES[tool].label} : environ ${fmtMen(men(vectorCatchment(f, r)))} engagés.`);
   }
   if (!r.error) fui.tool = null;
+  refreshFront();
+}
+
+// Groupe d'artillerie à soi sous le doigt.
+function gunNear(p) {
+  const f = fui.front, R = reach() * 1.2;
+  let best = null, bd = R;
+  for (const g of f.guns) {
+    if (g.side !== fui.side || g.lost) continue;
+    const d = Math.hypot(g.x - p.x, g.y - p.y);
+    if (d < bd) { bd = d; best = g; }
+  }
+  return best;
+}
+
+function selectGun(id) {
+  const g = fui.front.guns.find((x) => x.id === id);
+  if (!g || g.lost || fui.front.phase !== 'plan') return;
+  fui.gun = id;
+  fui.probe = null;
+  sound.ui('select');
+  setHint(`${g.name} · ${GUN_KINDS[g.kind].label}, portée ${Math.round(GUN_KINDS[g.kind].range / 1.73)} cases. Touchez sa destination, ou réglez sa posture dans le panneau.`);
+  refreshFront();
+}
+
+function gunPosture(id, posture) {
+  const r = setGunOrder(fui.front, fui.side, id, { posture });
+  if (!fail(r)) placed(`${r.name} : ${GUN_POSTURES[posture].label.toLowerCase()}.`);
   refreshFront();
 }
 
@@ -562,7 +608,10 @@ function drawFront(t = 1) {
     const h = fui.hoverPoint;
     if (fui.pending && fui.tool === 'line') preview = { lines: [{ a: fui.pending.point, b: h, side: s }] };
     else if (fui.pending) preview = { vectors: [{ type: fui.tool, from: fui.pending.point, to: h }] };
-    else if (fui.tool === 'barrage') preview = { barrages: [{ x: h.x, y: h.y, r: f.cfg.barrageRadius }] };
+    else if (fui.tool === 'barrage') {
+      const g = gunFor(f, s, h);
+      preview = { barrages: [{ x: h.x, y: h.y, r: g ? GUN_KINDS[g.kind].r : 3, gun: g?.id }] };
+    }
   }
   fui.r.draw({
     viewer: v,
@@ -570,6 +619,7 @@ function drawFront(t = 1) {
     orders: f.phase === 'over' ? null : orders,
     preview,
     origin: planning && fui.pending ? fui.pending.cell : null,
+    gun: planning ? fui.gun : null,
     probe: fui.probe,
   });
   const { cam, worldW, worldH } = fui.r;
@@ -671,7 +721,10 @@ function used(tool) {
   if (tool === 'infantry' || tool === 'retreat') return [mine.length, f.cfg.maxVectors];
   if (tool === 'armor') return [mine.filter((v) => v.type === 'armor').length, f.cfg.maxArmor, mine.length >= f.cfg.maxVectors];
   if (tool === 'line') return [f.lines[s].length, f.cfg.maxLines];
-  if (tool === 'barrage') return [f.barrages[s].length, f.cfg.barrages[s] + (s === f.attacker ? 1 : 0)];
+  if (tool === 'barrage') {
+    const able = f.guns.filter((g) => g.side === s && gunPower(g) > 0).length;
+    return [f.barrages[s].length, able];
+  }
   return [0, Infinity, f.reserve[s] < 1];
 }
 
@@ -702,8 +755,9 @@ function renderOrders() {
   const items = [
     ...vecs.map((v) => orderLine(VECTOR_TYPES[v.type].label, `≈ ${fmtMen(men(vectorCatchment(f, v)))}`, planning ? v.id : null)),
     ...f.lines[s].map((l) => orderLine('Ligne de défense', `${l.cells.length} cases`, planning ? l.id : null)),
-    ...f.barrages[s].map((b) => orderLine('Barrage', `rayon ${b.r} cases`, planning ? b.id : null)),
+    ...f.barrages[s].map((b) => orderLine('Barrage', f.guns.find((g) => g.id === b.gun)?.name ?? '', planning ? b.id : null)),
   ];
+  const guns = f.guns.filter((g) => g.side === s);
   const deployed = f.deployments[s].reduce((a, d) => a + d.amount, 0);
   const pockets = bigPockets(f, s);
   const canRepeat = planning && f.lastOrders[s].length > 0 && !vecs.length;
@@ -716,17 +770,32 @@ function renderOrders() {
         ${deployed ? `<button class="btn btn-sm" id="f-undo">Annuler le dernier renfort</button>` : ''}
       </div>
       <p class="muted small">Réserves : ${fmtMen(men(f.reserve[s]))}${deployed ? ` · ${fmtMen(men(deployed))} montés en ligne ce matin` : ''}.</p>` : ''}
+    ${guns.length ? `<h3 class="f-sub f-sub-art">Artillerie</h3><ul class="f-guns">${guns.map((g) => gunItem(f, g, planning)).join('')}</ul>` : ''}
     ${pockets.length ? `<h3 class="f-sub">Troupes encerclées</h3><ul class="f-pockets">${pockets.map((p) => `
       <li>
         <p><b>Poche ${escHtml(pocketName(f, p))}</b> · ${fmtMen(men(p.troops))} · ${POCKET_MODES[p.mode]}</p>
         ${planning ? `<div class="seg" role="group" aria-label="Comportement de la poche">${Object.entries({ hold: 'Statu quo', festung: 'Festung', breakout: 'Percée' }).map(([m, l]) => `<button class="btn btn-sm ${p.mode === m || (m === 'breakout' && fui.breakout === p.id) ? 'on' : ''}" data-pocket="${p.id}" data-mode="${m}">${l}</button>`).join('')}</div>` : ''}
       </li>`).join('')}</ul>` : ''}`;
   el.querySelectorAll('[data-remove]').forEach((b) => b.addEventListener('click', () => removeMine(Number(b.dataset.remove))));
+  el.querySelectorAll('[data-gun-sel]').forEach((b) => b.addEventListener('click', () => (fui.gun === Number(b.dataset.gunSel) ? cancelTool() : selectGun(Number(b.dataset.gunSel)))));
+  el.querySelectorAll('[data-gun]').forEach((b) => b.addEventListener('click', () => gunPosture(Number(b.dataset.gun), b.dataset.posture)));
   el.querySelectorAll('[data-pocket]').forEach((b) => b.addEventListener('click', () => pocketMode(Number(b.dataset.pocket), b.dataset.mode)));
   byId('f-repeat')?.addEventListener('click', repeatYesterday);
   byId('f-undo')?.addEventListener('click', undoReserve);
   byId('f-tab-orders').classList.toggle('badge', planning && pockets.length > 0);
   byId('f-collapse').classList.toggle('badge', planning && pockets.length > 0);
+}
+
+// Un groupe d'artillerie dans le panneau : nom, état, mission ; le matin, sa posture.
+function gunItem(f, g, planning) {
+  if (g.lost) return `<li class="f-gun lost"><p><b>${escHtml(g.name)}</b> · perdu</p></li>`;
+  const mission = f.barrages[g.side].some((b) => b.gun === g.id);
+  const state = gunPower(g) <= 0 ? 'en route, ne tire pas' : mission ? 'barrage au lever du jour' : 'appui défensif';
+  const sel = fui.gun === g.id;
+  return `<li class="f-gun${sel ? ' sel' : ''}">
+    <p><button class="linkish" data-gun-sel="${g.id}" aria-pressed="${sel}"><b>${escHtml(g.name)}</b></button> · ${GUN_KINDS[g.kind].short} · ${Math.round(g.str * 100)} % · <em>${state}</em></p>
+    ${planning ? `<div class="seg" role="group" aria-label="Posture de ${escHtml(g.name)}">${Object.entries(GUN_POSTURES).map(([k, P]) => `<button class="btn btn-sm ${g.posture === k ? 'on' : ''}" data-gun="${g.id}" data-posture="${k}" ${k !== 'battery' && !g.dest ? 'disabled title="Touchez d\'abord le groupe puis sa destination"' : ''}>${P.label}</button>`).join('')}</div>` : ''}
+  </li>`;
 }
 
 function fstat(label, value) { return `<div class="stat"><dt>${label}</dt><dd>${value}</dd></div>`; }

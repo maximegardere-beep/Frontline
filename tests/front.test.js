@@ -158,6 +158,42 @@ test('barrage de zone : densité et fortifications ennemies entamées, portée l
   assert.ok(zone() < d0 * 0.88, `densité ${d0.toFixed(0)} → ${zone().toFixed(0)}`);
 });
 
+test('artillerie : groupes à portée, posture contre puissance, camouflage, perte du groupe débordé', async () => {
+  const { addBarrage } = await import('../src/front.js');
+  const { setGunOrder, gunPower, visibleGuns, GUN_KINDS } = await import('../src/frontguns.js');
+  const f = createFront({ seed: 'ord' });
+  const mine = f.guns.filter((g) => g.side === 0);
+  assert.equal(mine.length, FRONT_SETUP.guns[0].length, 'groupes de départ');
+  // Camouflés : au départ, l'ennemi ne voit aucun groupe.
+  assert.equal(visibleGuns(f, 1).filter((v) => v.g.side === 0).length, 0, 'groupes cachés au départ');
+  // Barrage : par un groupe à portée, une mission par groupe.
+  const g = mine[0];
+  const at = { x: g.x + (GUN_KINDS[g.kind].range - 1), y: g.y };
+  const b = addBarrage(f, 0, at, g.id);
+  assert.ok(!b.error && b.gun === g.id, 'barrage confié au groupe');
+  assert.ok(addBarrage(f, 0, at, g.id).error, 'une mission par groupe');
+  assert.ok(addBarrage(f, 0, { x: g.x + 60, y: g.y }).error, 'hors de portée de tout groupe');
+  // Posture : en déplacement, plus de tir, et la mission tombe.
+  const r = setGunOrder(f, 0, g.id, { dest: { x: g.x - 10, y: g.y } });
+  assert.ok(!r.error);
+  setGunOrder(f, 0, g.id, { posture: 'move' });
+  assert.equal(gunPower(g), 0, 'en déplacement : aucun tir');
+  assert.ok(!f.barrages[0].some((x) => x.gun === g.id), 'mission annulée');
+  setGunOrder(f, 0, g.id, { posture: 'mobile' });
+  assert.ok(Math.abs(gunPower(g) - 0.4) < 1e-9, 'appui mobile : 40 %');
+  assert.ok(setGunOrder(f, 0, g.id, { dest: { x: f.centers.x[f.map.W - 3], y: g.y } }).error, 'pas de déplacement chez l\'ennemi');
+  const x0 = g.x;
+  runDay(f);
+  assert.ok(g.x < x0 - 5, 'le groupe a reculé dans la journée');
+  // Débordé : sa case passe à l'ennemi, il est perdu.
+  const h = mine[1];
+  for (let k = 0; k < f.map.N; k++) if (Math.hypot(f.centers.x[k] - h.x, f.centers.y[k] - h.y) < 4) f.owner[k] = 1;
+  beginDay(f);
+  stepTick(f);
+  assert.ok(h.lost, 'groupe débordé perdu');
+  assert.ok(f.log.some((l) => /débordé et perdu/.test(l.text)), 'au journal');
+});
+
 test('repli ordonné : moins de pertes qu\'en tenant face à une percée', () => {
   const losses = (retreat) => {
     const f = createFront({ seed: 'ord', attacker: 'SU' });

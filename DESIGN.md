@@ -321,3 +321,22 @@ densités. Le moteur garde des points d'accroche pour cela.
   secteur) et écartées ; on garde les masses fondues, avec un dégradé de densité plus marqué : opacité
   0,2 + 0,66 k et teinte foncée de 32 % × k, où k = 1 − e^(−densité / 5) (arrières pâles, front et concentrations
   sombres).
+
+### Tirs épars, fers de lance, artillerie positionnée
+
+- Effets : le front calme (aucune poussée) n'échange plus que des coups isolés ; lueurs, rafales de mitrailleuse et tirs
+  nourris sont réservés aux cases assaillies ou qui viennent de changer de mains. Le son suit (secteur sans assaut : un
+  coup de temps en temps).
+- Fer de lance blindé : pendant la journée, les cases entraînées par un vecteur blindé sont hachurées de la couleur
+  sombre du camp ; une pointe de flèche nommée (« Pz.Gr. 1 », « 1er C. blindé ») marque la tête, la plus avancée le
+  long de l'axe. L'ennemi n'apparaît que là où on le voit.
+- Artillerie (`frontguns.js`) : le quota de barrages disparaît. Wehrmacht : deux régiments divisionnaires (portée 14)
+  et un groupe lourd (20) ; Armée rouge : trois divisionnaires et un régiment de Katioucha (10, violent, peu efficace
+  contre les retranchements). Chaque groupe tire au plus une mission de barrage par jour dans sa portée. Posture :
+  en batterie 100 %, appui mobile 40 % à mi-vitesse, déplacement sans tir. Sans mission, il frappe les assaillants à
+  sa portée (appui défensif, moins efficace contre les blindés). Un barrage use les groupes ennemis pris dans sa zone
+  (contre-batterie) ; un groupe dont la case tombe est perdu. Camouflés, les groupes ne sont repérés qu'à ~3 cases
+  des troupes ennemies ou quand ils tirent. L'IA les tient à mi-portée derrière le front.
+- Doctrine de poussée de l'IA (serpentement) : travail commencé puis mis de côté, branche `claude/doctrine-wip`
+  (règles de cohésion, feux croisés et étranglement des doigts de gant dans le moteur ; opérations suivies sur
+  plusieurs jours dans l'IA). À reprendre.
