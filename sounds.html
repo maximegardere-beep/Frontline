@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Frontline · banc sonore</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;700&family=IBM+Plex+Sans+Condensed:wght@400;600&display=swap">
+<style>
+  :root { color-scheme: dark; --desk: #22261c; --text: #e8e2cb; --muted: #a3a288; --line: rgba(233, 227, 205, 0.13); --accent: #c9a24a; }
+  html, body { margin: 0; background: var(--desk); color: var(--text); font: 15px "IBM Plex Sans Condensed", "Arial Narrow", sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 16px; }
+  h1 { font: 700 18px "IBM Plex Mono", monospace; margin: 8px 0 4px; }
+  p { color: var(--muted); margin: 0 0 12px; }
+  h2 { font: 700 13px "IBM Plex Mono", monospace; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent); margin: 20px 0 8px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; }
+  button { font: inherit; color: var(--text); background: #383e2e; border: 1px solid var(--line); border-radius: 3px; padding: 8px 12px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  select { font: inherit; color: var(--text); background: #383e2e; border: 1px solid var(--line); border-radius: 3px; padding: 6px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Banc sonore</h1>
+  <p>Chaque bouton joue un son du jeu, tel qu'il sonne en partie (outil de développement).</p>
+  <label>Météo : <select id="weather"><option value="clear">Clair</option><option value="rain">Pluie</option><option value="snow">Neige</option><option value="fog">Brouillard</option></select></label>
+  <h2>Front stratégique</h2>
+  <div class="row">
+    <button data-s="barrage">Barrage (batterie visible)</button>
+    <button data-s="barrageBlind">Barrage (batterie cachée)</button>
+    <button data-s="fire">Fusillade</button>
+    <button data-s="town">Ville qui tombe</button>
+    <button data-s="pocket">Encerclement</button>
+  </div>
+  <h2>Aviation</h2>
+  <div class="row">
+    <button data-s="drone">Escadrille au matin</button>
+    <button data-s="strike">Appui rapproché (DCA, 1 abattu)</button>
+    <button data-s="hunt">Chasse de batterie</button>
+    <button data-s="clean">Raid sans DCA</button>
+  </div>
+  <h2>Mouvements</h2>
+  <div class="row">
+    <button data-s="tanks1">Un char</button>
+    <button data-s="tanks4">Colonne de chars</button>
+    <button data-s="foot">Infanterie (alterne marche / assaut)</button>
+  </div>
+  <h2>Interface</h2>
+  <div class="row">
+    <button data-s="select">Sélection</button>
+    <button data-s="order">Ordre</button>
+    <button data-s="go">Go (radio)</button>
+    <button data-s="bell">Fin de tour</button>
+  </div>
+  <h2>Fond</h2>
+  <div class="row">
+    <button data-s="ambient">Fond sonore marche / arrêt</button>
+  </div>
+</main>
+<script type="module">
+import { sound } from './src/audio.js';
+
+const T = 2.5; // durée d'un tick du front (s)
+const L = (pan, gain = 1) => ({ pan, gain });
+const PLAY = {
+  barrage: () => sound.front([{ k: 'barrage', ...L(0.3), gun: L(-0.6, 0.6) }], T),
+  barrageBlind: () => sound.front([{ k: 'barrage', ...L(-0.2), gun: null }], T),
+  fire: () => sound.front([{ k: 'fire', n: 6, armor: 3, ...L(0) }], T),
+  town: () => sound.front([{ k: 'town', ...L(0) }], T),
+  pocket: () => sound.front([{ k: 'pocket', ...L(0) }], T),
+  drone: () => sound.front([{ k: 'drone' }], T),
+  strike: () => raid('strike', [{ at: 0.4, ...L(-0.2) }], 1),
+  hunt: () => raid('hunt', [], 0),
+  clean: () => raid('strike', [], 0),
+  tanks1: () => sound.movement({ tanks: [{ x: 0, y: 0 }], foot: [] }, 4),
+  tanks4: () => sound.movement({ tanks: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 }], foot: [] }, 5),
+  foot: () => sound.movement({ tanks: [], foot: [{ x: 0, y: 0 }, { x: 1, y: 0 }] }, 4),
+  select: () => sound.ui('select'),
+  order: () => sound.ui('order'),
+  go: () => sound.ui('go'),
+  bell: () => sound.ui('bell'),
+  ambient: () => sound.ambient(!sound.ambWanted),
+};
+
+// Raid complet tel que le front l'enchaîne : approche au tick 5, puis frappes aux ticks 6, 7 et 8.
+function raid(kind, flak, downed) {
+  const from = L(-0.8, 0.4), to = L(0.3);
+  sound.front([{ k: 'raid', kind, from, to, flak, downed }], T);
+  for (let i = 0; i < (kind === 'strike' ? 3 : 1); i++) {
+    setTimeout(() => sound.front([{ k: 'bombs', kind, first: i === 0, ...to }], T), (i + 1) * T * 1000);
+  }
+}
+
+window.PLAY = PLAY;
+window.sound = sound;
+document.getElementById('weather').addEventListener('change', (e) => sound.setWeather(e.target.value));
+for (const b of document.querySelectorAll('button[data-s]')) {
+  b.addEventListener('click', () => { sound.unlock(); PLAY[b.dataset.s](); });
+}
+</script>
+</body>
+</html>

@@ -29,7 +29,7 @@ node tools/bundle.mjs   # génère dist/frontline.html, un fichier unique jouabl
 
 Les modules ES nécessitent un serveur HTTP : ouvrir `index.html` directement depuis le disque ne fonctionne pas,
 mais `dist/frontline.html` si. `front-preview.html` montre une bataille du front stratégique IA contre IA, en
-direct (outil de développement).
+direct (outil de développement) ; `sounds.html` joue un à un les sons du jeu (banc sonore).
 
 ## Commandes
 

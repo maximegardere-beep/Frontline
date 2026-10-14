@@ -11,7 +11,7 @@ import {
   cellAtPoint, FRONT_WEATHER, POCKET_MODES, VECTOR_TYPES, sideIndex, windLabel,
 } from './front.js';
 import { addTransfer, NIGHT } from './frontnight.js';
-import { AIR, addAirMission, moveAA, sortiesToday } from './frontair.js';
+import { AIR, addAirMission, airBase, moveAA, sortiesToday } from './frontair.js';
 import { installAI } from './frontai.js';
 import { GUN_KINDS, GUN_POSTURES, gunPower, gunFor, setGunOrder } from './frontguns.js';
 import { setArmorOrder, expLabel } from './frontarmor.js';
@@ -720,7 +720,31 @@ function tickSounds(events, tick, T) {
       for (const b of f.barrages[side]) {
         const i = cellAtPoint(f, b);
         if (side !== s && !(i >= 0 && (f.owner[i] === s || f.vision[s][i]))) continue;
-        items.push({ k: 'barrage', ...frontLocate(b.x, b.y) });
+        // Départs de la batterie : là où elle est, si on la voit ; sinon, seulement les obus qui arrivent.
+        const g = f.guns?.find((x) => x.id === b.gun);
+        const gunSeen = g && (g.side === s || g.seen?.[s]?.clock === f.clock);
+        items.push({ k: 'barrage', ...frontLocate(b.x, b.y), gun: gunSeen ? frontLocate(g.x, g.y) : null });
+      }
+    }
+  }
+  // Aviation : escadrille en altitude au matin ; puis raid (approche, DCA, avions abattus, dégagement) et frappes,
+  // calés sur frontfx. On entend ses propres sorties, et celles de l'ennemi qui frappent là où l'on voit.
+  if (tick === 0 && f.air?.[s]?.length) items.push({ k: 'drone' });
+  const first = AIR.strikeTicks[0];
+  for (const side of [0, 1]) {
+    for (const m of f.air?.[side] ?? []) {
+      const i = cellAtPoint(f, m);
+      if (side !== s && !(i >= 0 && (f.owner[i] === s || f.vision[s][i]))) continue;
+      if (!(m.power > 0)) continue;
+      if (tick === first - 1) {
+        const o = airBase(f, side, m), vx = m.x - o.x, vy = m.y - o.y, L2 = vx * vx + vy * vy || 1;
+        const flak = (m.flak ?? []).map((id) => f.aa.find((a) => a.id === id)).filter(Boolean).map((a) => ({
+          at: Math.max(0, Math.min(1, ((a.x - o.x) * vx + (a.y - o.y) * vy) / L2)), ...frontLocate(a.x, a.y),
+        }));
+        items.push({ k: 'raid', kind: m.kind, from: frontLocate(o.x, o.y), to: frontLocate(m.x, m.y), flak, downed: m.downed ?? 0 });
+      }
+      if (AIR.strikeTicks.includes(tick) && (m.kind === 'strike' || tick === first) && !m.missed) {
+        items.push({ k: 'bombs', kind: m.kind, first: tick === first, ...frontLocate(m.x, m.y) });
       }
     }
   }
