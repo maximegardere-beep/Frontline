@@ -102,6 +102,8 @@ export function combatSpots(front, s, max = 3, block = 8) {
     hot[b] += e[k + 2];
     if (a >= 0 && front.field[a].atk[i] >= ARMOR_ATK) arm[b] += e[k + 2];
   }
+  const ta = front.tickArmor ?? [];
+  for (let k = 0; k < ta.length; k += 3) { const b = blockOf(ta[k + 1]); hot[b] += ta[k + 2]; arm[b] += ta[k + 2]; }
   const spots = [];
   for (let b = 0; b < bw * bh; b++) if (sum[b] > 0.3) spots.push({ x: sx[b] / sum[b], y: sy[b] / sum[b], loss: sum[b], armor: arm[b], assault: hot[b] });
   return spots.sort((a, b) => b.loss - a.loss).slice(0, max);

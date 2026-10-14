@@ -100,6 +100,19 @@ export class FrontFx {
         if (Math.random() < 0.4) this.shell(to, from, at(), 1 - s);
       }
     }
+    // Formations blindées : obus des chars sur la case visée, antichars en face.
+    const ta = front.tickArmor ?? [];
+    for (let k = 0; k < ta.length; k += 3) {
+      const a = front.armor.find((x) => x.id === ta[k]), j = ta[k + 1];
+      if (!a || !(seen(a.cell) || seen(j)) || !shown(j)) continue;
+      let n = Math.min(4, ta[k + 2] * 0.06);
+      n = Math.floor(n) + (Math.random() < n % 1 ? 1 : 0);
+      for (let q = 0; q < n; q++) {
+        const from = { x: jit(cx[a.cell]) * C, y: jit(cy[a.cell]) * C }, to = { x: jit(cx[j]) * C, y: jit(cy[j]) * C };
+        this.shell(from, to, at(), a.side);
+        if (Math.random() < 0.5) this.shell(to, from, at(), 1 - a.side);
+      }
+    }
     // Barrages du matin (le tick qui vient de se jouer est front.tick − 1).
     if (front.tick <= front.cfg.barrageTicks) {
       for (const s of [0, 1]) {

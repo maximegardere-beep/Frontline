@@ -390,3 +390,20 @@ densités. Le moteur garde des points d'accroche pour cela.
   ne le reconstruit pas.
 - Dessin discret : seules les lignes continues sont tracées (zigzag sombre et parapet clair côté ennemi), barbelés en
   petites croix devant, hérissons plus loin ; ouvrages ennemis visibles une fois observés.
+
+### Formations blindées
+
+- `frontarmor.js` : 2 divisions de Panzer (160 et 140 chars, aguerrie et vétéran) contre 3 corps blindés soviétiques
+  (170 à 210 chars, plutôt bleus). Chaque formation a une case, des chars, une expérience (bleue, aguerrie, vétéran,
+  élite : choc et pertes × 1 + 0,15 × exp), du carburant et des grenadiers portés.
+- Le matin, on la touche puis on touche son objectif (le bouton Blindés passe d'une formation à l'autre). Dans la
+  journée, elle rejoint le front par ses lignes (fluidité blindée : route, forêt, rivière sans pont), puis frappe la
+  case ennemie devant elle (et à 35 % ses deux voisines) : sa pression s'ajoute à celle de l'infanterie dans le moteur,
+  ses chars renforcent la défense de sa propre case. Case prise : elle y entre, y dépose 3 de densité de grenadiers,
+  gagne de l'expérience, puis repart (au plus une case toutes les 2 ticks en terrain ouvert). La riposte lui coûte des
+  chars, davantage contre les hérissons, en ville et en forêt ; elle consomme son carburant ; la nuit, ravitaillée,
+  elle refait le plein et remet des chars en ligne. Sa case tombée : repli (−20 % de chars) ou destruction si elle est
+  encerclée ; sous 8 % de ses chars, elle est retirée du front.
+- L'ancien vecteur blindé reste dans le moteur (tests, outils) mais ni l'interface ni l'IA ne l'utilisent plus. L'IA
+  lance la formation la plus proche en fer de lance de ses attaques, et garde les autres en contre-attaque ou en
+  réserve derrière ses secteurs menacés.

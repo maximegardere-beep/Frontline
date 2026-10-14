@@ -3,6 +3,7 @@
 
 import { tileAt, terrainDefense, edgeFlow, flowFor } from './terrain.js';
 import { WORKS } from './frontworks.js';
+import { armorPressure, armorRiposte, armorRemaining } from './frontarmor.js';
 import { bfsDistance } from './path.js';
 import { hexDistance, DIR_VECTORS } from './hex.js';
 import { unitStats } from './units.js';
@@ -224,8 +225,11 @@ export function frontTick(front) {
     }
   }
 
+  // 1c. Formations blindées (frontarmor.js) : leur choc s'ajoute à la pression, leurs chars à la défense de leur case.
+  const AR = front.armor ? armorPressure(front, push) : { hits: [], def: new Map() };
+
   // 2b. Assauts : pertes du défenseur, riposte répartie sur les assaillants au prorata de leur poussée.
-  const defense = (j) => dens[j] * map.def[j] * quality[owner[j]] * field[owner[j]].fort[j];
+  const defense = (j) => (dens[j] + (AR.def.get(j) ?? 0)) * map.def[j] * quality[owner[j]] * field[owner[j]].fort[j];
   for (let j = 0; j < N; j++) {
     if (!push[j]) continue;
     const F = push[j], D = defense(j);
@@ -233,6 +237,7 @@ export function frontTick(front) {
     loss[j] += (R.ASSAULT * F * field[owner[j]].cover[j]) / (map.def[j] * field[owner[j]].fort[j]);
     const riposte = R.ASSAULT * R.DEF_FIRE * D * Math.sqrt(Math.min(1, F / Math.max(D, 1e-6))) * (1 + WORKS.wireCost * (front.wire?.[j] ?? 0));
     for (let k = 0; k < edges.length; k += 3) if (edges[k + 1] === j) loss[edges[k]] += riposte * (edges[k + 2] / F);
+    if (AR.hits.length) armorRiposte(front, AR.hits, j, riposte, F);
   }
 
   // Application des flux et des pertes.
@@ -280,6 +285,7 @@ export function frontTick(front) {
         F += v;
         att.push([i, v]);
       }
+      if (AR.hits.length) F += armorRemaining(front, AR.hits, j);
       // Brèche : tant que la pression dépasse BREAK × la défense, la jauge de la case se remplit, d'autant plus vite que
       // le rapport des forces est écrasant ; la case tombe quand elle est pleine. Fortifications et hauteurs, qui
       // gonflent la défense, retardent ainsi la percée au lieu de seulement coûter plus cher.
@@ -310,5 +316,6 @@ export function frontTick(front) {
   for (let j = 0; j < N; j++) if (!pressed[j] && breach[j] > 0) breach[j] = breach[j] * R.BREACH_DECAY < 0.01 ? 0 : breach[j] * R.BREACH_DECAY;
   front.tickLoss = loss; // pertes par case de ce tick (sons et effets du front)
   front.tickEdges = edges; // poussées de ce tick : [assaillant, visé, pression] × n (obus des blindés)
+  front.tickArmor = AR.hits; // poussées des formations blindées : [formation, visé, pression] × n
   return events;
 }

@@ -13,6 +13,7 @@
 import { addVector, addLine, addBarrage, deployReserve, setPocketMode, edgeCol, cellAtPoint, FRONT_WEATHER, VECTOR_TYPES } from './front.js';
 import { bfsDistance } from './path.js';
 import { GUN_KINDS, setGunOrder } from './frontguns.js';
+import { setArmorOrder } from './frontarmor.js';
 
 const SECTOR = 4; // un secteur toutes les 4 lignes
 
@@ -147,8 +148,11 @@ export function planFront(front, s) {
     chosen.push(sec);
     if (chosen.length >= (attacking ? AI_TUNING.attVectors : AI_TUNING.defVectors)) break;
   }
-  let armor = 0;
   const attackBudgetShare = chosen.length;
+  // Formations blindées disponibles : assez de chars et de carburant pour une journée d'attaque.
+  const free = (front.armor ?? []).filter((a) => a.side === s && !a.lost && a.tanks > a.max * 0.3 && a.fuel > 0.3);
+  for (const a of front.armor ?? []) if (a.side === s && !a.lost) setArmorOrder(front, s, a.id, null);
+  const dist = (a, i) => Math.hypot(a.x - front.centers.x[i], a.y - front.centers.y[i]);
   const armorOK = weather.armor >= 0.75; // sous la pluie, les blindés s'enlisent : l'infanterie mène
   for (const sec of chosen) {
     const town = targetTown(front, s, sec.head);
@@ -163,14 +167,30 @@ export function planFront(front, s) {
       if (i >= 0) { goA += Math.min(1, front.map.flowA[i]); n++; }
     }
     const armorGround = n ? goA / n : 1;
-    const type = armorOK && armorGround > 0.6 && armor < cfg.maxArmor && sec.ratio > engage * 1.15 ? 'armor' : 'infantry';
-    if (type === 'armor') armor++;
-    const v = addVector(front, s, type, sec.head, to);
+    // Fer de lance : la formation la plus proche mène l'attaque vers l'objectif ; l'infanterie pousse sur le même axe.
+    if (armorOK && armorGround > 0.6 && free.length && sec.ratio > engage * 1.1) {
+      const a = free.reduce((b, x) => (dist(x, sec.head) < dist(b, sec.head) ? x : b));
+      if (dist(a, sec.head) < 45) {
+        setArmorOrder(front, s, a.id, to);
+        free.splice(free.indexOf(a), 1);
+      }
+    }
+    const v = addVector(front, s, 'infantry', sec.head, to);
     if (v.error) continue;
     // Préparation : barrage sur les cases ennemies juste devant le départ, puis réserves en tête de colonne.
     const L = Math.hypot(to.x - h.x, to.y - h.y) || 1;
     addBarrage(front, s, { x: h.x + ((to.x - h.x) / L) * 3, y: h.y + ((to.y - h.y) / L) * 3 });
     feed(sec.head, attackBudgetShare);
+  }
+
+  // Formations restantes : contre-attaque sur le secteur le plus menacé (défenseur, ou attaquant débordé), sinon
+  // en réserve derrière lui.
+  for (const a of free) {
+    const sec = threatened.find((x) => dist(a, x.head) < 45) ?? null;
+    if (!sec) continue;
+    const h = point(front, sec.head);
+    if (armorOK && sec.ratio < 0.85 && a.tanks > a.max * 0.5) setArmorOrder(front, s, a.id, { x: h.x + dirX * 10, y: h.y });
+    else setArmorOrder(front, s, a.id, { x: h.x - dirX * 6, y: h.y });
   }
 
   // 3. Barrages restants : sur les plus fortes concentrations ennemies estimées au contact.

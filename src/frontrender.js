@@ -17,6 +17,7 @@ import { FRONT_WEATHER, POCKET_MODES, VECTOR_TYPES, pocketName } from './front.j
 import { MIN_POCKET, ARMOR_ATK } from './frontinput.js';
 import { FrontFx } from './frontfx.js';
 import { GUN_KINDS, visibleGuns } from './frontguns.js';
+import { visibleArmor } from './frontarmor.js';
 import { SPRITE_PAL, piece, tank, howitzer, towed, mortar, rocket, pit, dust } from './frontsprites.js';
 
 export const CELL = 9; // rayon d'une case de la micro-grille, en pixels monde
@@ -604,7 +605,7 @@ export class FrontRenderer extends Renderer {
     }
     ctx.globalAlpha = 1;
     this.drawWorks(view.viewer ?? null);
-    const spears = f.phase === 'resolve' ? this.spearheads(view.viewer ?? null) : [];
+    const spears = f.phase === 'resolve' ? [...this.spearheads(view.viewer ?? null), ...this.armorTrails(view.viewer ?? null)] : [];
     this.drawSpearMass(spears);
     this.fx.drawGlow(ctx, now);
 
@@ -617,7 +618,8 @@ export class FrontRenderer extends Renderer {
     ctx.lineWidth = 2.4;
     strokeSegments(ctx, line);
     this.fx.drawOver(ctx, now, 1 / cam.s);
-    this.drawSpearTips(spears);
+    this.drawSpearTips(spears.filter((sp) => !sp.formation));
+    this.drawArmor(view);
 
     this.drawTowns(view.viewer ?? null);
     this.drawObjectiveMarks();
@@ -763,6 +765,80 @@ export class FrontRenderer extends Renderer {
       }
     }
     return out;
+  }
+
+  // Sillage des formations blindées pendant la journée : les cases prises ou traversées, hachurées.
+  armorTrails(viewer) {
+    const f = this.front;
+    const out = [];
+    for (const { a } of visibleArmor(f, viewer)) {
+      const cells = a.trail.filter((i) => f.owner[i] === a.side && (viewer === null || a.side === viewer || f.vision[viewer][i]));
+      if (cells.length) out.push({ side: a.side, cells, formation: true });
+    }
+    return out;
+  }
+
+  // Formations blindées : coin de chars vus de dessus (un char pour ~35), orientés selon leur marche (ou vers leur
+  // objectif le matin), avec poussière quand elles bougent. Le matin, flèche jaune vers l'objectif des siennes.
+  drawArmor(view) {
+    const f = this.front;
+    if (!f.armor) return;
+    const { ctx, cam } = this;
+    const viewer = view.viewer ?? null;
+    const k = SPRITE_K * Math.max(1, 1 / cam.s);
+    const px = 1 / cam.s;
+    const planning = f.phase === 'plan';
+    for (const { a, x, y, dir, tanks, known } of visibleArmor(f, viewer)) {
+      const c = this.toWorld({ x, y });
+      const own = viewer === null || a.side === viewer;
+      const sel = view.armor === a.id;
+      let ang = dir;
+      if (own && a.target) ang = Math.atan2(a.target.y - y, a.target.x - x);
+      if (own && planning && a.target) {
+        const t = this.toWorld(a.target);
+        ctx.strokeStyle = ORDER_HALO;
+        ctx.lineWidth = 6 * px;
+        ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(t.x, t.y); ctx.stroke();
+        ctx.strokeStyle = ORDER_INK;
+        ctx.lineWidth = 3.4 * px;
+        ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(t.x, t.y); ctx.stroke();
+        const s = 14 * px;
+        ctx.beginPath();
+        ctx.moveTo(t.x + Math.cos(ang) * 4 * px, t.y + Math.sin(ang) * 4 * px);
+        ctx.lineTo(t.x + Math.cos(ang + 2.6) * s, t.y + Math.sin(ang + 2.6) * s);
+        ctx.lineTo(t.x + Math.cos(ang - 2.6) * s, t.y + Math.sin(ang - 2.6) * s);
+        ctx.closePath();
+        ctx.fillStyle = ORDER_INK;
+        ctx.fill();
+      }
+      let n = Math.max(1, Math.min(5, Math.round(tanks / 35)));
+      if (cam.s < 1.1) n = Math.min(n, 3);
+      const form = [[0, 0], [-10, -9], [-10, 9], [-20, -18], [-20, 18]].slice(0, n);
+      const pts = form.map(([fx, fy]) => [c.x + (fx * Math.cos(ang) - fy * Math.sin(ang)) * k + Math.cos(ang) * 8 * k, c.y + (fx * Math.sin(ang) + fy * Math.cos(ang)) * k + Math.sin(ang) * 8 * k]);
+      ctx.globalAlpha = known ? 1 : 0.5;
+      if (sel) {
+        ctx.beginPath();
+        ctx.arc(c.x, c.y, 26 * k, 0, Math.PI * 2);
+        ctx.strokeStyle = ORDER_INK;
+        ctx.lineWidth = 2 * px;
+        ctx.stroke();
+      }
+      const moving = f.phase === 'resolve' && (a.attacking || a.trail.length);
+      if (moving) for (const [x2, y2] of pts) dust(ctx, x2, y2, ang, k);
+      for (const [x2, y2] of pts) piece(ctx, x2, y2, ang, k, (G, P, sh) => tank(G, P, sh, a.side === 1), SPRITE_PAL[a.side]);
+      if (sel || cam.s > 1.2 || f.phase === 'resolve') {
+        ctx.font = `700 ${10 * px}px "IBM Plex Sans Condensed", "Arial Narrow", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const ly = c.y + 30 * k;
+        ctx.lineWidth = 3 * px;
+        ctx.strokeStyle = 'rgba(250, 240, 210, 0.85)';
+        ctx.strokeText(a.name, c.x, ly);
+        ctx.fillStyle = SIDE_LINE[a.side];
+        ctx.fillText(a.name, c.x, ly);
+      }
+      ctx.globalAlpha = 1;
+    }
   }
 
   // Masse blindée : hachures serrées, de la couleur sombre du camp, sur les cases entraînées par les chars.

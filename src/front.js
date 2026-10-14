@@ -11,6 +11,7 @@ import { MOUNTAIN, computeTerrain } from './terrain.js';
 import { SEASON } from './conditions.js';
 import { findPockets, bfsDistance } from './path.js';
 import { emptyField, frontNeed, frontTick } from './combat.js';
+import { createArmor, armorAfter, armorNight, updateArmorSightings, ARMOR_SETUP } from './frontarmor.js';
 import { WORKS, initWorks, defenderBelt, barrageWorks, captureWorks, buildTick, trenchFor } from './frontworks.js';
 import { initScore, eveningScore, noteCapture, scoreBreakdown, GRADES } from './frontscore.js';
 import { GUN_KINDS, GUN_RULES, createGuns, gunFor, gunPower, moveGuns, supportFire, gunsNight, updateGunSightings } from './frontguns.js';
@@ -166,7 +167,9 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
   rollWeather(front);
   updateSupply(front);
   updateMemory(front);
+  front.armor = createArmor(front, cfg.armor ?? ARMOR_SETUP);
   updateGunSightings(front);
+  updateArmorSightings(front);
   initScore(front);
   flog(front, 'day', `— Jour 1 : ${map.name} · ${FRONT_WEATHER[front.weather].label} —`);
   return front;
@@ -581,11 +584,14 @@ export function stepTick(front) {
   applyWorks(front, early);
   rebuildFields(front, 0);
   rebuildFields(front, 1);
+  const densBefore = Float32Array.from(front.dens);
   const events = frontTick(front);
   events.push(...early);
+  armorAfter(front, front.tickLoss, densBefore, events);
   supportFire(front, front.tickEdges);
   moveGuns(front, events);
   for (const e of events) {
+    if (e.kind === 'armorLost') { const a = front.armor.find((x) => x.id === e.id); flog(front, 'armor', `${a.name} (${FRONT_SIDES[a.side] === 'DE' ? 'Wehrmacht' : 'Armée rouge'}) ${e.spent ? 'est saignée à blanc : ses derniers chars sont retirés du front' : 'est encerclée et détruite'}.`, a.side); continue; }
     if (e.kind === 'bridge') { flog(front, 'bridge', `Un pont s'effondre sous les obus, près de ${nearestTownName(front, e.i)}.`, e.side); continue; }
     if (e.kind !== 'gunLost') continue;
     const g = front.guns.find((x) => x.id === e.id);
@@ -620,6 +626,7 @@ export function stepTick(front) {
   front.tick++;
   updateMemory(front);
   updateGunSightings(front);
+  updateArmorSightings(front);
   checkFrontVictory(front);
   if (front.phase === 'resolve' && front.tick >= front.cfg.ticks) endDay(front);
   return events;
@@ -692,6 +699,7 @@ function endDay(front) {
     front.deployments[s] = [];
   }
   gunsNight(front);
+  armorNight(front);
   eveningScore(front);
   const d = front.dayStart;
   if (d) {

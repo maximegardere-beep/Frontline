@@ -12,6 +12,7 @@ import {
 } from './front.js';
 import { installAI } from './frontai.js';
 import { GUN_KINDS, GUN_POSTURES, gunPower, gunFor, setGunOrder } from './frontguns.js';
+import { setArmorOrder, expLabel } from './frontarmor.js';
 import { scoreBreakdown, objectiveState, GRADES, SCORE } from './frontscore.js';
 import { FrontRenderer, CELL } from './frontrender.js';
 import { bigPockets, menRange, pickCell, areaReport, combatSpots } from './frontinput.js';
@@ -36,7 +37,7 @@ const SIDE_NAME = ['Wehrmacht', 'Armée rouge'];
 // Outils du matin : vecteurs (deux appuis), ligne (deux appuis), barrage et réserves (un appui).
 const TOOLS = {
   infantry: { label: 'Infanterie', short: 'Inf.', taps: 2, hint: 'Touchez le départ dans vos lignes, puis l\'objectif.' },
-  armor: { label: 'Blindés', short: 'Blindés', taps: 2, hint: 'Percée blindée : touchez le départ, puis l\'objectif (loin, étroit, rapide).' },
+  armor: { label: 'Blindés', short: 'Blindés', taps: 1, hint: 'Formation blindée : touchez son objectif (ou une autre formation pour la choisir). Elle rejoint le front par vos lignes puis perce.' },
   retreat: { label: 'Repli', short: 'Repli', taps: 2, hint: 'Repli ordonné : touchez le secteur à dégager, puis où se replier dans vos lignes.' },
   line: { label: 'Ligne de défense', short: 'Ligne', taps: 2, hint: 'Ligne de défense : touchez une extrémité, puis l\'autre, dans vos lignes. Tranchées en un jour, barbelés en deux, antichar en trois (niveau réglable dans le panneau).' },
   barrage: { label: 'Barrage', short: 'Barrage', taps: 1, hint: 'Barrage de zone : touchez la zone à pilonner. Le groupe d\'artillerie disponible le plus puissant qui l\'a à portée tirera.' },
@@ -53,6 +54,7 @@ const fui = {
   pending: null, // premier appui d'un ordre à deux appuis : { cell, point }
   breakout: null, // id de la poche dont on trace la percée
   gun: null, // id du groupe d'artillerie sélectionné (le prochain appui fixe sa destination)
+  armor: null, // id de la formation blindée sélectionnée (outil Blindés : le prochain appui fixe son objectif)
   hoverPoint: null,
   probe: null, // estimation au toucher : { x, y, r }
   tab: 'orders',
@@ -204,8 +206,8 @@ function frontRules() {
       <summary>Front stratégique</summary>
       <ol>
         <li><b>Masses.</b> Plus d'unités : chaque camp est une masse de troupes, plus sombre où elle est dense. Le trait noir est le front. Hors de vue, l'ennemi n'est qu'une estimation estompée.</li>
-        <li><b>Le matin.</b> Le jeu est en pause. Donnez jusqu'à ${c.maxVectors} vecteurs (dont ${c.maxArmor} blindés) : les troupes autour du départ s'y engagent et poussent vers la cible. Un vecteur draine son voisinage : là où il prend, le front se dégarnit.</li>
-        <li><b>Outils.</b> Infanterie : large, lente, tenace. Blindés : étroits, rapides, profonds, mais ils s'enlisent sous la pluie. Repli ordonné : les troupes décrochent avec moins de pertes. Ligne de défense (${c.maxLines} nouvelles par jour, 4 chantiers au plus) : un chantier de plusieurs jours, trois fois plus lent au contact de l'ennemi. Tranchées en un jour (défense de l'infanterie, à moitié pour qui les prend), barbelés en deux (l'assaut d'infanterie qui les traverse s'use), hérissons antichar en trois (les chars y perdent élan et vitesse). Barbelés et hérissons gênent quiconque les traverse, dans les deux sens. Un barrage les détruit (l'artillerie lourde vient seule à bout des hérissons) et fait sauter les ponts ; les ruines restent sur la carte. Barrage : une zone pilonnée au début de la journée, même dans le brouillard, par un groupe d'artillerie qui l'a à portée (une mission par groupe et par jour). Artillerie : touchez un groupe puis sa destination ; en batterie il tire à 100 %, en appui mobile à 40 %, en déplacement pas du tout. Sans mission, il frappe les assaillants à sa portée ; un groupe dont la position tombe est perdu. Réserves : chaque appui fait monter des renforts en ligne.</li>
+        <li><b>Le matin.</b> Le jeu est en pause. Donnez jusqu'à ${c.maxVectors} vecteurs d'infanterie ou de repli : les troupes autour du départ s'y engagent et poussent vers la cible. Un vecteur draine son voisinage : là où il prend, le front se dégarnit.</li>
+        <li><b>Outils.</b> Infanterie : large, lente, tenace. Blindés : vos formations (divisions de Panzer, corps blindés), visibles sur la carte ; touchez-en une puis son objectif. Elle rejoint le front par vos lignes (vite sur route, mal en forêt, jamais à travers une rivière sans pont), perce, dépose ses grenadiers dans les cases prises et exploite ; riposte, hérissons, villes et forêts lui coûtent des chars, elle consomme du carburant, se refait la nuit si elle est ravitaillée, et meurt encerclée. Repli ordonné : les troupes décrochent avec moins de pertes. Ligne de défense (${c.maxLines} nouvelles par jour, 4 chantiers au plus) : un chantier de plusieurs jours, trois fois plus lent au contact de l'ennemi. Tranchées en un jour (défense de l'infanterie, à moitié pour qui les prend), barbelés en deux (l'assaut d'infanterie qui les traverse s'use), hérissons antichar en trois (les chars y perdent élan et vitesse). Barbelés et hérissons gênent quiconque les traverse, dans les deux sens. Un barrage les détruit (l'artillerie lourde vient seule à bout des hérissons) et fait sauter les ponts ; les ruines restent sur la carte. Barrage : une zone pilonnée au début de la journée, même dans le brouillard, par un groupe d'artillerie qui l'a à portée (une mission par groupe et par jour). Artillerie : touchez un groupe puis sa destination ; en batterie il tire à 100 %, en appui mobile à 40 %, en déplacement pas du tout. Sans mission, il frappe les assaillants à sa portée ; un groupe dont la position tombe est perdu. Réserves : chaque appui fait monter des renforts en ligne.</li>
         <li><b>La journée.</b> Une vingtaine de secondes, sans intervention : le combat compare les pressions de part et d'autre du front, selon la densité, le terrain, le retranchement et la qualité des troupes. Le bouton discret « Passer » abrège la journée.</li>
         <li><b>Défense élastique.</b> Sans ordre, les troupes colmatent d'elles-mêmes les secteurs menacés.</li>
         <li><b>Encerclement.</b> Des troupes coupées de leur bord de carte forment une poche, qui fond d'environ 30 % par jour. Chaque matin, choisissez pour les vôtres : statu quo, Festung (se resserrer, tenir et fondre moins vite) ou percée d'évasion vers un point que vous touchez.</li>
@@ -333,9 +335,20 @@ const cellPoint = (i) => ({ x: fui.front.centers.x[i], y: fui.front.centers.y[i]
 function setTool(t) {
   const f = fui.front;
   if (!f || f.phase !== 'plan') return;
+  // Blindés : chaque appui sur l'outil passe à la formation suivante.
+  if (t === 'armor') {
+    const list = f.armor.filter((a) => a.side === fui.side && !a.lost);
+    if (!list.length) return setHint('Aucune formation blindée disponible.', true);
+    const k = fui.tool === 'armor' ? list.findIndex((a) => a.id === fui.armor) + 1 : 0;
+    if (fui.tool === 'armor' && k >= list.length) { cancelTool(); return; }
+    fui.gun = null;
+    fui.pending = null;
+    return selectArmor(list[k].id);
+  }
   fui.tool = fui.tool === t ? null : t;
   fui.pending = null;
   fui.gun = null;
+  fui.armor = null;
   fui.breakout = null;
   fui.probe = null;
   setHint(fui.tool ? TOOLS[fui.tool].hint : TOOLS_HELP());
@@ -346,6 +359,7 @@ function setTool(t) {
 function cancelTool() {
   fui.tool = null;
   fui.gun = null;
+  fui.armor = null;
   fui.pending = null;
   fui.breakout = null;
   setHint(TOOLS_HELP());
@@ -380,6 +394,8 @@ function onTap(p) {
       return refreshFront();
     }
     if (g) return selectGun(g.id);
+    const a = armorNear(p);
+    if (a) return selectArmor(a.id);
   }
   if (f.phase !== 'plan' || (!fui.tool && !fui.breakout)) return probeAt(p);
 
@@ -391,6 +407,16 @@ function onTap(p) {
   }
 
   const tool = fui.tool;
+  if (tool === 'armor') {
+    const a = armorNear(p);
+    if (a && a.id !== fui.armor) return selectArmor(a.id);
+    const unit = f.armor.find((x) => x.id === fui.armor);
+    if (!unit) return cancelTool();
+    if (a && a.id === unit.id) { fui.tool = null; fui.armor = null; setHint(TOOLS_HELP()); return refreshFront(); }
+    const r = setArmorOrder(f, s, unit.id, { x: p.x, y: p.y });
+    if (!fail(r)) { placed(`${r.name} : en route vers son objectif. Elle gagne le front par vos lignes, puis perce.`); fui.tool = null; fui.armor = null; }
+    return refreshFront();
+  }
   if (tool === 'barrage') {
     const r = addBarrage(f, s, { x: p.x, y: p.y });
     if (!fail(r)) { placed(`Barrage réglé : ${f.guns.find((g) => g.id === r.gun).name} pilonnera la zone au lever du jour.`); fui.tool = null; }
@@ -434,6 +460,30 @@ function onTap(p) {
     if (!fail(r)) placed(`${VECTOR_TYPES[tool].label} : environ ${fmtMen(men(vectorCatchment(f, r)))} engagés.`);
   }
   if (!r.error) fui.tool = null;
+  refreshFront();
+}
+
+// Formation blindée à soi sous le doigt.
+function armorNear(p) {
+  const f = fui.front, R = reach() * 1.6;
+  let best = null, bd = R;
+  for (const a of f.armor) {
+    if (a.side !== fui.side || a.lost) continue;
+    const d = Math.hypot(a.x - p.x, a.y - p.y);
+    if (d < bd) { bd = d; best = a; }
+  }
+  return best;
+}
+
+function selectArmor(id) {
+  const a = fui.front.armor.find((x) => x.id === id);
+  if (!a || a.lost || fui.front.phase !== 'plan') return;
+  fui.tool = 'armor';
+  fui.armor = id;
+  fui.gun = null;
+  fui.probe = null;
+  sound.ui('select');
+  setHint(`${a.name} · ${Math.round(a.tanks)} chars · ${expLabel(a.exp).toLowerCase()} · carburant ${Math.round(a.fuel * 100)} %. Touchez son objectif.`);
   refreshFront();
 }
 
@@ -571,6 +621,8 @@ function startLoop() {
       if (!fui.skip && !stillMotion()) fui.r.fx.spawn(f, viewer(), now, T, fui.r.viewRect(), events);
       else fui.r.fx.glow = [];
       if (f.phase !== 'resolve') fui.ending = true;
+      // Panneau d'ordres : chars, carburant et état des formations suivent la journée (toutes les 3 ticks).
+      if (tick % 3 === 0 && fui.tab === 'orders' && !fui.skip) renderOrders();
       if (fui.skip) break; // une image par tick, même en accéléré
     }
     drawFront(fui.acc / T);
@@ -644,6 +696,7 @@ function drawFront(t = 1) {
     const h = fui.hoverPoint;
     if (fui.pending && fui.tool === 'line') preview = { lines: [{ a: fui.pending.point, b: h, side: s }] };
     else if (fui.pending) preview = { vectors: [{ type: fui.tool, from: fui.pending.point, to: h }] };
+    else if (fui.tool === 'armor' && fui.armor != null) { const a = f.armor.find((x) => x.id === fui.armor); if (a) preview = { vectors: [{ type: 'armor', from: { x: a.x, y: a.y }, to: h }] }; }
     else if (fui.tool === 'barrage') {
       const g = gunFor(f, s, h);
       preview = { barrages: [{ x: h.x, y: h.y, r: g ? GUN_KINDS[g.kind].r : 3, gun: g?.id }] };
@@ -656,6 +709,7 @@ function drawFront(t = 1) {
     preview,
     origin: planning && fui.pending ? fui.pending.cell : null,
     gun: planning ? fui.gun : null,
+    armor: planning ? fui.armor : null,
     probe: fui.probe,
   });
   const { cam, worldW, worldH } = fui.r;
@@ -756,7 +810,10 @@ function used(tool) {
   const f = fui.front, s = fui.side;
   const mine = f.orders[s].filter((v) => !v.pocket);
   if (tool === 'infantry' || tool === 'retreat') return [mine.length, f.cfg.maxVectors];
-  if (tool === 'armor') return [mine.filter((v) => v.type === 'armor').length, f.cfg.maxArmor, mine.length >= f.cfg.maxVectors];
+  if (tool === 'armor') {
+    const alive = f.armor.filter((a) => a.side === s && !a.lost);
+    return [alive.filter((a) => a.target).length, alive.length + 1, !alive.length];
+  }
   if (tool === 'line') return [f.lines[s].filter((l) => l.day === f.day).length, f.cfg.maxLines, f.lines[s].length >= 4];
   if (tool === 'barrage') {
     const able = f.guns.filter((g) => g.side === s && gunPower(g) > 0).length;
@@ -805,6 +862,7 @@ function renderOrders() {
     ...f.barrages[s].map((b) => orderLine('Barrage', f.guns.find((g) => g.id === b.gun)?.name ?? '', planning ? b.id : null)),
   ];
   const guns = f.guns.filter((g) => g.side === s);
+  const armor = f.armor.filter((a) => a.side === s);
   const deployed = f.deployments[s].reduce((a, d) => a + d.amount, 0);
   const pockets = bigPockets(f, s);
   const canRepeat = planning && f.lastOrders[s].length > 0 && !vecs.length;
@@ -817,6 +875,7 @@ function renderOrders() {
         ${deployed ? `<button class="btn btn-sm" id="f-undo">Annuler le dernier renfort</button>` : ''}
       </div>
       <p class="muted small">Réserves : ${fmtMen(men(f.reserve[s]))}${deployed ? ` · ${fmtMen(men(deployed))} montés en ligne ce matin` : ''}.</p>` : ''}
+    ${armor.length ? `<h3 class="f-sub f-sub-art">Blindés</h3><ul class="f-guns">${armor.map((a) => armorItem(f, a, planning)).join('')}</ul>` : ''}
     ${guns.length ? `<h3 class="f-sub f-sub-art">Artillerie</h3><ul class="f-guns">${guns.map((g) => gunItem(f, g, planning)).join('')}</ul>` : ''}
     ${pockets.length ? `<h3 class="f-sub">Troupes encerclées</h3><ul class="f-pockets">${pockets.map((p) => `
       <li>
@@ -825,6 +884,8 @@ function renderOrders() {
       </li>`).join('')}</ul>` : ''}`;
   el.querySelectorAll('[data-remove]').forEach((b) => b.addEventListener('click', () => removeMine(Number(b.dataset.remove))));
   el.querySelectorAll('[data-line]').forEach((b) => b.addEventListener('click', () => { const r = setLineLevel(f, s, Number(b.dataset.line), Number(b.dataset.level)); if (!fail(r)) placed(`Ligne de défense : ${['', 'tranchées seules (un jour)', 'tranchées et barbelés (deux jours)', 'tranchées, barbelés et obstacles antichar (trois jours)'][r.level]}.`); refreshFront(); }));
+  el.querySelectorAll('[data-armor-sel]').forEach((b) => b.addEventListener('click', () => (fui.armor === Number(b.dataset.armorSel) ? cancelTool() : selectArmor(Number(b.dataset.armorSel)))));
+  el.querySelectorAll('[data-armor-halt]').forEach((b) => b.addEventListener('click', () => { const r = setArmorOrder(f, s, Number(b.dataset.armorHalt), null); if (!fail(r)) placed(`${r.name} : halte, elle tient sa position.`); refreshFront(); }));
   el.querySelectorAll('[data-gun-sel]').forEach((b) => b.addEventListener('click', () => (fui.gun === Number(b.dataset.gunSel) ? cancelTool() : selectGun(Number(b.dataset.gunSel)))));
   el.querySelectorAll('[data-gun]').forEach((b) => b.addEventListener('click', () => gunPosture(Number(b.dataset.gun), b.dataset.posture)));
   el.querySelectorAll('[data-pocket]').forEach((b) => b.addEventListener('click', () => pocketMode(Number(b.dataset.pocket), b.dataset.mode)));
@@ -832,6 +893,17 @@ function renderOrders() {
   byId('f-undo')?.addEventListener('click', undoReserve);
   byId('f-tab-orders').classList.toggle('badge', planning && pockets.length > 0);
   byId('f-collapse').classList.toggle('badge', planning && pockets.length > 0);
+}
+
+// Une formation blindée dans le panneau : chars, expérience, carburant, état ; le matin, halte.
+function armorItem(f, a, planning) {
+  if (a.lost) return `<li class="f-gun lost"><p><b>${escHtml(a.name)}</b> · détruite</p></li>`;
+  const state = a.attacking ? 'à l\'attaque' : a.target ? (planning ? 'objectif fixé' : 'en marche') : 'en réserve';
+  const sel = fui.armor === a.id;
+  return `<li class="f-gun${sel ? ' sel' : ''}">
+    <p><button class="linkish" data-armor-sel="${a.id}" aria-pressed="${sel}"><b>${escHtml(a.name)}</b></button> · ${Math.round(a.tanks)} chars · ${expLabel(a.exp)} · carburant ${Math.round(a.fuel * 100)} % · <em>${state}</em></p>
+    ${planning && a.target ? `<div class="seg"><button class="btn btn-sm" data-armor-halt="${a.id}">Halte</button></div>` : ''}
+  </li>`;
 }
 
 // Un groupe d'artillerie dans le panneau : nom, état, mission ; le matin, sa posture.

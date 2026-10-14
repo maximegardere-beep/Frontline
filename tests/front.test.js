@@ -397,3 +397,29 @@ test('terrain : rivières continues, ponts sur les routes, gués, cols ; blindé
   }
   assert.ok(carved > 0, 'des cols percent les chaînes');
 });
+
+test('formations blindées : en réserve sans ordre, elles percent vers leur objectif, perdent des chars, se ravitaillent', async () => {
+  const { setArmorOrder } = await import('../src/frontarmor.js');
+  const f = createFront({ seed: 'panzer', attacker: 'DE', biome: 'steppe' });
+  f.reserve = [0, 0];
+  const a = f.armor.find((x) => x.side === 0);
+  assert.ok(a && f.owner[a.cell] === 0, 'formation dans ses lignes');
+  const quiet = createFront({ seed: 'panzer', attacker: 'DE', biome: 'steppe' });
+  runDay(quiet);
+  assert.equal(quiet.armor.find((x) => x.side === 0).cell, quiet.armor.find((x) => x.side === 0).cell);
+  const start = { x: a.x, y: a.y }, tanks0 = a.tanks;
+  assert.ok(!setArmorOrder(f, 0, a.id, { x: a.x + 45, y: a.y }).error);
+  const captured0 = f.stats.captured[0];
+  runDay(f);
+  assert.ok(a.x > start.x + 6, `elle a avancé (${start.x.toFixed(0)} → ${a.x.toFixed(0)})`);
+  assert.ok(f.stats.captured[0] > captured0, 'des cases prises');
+  assert.ok(a.tanks < tanks0 || a.fought === false, 'la percée coûte des chars');
+  assert.ok(a.fuel > 0.5, 'ravitaillée la nuit');
+  // Encerclée : sa case tombe sans repli possible, elle est perdue.
+  const b = f.armor.find((x) => x.side === 1);
+  for (let d = 0; d < 6; d++) { const j = f.map.nb[b.cell * 6 + d]; if (j >= 0) f.owner[j] = 0; }
+  f.owner[b.cell] = 0;
+  beginDay(f);
+  stepTick(f);
+  assert.ok(b.lost, 'formation encerclée détruite');
+});
