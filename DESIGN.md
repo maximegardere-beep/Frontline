@@ -346,3 +346,17 @@ densités. Le moteur garde des points d'accroche pour cela.
   plaque, Katioucha sur camion avec traînées de roquettes au tir ; coin de 2 à 5 chars à la tête de chaque percée
   blindée, avec poussière. Le nombre de pièces suit la force du groupe ; taille minimale à l'écran, deux pièces au zoom
   éloigné. L'Armée rouge aligne désormais deux régiments divisionnaires, un de mortiers lourds et un de Katioucha.
+
+### Objectifs : victoire graduée aux points
+
+- `frontscore.js` : le score de l'offensive (positif pour l'attaquant) additionne les villes ★ tenues au dernier soir
+  (3 par bourg, 9 par grande ville), le contrôle soir après soir (1 par bourg et par soir), le terrain gagné (0,5 par %),
+  le rapport des pertes, les troupes perdues dans les poches, l'exploitation jusqu'au bord ennemi et deux objectifs
+  secondaires par camp (6 points chacun : encerclement, cote à prendre ou tenir, ville à prendre avant mi-bataille,
+  groupes d'artillerie à réduire ou à préserver, plafond de pertes).
+- Issues : victoire décisive de l'attaquant ≥ 42, victoire ≥ 25, indécis ≥ 12, victoire défensive ≥ 2, au-dessous
+  victoire défensive décisive. Seuils calés sur 40 batailles IA contre IA (attaquant 55 %, défenseur 30 %, indécis 15 %),
+  à revoir à l'équilibrage. Fins immédiates conservées (effondrement, anéantissement) ; « toutes les villes » ne vaut
+  plus que pour l'attaquant (le défenseur qui part avec toutes les villes ne gagnait plus au premier tick).
+- Interface : score et issue en vue dans la barre et l'onglet Forces, objectifs secondaires cochés au fil des jours,
+  cotes marquées sur la carte, tableau du décompte au rapport final.

@@ -11,6 +11,7 @@ import { MOUNTAIN, FRONT_KINDS, cellFluidity, cellDefense } from './terrain.js';
 import { SEASON } from './conditions.js';
 import { findPockets, bfsDistance } from './path.js';
 import { emptyField, frontNeed, frontTick } from './combat.js';
+import { initScore, eveningScore, noteCapture, scoreBreakdown, GRADES } from './frontscore.js';
 import { GUN_KINDS, GUN_RULES, createGuns, gunFor, gunPower, moveGuns, supportFire, gunsNight, updateGunSightings } from './frontguns.js';
 
 export const FRONT_SIDES = ['DE', 'SU'];
@@ -171,6 +172,7 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
   updateSupply(front);
   updateMemory(front);
   updateGunSightings(front);
+  initScore(front);
   flog(front, 'day', `— Jour 1 : ${map.name} · ${FRONT_WEATHER[front.weather].label} —`);
   return front;
 }
@@ -595,6 +597,7 @@ export function stepTick(front) {
     if (e.kind !== 'capture') continue;
     front.entrench[e.i] = 0; // une case prise perd son retranchement
     const town = front.map.towns.find((t) => t.i === e.i);
+    noteCapture(front, e.i, e.side);
     if (town) flog(front, 'town', `${FRONT_SIDES[e.side] === 'DE' ? 'La Wehrmacht' : 'L\'Armée rouge'} prend ${town.name}.`, e.side);
   }
   const fresh = updateSupply(front);
@@ -605,6 +608,7 @@ export function stepTick(front) {
       const rate = front.cfg.drain * (p.mode === 'festung' ? front.cfg.festungDrain : 1);
       for (const i of p.cells) { const l = front.dens[i] * rate; front.dens[i] -= l; lost += l; }
       front.stats.losses[s] += lost;
+      front.stats.pocket[s] += lost;
       p.troops -= lost;
     }
   }
@@ -678,6 +682,7 @@ function endDay(front) {
     front.deployments[s] = [];
   }
   gunsNight(front);
+  eveningScore(front);
   const d = front.dayStart;
   if (d) {
     const fmt = (s) => `${FRONT_SIDES[s]} −${Math.round((front.stats.losses[s] - d.losses[s]) * c.men).toLocaleString('fr-FR')} h`;
@@ -698,7 +703,8 @@ function endDay(front) {
 // ---------- Conditions de victoire ----------
 
 function finish(front, winner, reason) {
-  front.result = { winner, reason };
+  if (!front.grade) front.grade = winner === null ? 'draw' : winner === front.attacker ? 'attDecisive' : 'defDecisive';
+  front.result = { winner, reason, grade: front.grade };
   front.phase = 'over';
   flog(front, 'result', reason, winner);
 }
@@ -714,7 +720,9 @@ export function checkFrontVictory(front) {
   }
   const towns = front.map.towns;
   if (towns.length >= 3) {
-    for (const s of [0, 1]) if (towns.every((t) => front.owner[t.i] === s)) return finish(front, s, `${name(s)} tient toutes les villes du secteur.`);
+    // Percée totale : l'attaquant tient toutes les villes du secteur (le défenseur, lui, gagne aux points).
+    const a = front.attacker;
+    if (towns.every((t) => front.owner[t.i] === a)) return finish(front, a, `${name(a)} tient toutes les villes du secteur.`);
   }
   return null;
 }
@@ -725,10 +733,18 @@ export function attackerTowns(front) {
   return front.defTowns.filter((i) => front.owner[i] === front.attacker).length;
 }
 
+// Au terme des journées : l'issue se lit au score (frontscore.js), de la victoire décisive de l'attaquant à celle du
+// défenseur, en passant par une issue indécise.
 function finalVerdict(front) {
   const att = front.attacker, def = 1 - att;
   const name = (s) => (s === 0 ? 'la Wehrmacht' : 'l\'Armée rouge');
+  const { total, grade } = scoreBreakdown(front, true);
+  const G = GRADES[grade];
   const got = attackerTowns(front);
-  if (got >= front.goal) return finish(front, att, `Fin de l'offensive : ${name(att)} a pris ${got} ville${got > 1 ? 's' : ''} sur les ${front.goal} visées.`);
-  finish(front, def, `Fin de l'offensive : ${name(def)} a tenu, l'ennemi n'a pris que ${got} ville${got > 1 ? 's' : ''} sur les ${front.goal} visées.`);
+  const towns = `${got} ville${got > 1 ? 's' : ''} ★ sur ${front.defTowns.length}`;
+  const pts = `${total >= 0 ? '+' : '−'}${Math.abs(Math.round(total))} points`;
+  front.grade = grade;
+  if (G.att === true) return finish(front, att, `${G.label} de ${name(att)} (${pts}) : l'offensive a pris ${towns}.`);
+  if (G.att === false) return finish(front, def, `${G.label} de ${name(def)} (${pts}) : l'ennemi n'a pris que ${towns}.`);
+  finish(front, null, `${G.label} (${pts}) : ${name(att)} a pris ${towns}, sans emporter la décision.`);
 }

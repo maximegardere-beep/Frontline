@@ -416,6 +416,7 @@ export class FrontRenderer extends Renderer {
     this.drawSpearTips(spears);
 
     this.drawTowns(view.viewer ?? null);
+    this.drawObjectiveMarks();
     this.drawPockets(view.viewer ?? null);
     this.drawGuns(view);
     if (view.orders) this.drawFrontOrders(view.orders, view.viewer);
@@ -487,6 +488,39 @@ export class FrontRenderer extends Renderer {
         ctx.fillStyle = '#1d1a12';
         ctx.fillText(label, c.x, c.y);
       }
+    }
+  }
+
+  // Cotes des objectifs secondaires : petit triangle et nom, à la couleur du camp qui doit les tenir ou les prendre.
+  drawObjectiveMarks() {
+    const { ctx, cam } = this;
+    const px = 1 / cam.s;
+    for (const o of this.front.objectives ?? []) {
+      if (o.kind !== 'holdCell') continue;
+      const c = this.center(o.i);
+      const r = 6 * Math.max(1, px);
+      ctx.beginPath();
+      ctx.moveTo(c.x, c.y - r);
+      ctx.lineTo(c.x + r * 0.9, c.y + r * 0.6);
+      ctx.lineTo(c.x - r * 0.9, c.y + r * 0.6);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(250, 240, 210, 0.92)';
+      ctx.strokeStyle = SIDE_LINE[o.side];
+      ctx.lineWidth = 1.6 * px;
+      ctx.fill();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(c.x, c.y + r * 0.1, r * 0.22, 0, Math.PI * 2);
+      ctx.fillStyle = SIDE_LINE[o.side];
+      ctx.fill();
+      ctx.font = `600 ${10 * Math.max(1, px)}px "IBM Plex Sans Condensed", "Arial Narrow", sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.lineWidth = 3 * Math.max(1, px);
+      ctx.strokeStyle = 'rgba(250, 240, 210, 0.85)';
+      ctx.strokeText(o.name ?? 'Cote', c.x, c.y + r + 2 * px);
+      ctx.fillStyle = SIDE_LINE[o.side];
+      ctx.fillText(o.name ?? 'Cote', c.x, c.y + r + 2 * px);
     }
   }
 

@@ -249,7 +249,7 @@ export function frontTick(front) {
     const back = [];
     for (let d = 0; d < 6; d++) { const n = nb[j * 6 + d]; if (n >= 0 && owner[n] === o) back.push(n); }
     if (back.length) for (const n of back) dens[n] += dens[j] / back.length;
-    else if (dens[j] > 0) { front.stats.losses[o] += dens[j]; events.push({ kind: 'trapped', i: j, side: o, amount: dens[j] }); }
+    else if (dens[j] > 0) { front.stats.losses[o] += dens[j]; if (front.stats.pocket) front.stats.pocket[o] += dens[j]; events.push({ kind: 'trapped', i: j, side: o, amount: dens[j] }); }
     owner[j] = s;
     captured[j] = 1;
     let enter = 0;

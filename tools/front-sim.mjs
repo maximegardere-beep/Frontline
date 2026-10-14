@@ -3,6 +3,7 @@
 import { createFront, runDay, FRONT_SETUP, townsHeld } from '../src/front.js';
 import { installAI, AI_TUNING } from '../src/frontai.js';
 import { FRONT_RULES } from '../src/combat.js';
+import { scoreBreakdown, GRADES } from '../src/frontscore.js';
 
 Object.assign(FRONT_RULES, JSON.parse(process.env.RULES ?? '{}'));
 Object.assign(FRONT_SETUP, JSON.parse(process.env.SETUP ?? '{}'));
@@ -14,6 +15,7 @@ const tally = { att: 0, def: 0, nul: 0, DE: 0, SU: 0 };
 const reasons = {};
 let days = 0, pockets = 0, towns = 0, ms = 0, early = 0;
 const perBiome = {};
+const grades = {}, scores = [];
 for (let k = 0; k < N; k++) {
   const attacker = k % 2 ? 'SU' : 'DE';
   const biome = BIOMES[k % 4];
@@ -31,6 +33,8 @@ for (let k = 0; k < N; k++) {
   days += Math.min(f.day - 1, f.cfg.days);
   if (f.day - 1 < f.cfg.days) early++;
   const w = f.result.winner;
+  grades[f.result.grade] = (grades[f.result.grade] ?? 0) + 1;
+  scores.push(scoreBreakdown(f, true).total);
   if (w === null) tally.nul++;
   else { tally[w === f.attacker ? 'att' : 'def']++; tally[w === 0 ? 'DE' : 'SU']++; }
   const r = f.result.reason.replace(/\d+/g, '#').replace(/(la Wehrmacht|l'Armée rouge|La Wehrmacht|L'Armée rouge)/g, 'X').slice(0, 60);
@@ -44,4 +48,7 @@ const p = (x) => `${Math.round((100 * x) / N)} %`;
 console.log(`${N} batailles · attaquant ${p(tally.att)} · défenseur ${p(tally.def)} · nuls ${p(tally.nul)} · Wehrmacht ${p(tally.DE)} · Armée rouge ${p(tally.SU)}`);
 console.log(`durée moyenne ${(days / N).toFixed(1)} jours (${early} finies avant le terme) · villes prises par l'attaquant ${(towns / N).toFixed(1)} · encerclements ${(pockets / N).toFixed(1)} par bataille · ${(ms / N / 1000).toFixed(1)} s de calcul par bataille`);
 console.log('par biome (victoires de l\'attaquant) :', Object.entries(perBiome).map(([b, v]) => `${b} ${v.att}/${v.n}`).join(' · '));
+scores.sort((a, b) => a - b);
+console.log('issues :', Object.entries(grades).map(([g, n]) => `${GRADES[g].label} ${n}`).join(' · '));
+console.log('score (attaquant) : quantiles 10/25/50/75/90 =', [0.1, 0.25, 0.5, 0.75, 0.9].map((q) => scores[Math.floor(q * (scores.length - 1))].toFixed(1)).join(' / '));
 for (const [r, n] of Object.entries(reasons).sort((a, b) => b[1] - a[1])) console.log(`  ${n} × ${r}`);

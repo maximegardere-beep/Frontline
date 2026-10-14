@@ -111,7 +111,28 @@ test('fin de l\'offensive : sans villes prises, le défenseur a tenu', () => {
   f.reserve = [0, 0];
   while (!f.result) runDay(f);
   assert.equal(f.result.winner, 1, f.result.reason);
-  assert.match(f.result.reason, /a tenu/);
+  assert.match(f.result.grade, /^def/, f.result.reason);
+});
+
+test('objectifs : score gradué, contrôle des villes au fil des soirs, objectifs secondaires', async () => {
+  const { scoreBreakdown, gradeOf, SCORE, objectiveState } = await import('../src/frontscore.js');
+  const f = createFront({ seed: 'score', attacker: 'DE', days: 3 });
+  assert.equal(f.objectives.filter((o) => o.side === 0).length, 2, 'deux objectifs pour l\'attaquant');
+  assert.ok(f.objectives.filter((o) => o.side === 1).length >= 1, 'et pour le défenseur');
+  for (const o of f.objectives) assert.ok(objectiveState(f, o).text.length > 0);
+  assert.equal(gradeOf(SCORE.attDecisive), 'attDecisive');
+  assert.equal(gradeOf(SCORE.defWin - 1), 'defDecisive');
+  // Une ville ★ donnée à l'attaquant rapporte chaque soir.
+  const t = f.map.towns.find((x) => f.defTowns.includes(x.i));
+  const before = scoreBreakdown(f).total;
+  f.owner[t.i] = 0;
+  f.reserve = [0, 0];
+  runDay(f);
+  const rows = scoreBreakdown(f).rows;
+  if (f.owner[t.i] === 0) assert.ok(rows.find((r) => r.key === 'daily').pts > 0, 'points de contrôle du soir');
+  assert.ok(Number.isFinite(before));
+  while (!f.result) runDay(f);
+  assert.ok(f.result.grade, 'issue graduée');
 });
 
 const pt = (f, i) => ({ x: f.centers.x[i], y: f.centers.y[i] });

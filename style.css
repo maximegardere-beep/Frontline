@@ -664,3 +664,15 @@ kbd {
 .linkish { padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; min-height: 32px; }
 .linkish[aria-pressed="true"] { color: #ffd23f; }
 .f-gun .seg .btn:disabled { opacity: 0.4; }
+
+/* Objectifs et score. */
+.f-objs { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+.f-objs em { color: var(--muted); font-style: normal; font-size: 13px; margin-left: 4px; }
+.dossier .f-objs em { color: var(--ink-muted); }
+.obj-mark { display: inline-block; width: 1.2em; font-weight: 700; }
+.f-objs .ok .obj-mark { color: var(--good); }
+.f-objs .ko .obj-mark { color: var(--bad); }
+.score-table { width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 6px; }
+.score-table td { padding: 3px 0; border-bottom: 1px solid rgba(42, 36, 22, 0.15); vertical-align: top; }
+.score-table td:last-child { text-align: right; font: 600 14px var(--f-mono); padding-left: 10px; white-space: nowrap; }
+.score-table tr.ko td:first-child { color: var(--ink-muted); text-decoration: line-through; }

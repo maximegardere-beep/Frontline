@@ -12,6 +12,7 @@ import {
 } from './front.js';
 import { installAI } from './frontai.js';
 import { GUN_KINDS, GUN_POSTURES, gunPower, gunFor, setGunOrder } from './frontguns.js';
+import { scoreBreakdown, objectiveState, GRADES, SCORE } from './frontscore.js';
 import { FrontRenderer, CELL } from './frontrender.js';
 import { bigPockets, menRange, pickCell, areaReport, combatSpots } from './frontinput.js';
 import { WeatherLayer } from './weather.js';
@@ -126,10 +127,29 @@ function weatherText(f) {
 
 function goalText(f) {
   const att = f.attacker === fui.side;
-  const n = f.defTowns.length;
   return att
-    ? `Prendre et tenir au soir du ${f.cfg.days}<sup>e</sup> jour au moins <b>${f.goal} des ${n} villes</b> marquées ★ (aujourd'hui aux mains de l'ennemi).`
-    : `Garder les villes marquées ★ : l'ennemi doit en tenir <b>${f.goal} sur ${n}</b> au soir du ${f.cfg.days}<sup>e</sup> jour pour l'emporter.`;
+    ? `Bataille aux points. Prenez les villes ★ tôt et tenez-les : chaque soir où vous les tenez rapporte, et davantage au dernier soir. Terrain gagné, pertes infligées, troupes prises dans des poches et objectifs secondaires comptent aussi. Environ deux villes ★ tenues font une victoire, trois une victoire décisive.`
+    : `Bataille aux points. Chaque soir où l'ennemi tient une ville ★ lui rapporte : reprenez-les vite, ou retardez leur chute. Saignez l'offensive, encerclez ses pointes, remplissez vos objectifs secondaires : une offensive qui ne gagne presque rien est une victoire défensive.`;
+}
+
+const signed = (n) => `${n >= 0 ? '+' : '−'}${Math.abs(Math.round(n))}`;
+
+// Issue vue du joueur : victoire, défaite ou indécis, et le libellé gradué.
+function gradeFor(f, grade) {
+  const G = GRADES[grade];
+  const mine = G.att === null ? null : G.att === (f.attacker === fui.side);
+  return { label: G.label, mine };
+}
+
+function objectivesHtml(f, side, final = false) {
+  const list = f.objectives.filter((o) => o.side === side);
+  if (!list.length) return '<p class="muted">Aucun.</p>';
+  return `<ul class="f-objs">${list.map((o) => {
+    const st = objectiveState(f, o);
+    const ok = st.final ?? (final ? st.done : null);
+    const mark = ok === true ? '✓' : ok === false ? '✗' : st.done ? '◐' : '○';
+    return `<li class="${ok === true ? 'ok' : ok === false ? 'ko' : ''}"><span class="obj-mark" aria-hidden="true">${mark}</span> ${escHtml(o.label)} <em>${escHtml(st.text)}</em></li>`;
+  }).join('')}</ul>`;
 }
 
 function enemyEstimate(f) {
@@ -154,7 +174,10 @@ function showFrontBriefing() {
       <section>
         <h2>Objectif</h2>
         <p>${goalText(f)}</p>
-        <p>Victoire immédiate si l'ennemi tombe sous 12 % de ses effectifs, ne tient plus que 12 % du terrain, ou perd toutes les villes.</p>
+        <h2>Objectifs secondaires (+${SCORE.secondary} points chacun)</h2>
+        ${objectivesHtml(f, s)}
+        <p class="muted small">L'ennemi a les siens : ${f.objectives.filter((o) => o.side !== s).map((o) => escHtml(o.label.toLowerCase())).join(' ; ')}.</p>
+        <p class="muted small">Fin immédiate si un camp tombe sous 12 % de ses effectifs ou de son terrain, ou si l'attaquant prend toutes les villes.</p>
         <h2>Forces</h2>
         <p>En ligne : ${fmtMen(men(troops(f, s)))}. Réserves : ${fmtMen(men(f.reserve[s]))}, renforcées chaque soir selon le ravitaillement et les villes tenues.</p>
         <p>Renseignement : en face, ${menRange(enemyEstimate(f), 0.8, 1.4)} repérés ; le reste est dans le brouillard.</p>
@@ -185,7 +208,7 @@ function frontRules() {
         <li><b>Défense élastique.</b> Sans ordre, les troupes colmatent d'elles-mêmes les secteurs menacés.</li>
         <li><b>Encerclement.</b> Des troupes coupées de leur bord de carte forment une poche, qui fond d'environ 30 % par jour. Chaque matin, choisissez pour les vôtres : statu quo, Festung (se resserrer, tenir et fondre moins vite) ou percée d'évasion vers un point que vous touchez.</li>
         <li><b>Brouillard.</b> Vous voyez à quelques cases de vos troupes (moins par brouillard). Touchez la carte : vos forces sont comptées, celles de l'ennemi estimées en fourchette.</li>
-        <li><b>Victoire.</b> Au soir du ${c.days}<sup>e</sup> jour, l'attaquant gagne s'il tient assez de villes ★ ; sinon le défenseur a tenu. Un camp qui tombe sous 12 % de ses effectifs ou de son terrain, ou qui perd toutes les villes, a perdu sur-le-champ.</li>
+        <li><b>Victoire aux points.</b> Le score de l'offensive additionne les villes ★ tenues par l'attaquant (chaque soir, et davantage au dernier), le terrain gagné, le rapport des pertes, les troupes perdues dans les poches, l'exploitation jusqu'au bord de la carte et les objectifs secondaires des deux camps. Au soir du ${c.days}<sup>e</sup> jour, l'issue va de la victoire décisive de l'attaquant (≥ ${SCORE.attDecisive}) à la victoire défensive décisive (&lt; ${SCORE.defWin}), en passant par une issue indécise. Un camp qui tombe sous 12 % de ses effectifs ou de son terrain a perdu sur-le-champ ; l'attaquant qui prend toutes les villes gagne aussitôt.</li>
       </ol>
     </details>`;
 }
@@ -206,6 +229,7 @@ function takeStats() {
     territory: territory(f, s),
     towns: townsHeld(f, s),
     objective: attackerTowns(f),
+    score: scoreBreakdown(f).total,
     logFrom: f.log.length,
     pockets: f.pockets[s].length,
   };
@@ -231,7 +255,10 @@ function showDayReport() {
         <p>Vos pertes : <b>${fmtMen(lost)}</b>.<br>Pertes ennemies estimées : ${theirs < 50 ? 'négligeables' : menRange(theirs, 0.7, 1.35)}.</p>
         <h2>Terrain</h2>
         <p>${Math.abs(terr) < 0.5 ? 'Le front n\'a guère bougé.' : terr > 0 ? `Vous gagnez ${terr.toFixed(1).replace('.', ',')} % du secteur.` : `Vous cédez ${(-terr).toFixed(1).replace('.', ',')} % du secteur.`} Vous tenez ${Math.round(territory(f, s) * 100)} % du terrain et ${townsHeld(f, s)} ville${townsHeld(f, s) > 1 ? 's' : ''}.</p>
-        <p>Objectif : ${obj} ville${obj > 1 ? 's' : ''} ★ sur ${f.goal} ${att ? 'prises' : 'perdues'}${obj >= f.goal ? (att ? ' : le compte y est, tenez-les.' : ' : il faut en reprendre.') : '.'}</p>
+        <p>Villes ★ : ${obj} sur ${f.defTowns.length} ${att ? 'prises' : 'perdues'}.</p>
+        ${(() => { const sc = scoreBreakdown(f); const g = gradeFor(f, sc.grade); return `<p>Score de ${att ? 'votre' : 'l\'ennemie'} offensive : <b>≈ ${signed(sc.total)}</b> (${signed(sc.total - d.score)} aujourd'hui). Issue en vue : <b>${g.label.toLowerCase()}</b>${g.mine === true ? ' en votre faveur' : g.mine === false ? ' pour l\'ennemi' : ''}.</p>`; })()}
+        <h2>Vos objectifs secondaires</h2>
+        ${objectivesHtml(f, s)}
       </section>
       <section>
         <h2>Événements</h2>
@@ -253,22 +280,29 @@ function showDayReport() {
 function showFrontDebrief() {
   const f = fui.front, s = fui.side;
   const won = f.result.winner === s;
+  const draw = f.result.winner === null;
+  const sc = scoreBreakdown(f, true);
+  const g = gradeFor(f, f.result.grade ?? sc.grade);
   fui.showAll = true;
   resnap();
   drawFront();
   const L = f.stats.losses;
   fui.hooks.showDossier(`
     <p class="eyebrow">${escHtml(f.map.name)} · rapport final</p>
-    <h1 class="title-l ${won ? 'win' : 'loss'}">${won ? 'Victoire' : 'Défaite'}</h1>
+    <h1 class="title-l ${won ? 'win' : draw ? '' : 'loss'}">${won ? g.label : draw ? 'Issue indécise' : 'Défaite'}</h1>
+    ${!won && !draw ? `<p class="kind">${escHtml(g.label)} de l'ennemi</p>` : ''}
     <p class="lede">${escHtml(f.result.reason)}</p>
     <div class="brief-grid">
       <section>
         <h2>Pertes</h2>
         <p>${SIDE_NAME[0]} : ${fmtMen(men(L[0]))}<br>${SIDE_NAME[1]} : ${fmtMen(men(L[1]))}</p>
         <h2>Terrain</h2>
-        <p>${SIDE_NAME[0]} ${Math.round(territory(f, 0) * 100)} % · ${SIDE_NAME[1]} ${Math.round(territory(f, 1) * 100)} %. Villes ★ prises par l'attaquant : ${attackerTowns(f)} sur ${f.goal} visées.</p>
+        <p>${SIDE_NAME[0]} ${Math.round(territory(f, 0) * 100)} % · ${SIDE_NAME[1]} ${Math.round(territory(f, 1) * 100)} %. Villes ★ prises par l'attaquant : ${attackerTowns(f)} sur ${f.defTowns.length}.</p>
       </section>
       <section>
+        <h2>Score de l'offensive : ${signed(sc.total)}</h2>
+        <table class="score-table">${sc.rows.filter((r) => r.pts || r.objective).map((r) => `<tr class="${r.objective ? (r.ok ? 'ok' : 'ko') : ''}"><td>${escHtml(r.label)}</td><td>${signed(r.pts)}</td></tr>`).join('')}</table>
+        <p class="muted small">Seuils : victoire décisive de l'attaquant ≥ ${SCORE.attDecisive}, victoire ≥ ${SCORE.attWin}, indécis ≥ ${SCORE.draw}, victoire défensive ≥ ${SCORE.defWin}, au-dessous victoire défensive décisive.</p>
         <h2>Après la bataille</h2>
         <p>Le brouillard est levé : la carte montre maintenant les forces réelles des deux camps.</p>
       </section>
@@ -696,8 +730,9 @@ function refreshFront() {
   byId('f-phase').textContent = PHASE[f.phase];
   byId('f-phase').dataset.phase = f.phase === 'resolve' ? 'execute' : f.phase;
   const obj = attackerTowns(f);
-  byId('f-goal').innerHTML = `<span class="star">★</span> ${obj}/${f.goal}${compact ? '' : f.attacker === s ? ' prises' : ' perdues'}`;
-  byId('f-goal').title = f.attacker === s ? `Villes de l'objectif prises : ${obj} sur ${f.goal} nécessaires` : `Villes de l'objectif perdues : ${obj} ; l'ennemi en veut ${f.goal}`;
+  const sc = scoreBreakdown(f);
+  byId('f-goal').innerHTML = `<span class="star">★</span> ${obj}/${f.defTowns.length}${compact ? '' : f.attacker === s ? ' prises' : ' perdues'} · ${signed(sc.total)}`;
+  byId('f-goal').title = `Villes ★ ${f.attacker === s ? 'prises' : 'perdues'} : ${obj} sur ${f.defTowns.length}. Score de l'offensive : ≈ ${signed(sc.total)} (${GRADES[sc.grade].label.toLowerCase()}).`;
   fui.weather.set(f.weather, 'day');
   sound.setWeather(f.weather);
   const go = byId('f-go');
@@ -811,9 +846,12 @@ function renderForces() {
       ${fstat('Pertes', fmtMen(lost))}
       ${fstat('Terrain', `${Math.round(territory(f, s) * 100)} %`)}
       ${fstat('Villes', townsHeld(f, s))}
-      ${fstat('Objectif ★', `${attackerTowns(f)}/${f.goal}`)}
+      ${fstat('Score', `≈ ${signed(scoreBreakdown(f).total)}`)}
     </dl>
-    <p class="muted">${goalText(f)}</p>
+    <p class="muted">Issue en vue : <b>${GRADES[scoreBreakdown(f).grade].label.toLowerCase()}</b> (score de l'offensive ${f.attacker === s ? 'que vous menez' : 'ennemie'}).</p>
+    <h3 class="f-sub f-sub-art">Vos objectifs secondaires</h3>
+    ${objectivesHtml(f, s)}
+    <p class="muted small">${goalText(f)}</p>
     <p class="muted small">En face (estimation) : ${menRange(enemyEstimate(f), 0.8, 1.4)} repérés.</p>`;
 }
 
