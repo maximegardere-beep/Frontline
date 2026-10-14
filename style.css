@@ -505,7 +505,7 @@ kbd {
   bottom: 10px;
   max-width: 600px;
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 4px;
   padding: 4px;
   border: 1px solid rgba(0, 0, 0, 0.5);
@@ -530,6 +530,7 @@ kbd {
 .otool[data-tool="infantry"] { border-bottom-color: #c0392b; }
 .otool[data-tool="armor"] { border-bottom-color: #e0623f; }
 .otool[data-tool="retreat"] { border-bottom-color: #b58a2e; }
+.otool[data-tool="fix"] { border-bottom-color: #c98a5a; }
 .otool[data-tool="line"] { border-bottom-color: #4f7db0; }
 .otool[data-tool="barrage"] { border-bottom-color: #8d6a9f; }
 .otool[data-tool="reserve"] { border-bottom-color: #7fbf4d; }

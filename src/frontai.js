@@ -183,6 +183,20 @@ export function planFront(front, s) {
     feed(sec.head, attackBudgetShare);
   }
 
+  // Fixations : sur les secteurs voisins de ses attaques (à 6 à 14 lignes), l'ennemi est pressé pour qu'il n'y
+  // prélève pas ses renforts.
+  if (chosen.length) {
+    let fixes = 0;
+    for (const sec of sectors) {
+      if (fixes >= (attacking ? 2 : 1)) break;
+      if (chosen.includes(sec) || threatened.includes(sec) || sec.ratio < 0.7) continue;
+      const gap = Math.min(...chosen.map((c) => Math.abs(c.r0 - sec.r0)));
+      if (gap < 6 || gap > 14) continue;
+      const h = point(front, sec.head);
+      if (!addVector(front, s, 'fix', sec.head, { x: h.x + dirX * 8, y: h.y }).error) fixes++;
+    }
+  }
+
   // Formations restantes : contre-attaque sur le secteur le plus menacé (défenseur, ou attaquant débordé), sinon
   // en réserve derrière lui.
   for (const a of free) {

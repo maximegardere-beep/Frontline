@@ -62,6 +62,9 @@ export const VECTOR_TYPES = {
   armor: { label: 'Blindés', sigma: 1.8, catch: 6.5, speed: 0.7, atk: 1.8, maxLen: 42 },
   // Repli ordonné : vers l'arrière, sans pousser l'ennemi ; le terrain cédé n'est perdu que s'il vient l'occuper.
   retreat: { label: 'Repli', sigma: 2.8, catch: 5, speed: 0.3, atk: 0, maxLen: 20, retreat: true },
+  // Fixation : une bande large qui presse l'ennemi sans chercher à prendre de cases, à pertes réduites ; les cases
+  // ennemies pressées ne peuvent plus envoyer de troupes ailleurs et appellent des renforts.
+  fix: { label: 'Fixation', sigma: 4.5, catch: 4, speed: 0.04, atk: 0.55, maxLen: 14, fix: true },
 };
 
 // Météo du jour : tirée chaque matin selon le mois (même table que le mode tactique), avec une chance sur deux de
@@ -421,7 +424,8 @@ export function rebuildFields(front, s) {
   const { N } = map;
   const F = front.field[s];
   const wsum = new Float32Array(N);
-  F.w.fill(0); F.dx.fill(0); F.dy.fill(0); F.speed.fill(0); F.atk.fill(0); F.skirm.fill(1); F.cover.fill(1);
+  F.w.fill(0); F.dx.fill(0); F.dy.fill(0); F.speed.fill(0); F.atk.fill(0); F.skirm.fill(1); F.cover.fill(1); F.fixing.fill(0);
+  const fsum = new Float32Array(N); // part de chaque case engagée dans une fixation
   const rsum = new Float32Array(N); // part de chaque case engagée dans un repli ordonné
   // Retranchement : bonus de défense des cases fortifiées (défenseur au départ, puis lignes de défense).
   for (let i = 0; i < N; i++) F.fort[i] = owner[i] === s ? 1 + front.cfg.entrenchDef * trenchFor(front, i, s) : 1;
@@ -456,17 +460,21 @@ export function rebuildFields(front, s) {
         const pull = -Math.sign(perp) * Math.min(1, Math.abs(perp) / T.sigma) * 0.9;
         add(i, w, ux - uy * pull, uy + ux * pull, T.speed, T.atk);
         if (T.retreat) rsum[i] += w;
+        if (T.fix) fsum[i] += w;
       } else {
         const d = Math.hypot(rx, ry);
         const w = Math.exp(-((d / T.catch) ** 2));
         if (w < 0.02) continue;
         add(i, w, -rx / (d || 1) * 0.8 + ux * 0.4, -ry / (d || 1) * 0.8 + uy * 0.4, T.speed, T.atk);
         if (T.retreat) rsum[i] += w;
+        if (T.fix) fsum[i] += w;
       }
     }
   }
   // Repli ordonné : les troupes qui décrochent en bon ordre subissent moins d'usure.
   for (let i = 0; i < N; i++) if (rsum[i] > 0.3) F.cover[i] = front.cfg.retreatCover;
+  // Fixation : pertes subies réduites de moitié, et la poussée ne cherche pas la prise.
+  for (let i = 0; i < N; i++) if (fsum[i] > 0) { F.fixing[i] = Math.min(1, fsum[i] / Math.max(1e-6, wsum[i])); if (F.fixing[i] > 0.5) F.cover[i] = Math.min(F.cover[i], 0.5); }
   for (let i = 0; i < N; i++) {
     const w = wsum[i];
     if (!w) continue;

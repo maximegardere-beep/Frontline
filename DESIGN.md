@@ -432,3 +432,12 @@ densités. Le moteur garde des points d'accroche pour cela.
   poussée, −45 % de poussée au plein, la moitié s'efface la nuit, une case prise hérite de la fatigue des assaillants.
 - Mesure après : 43 cases prises par jour, avance d'une journée 8 colonnes au plus. Les pertes rapportées aux effectifs
   de départ restent hautes (renforts de 15 jours compris), à revoir avec l'équilibrage.
+
+### Fixation
+
+- Nouvel ordre « Fixer » (outil 7) : vecteur large (σ 4,5), poussée faible (choc 0,55), avance quasi nulle ; ses
+  troupes ne comptent pas dans la jauge de brèche (pas de prise) et subissent moitié moins de pertes.
+- Toute case ennemie qui subit une poussée (fixation ou attaque) est fixée au tick suivant : elle ne cède plus que
+  20 % de ce que le colmatage élastique lui ferait céder, et son besoin monte de 50 % (elle appelle des renforts).
+  Fixer un secteur retient donc les réserves adverses loin du point de rupture.
+- L'IA fixe un ou deux secteurs voisins (6 à 14 lignes) de ses attaques.

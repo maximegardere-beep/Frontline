@@ -105,6 +105,8 @@ export const FRONT_RULES = {
   EMPTY: 0.3, // en dessous : case considérée vide
   HOLD_MIN: 2, // densité minimale pour réoccuper une case vide sans ordre
   LINE_NEED: 0.8, // besoin supplémentaire des cases d'une ligne de défense
+  PIN_OUT: 0.2, // une case fixée ne cède plus que cette part de ce qu'elle céderait
+  PIN_NEED: 0.5, // besoin supplémentaire d'une case fixée (elle appelle des renforts)
 };
 
 // Champs d'ordres d'un camp (calculés par front.js) : w (part engagée sur un vecteur), dx, dy (direction),
@@ -115,6 +117,7 @@ export function emptyField(N) {
     w: new Float32Array(N), dx: new Float32Array(N), dy: new Float32Array(N),
     speed: new Float32Array(N), atk: new Float32Array(N), fort: new Float32Array(N).fill(1), skirm: new Float32Array(N).fill(1),
     cover: new Float32Array(N).fill(1), // usure subie (repli ordonné : < 1)
+    fixing: new Float32Array(N), // part engagée dans une fixation (pression sans prise)
   };
 }
 
@@ -142,6 +145,7 @@ export function frontNeed(front, s) {
     need[i] = R.REAR_NEED + R.FRONT_NEED * 0.55 ** dist[i] + R.THREAT * threat[i];
     // Ligne de défense : les cases tracées attirent les troupes voisines.
     if (front.lineMask?.[i]) need[i] *= 1 + R.LINE_NEED;
+    if (front.pinned?.[i]) need[i] *= 1 + R.PIN_NEED;
   }
   return { need, dist, threat };
 }
@@ -212,7 +216,9 @@ export function frontTick(front) {
         q[d] = (R.ELASTIC / 6) * e * edgeFlow(map, i, j) * gap * Math.min(need[i], need[j]);
         out += q[d];
       }
-      const k = out > dens[i] * 0.45 ? (dens[i] * 0.45) / out : 1;
+      // Fixée (sous une pression ennemie au tick précédent) : la case ne cède presque plus de troupes à ses voisines.
+      const pin = front.pinned?.[i] ? R.PIN_OUT : 1;
+      const k = (out > dens[i] * 0.45 ? (dens[i] * 0.45) / out : 1) * pin;
       for (let d = 0; d < 6; d++) {
         if (!q[d]) continue;
         delta[i] -= q[d] * k;
@@ -284,6 +290,7 @@ export function frontTick(front) {
         if (edges[k + 1] !== j) continue;
         const i = edges[k];
         if (owner[i] !== s || captured[i] === 2) continue;
+        if (field[s].fixing[i] > 0.5) continue; // une fixation presse sans chercher à prendre
         const v = edges[k + 2] * Math.min(1, dens[i] / Math.max(1e-6, dens[i] + loss[i]));
         F += v;
         att.push([i, v]);
@@ -328,6 +335,9 @@ export function frontTick(front) {
       front.fatigue[e.i] = m;
     }
   }
+  // Cases fixées pour le tick suivant : toutes celles qui ont subi une poussée (attaque ou fixation).
+  front.pinned ??= new Uint8Array(N);
+  for (let j = 0; j < N; j++) front.pinned[j] = push[j] > 0.2 ? 1 : 0;
   front.tickEdges = edges; // poussées de ce tick : [assaillant, visé, pression] × n (obus des blindés)
   front.tickArmor = AR.hits; // poussées des formations blindées : [formation, visé, pression] × n
   return events;

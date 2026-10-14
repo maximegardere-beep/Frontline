@@ -1102,6 +1102,16 @@ export class FrontRenderer extends Renderer {
     for (const v of orders.vectors ?? []) {
       const a = this.toWorld(v.from), b = this.toWorld(v.to);
       const armor = v.type === 'armor', retreat = v.type === 'retreat';
+      if (v.type === 'fix') {
+        // Fixation : trait droit, hachures en travers et barre en T au bout (on presse, on ne perce pas).
+        const L = Math.hypot(b.x - a.x, b.y - a.y) || 1, ux = (b.x - a.x) / L, uy = (b.y - a.y) / L;
+        ctx.lineWidth = 2.6 + extra;
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+        for (let t = 8; t < L - 4; t += 9) { const x = a.x + ux * t, y = a.y + uy * t; ctx.moveTo(x - uy * 4, y + ux * 4); ctx.lineTo(x + uy * 4, y - ux * 4); }
+        ctx.moveTo(b.x - uy * 11, b.y + ux * 11); ctx.lineTo(b.x + uy * 11, b.y - ux * 11);
+        ctx.stroke();
+        continue;
+      }
       ctx.lineWidth = (armor ? 5 : 3) + extra;
       ctx.setLineDash((retreat || v.pocket) && !halo ? [8, 5] : []);
       // Flèche légèrement courbe, comme tracée à main levée.

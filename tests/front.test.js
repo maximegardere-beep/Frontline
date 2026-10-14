@@ -256,6 +256,19 @@ test('ouvrages : barbelés et antichar freinent l\'assaut, un barrage les détru
   void addBarrage;
 });
 
+test('fixation : pression sans prise, pertes réduites, l\'ennemi fixé ne cède plus ses troupes', () => {
+  const f = createFront({ seed: 'fix', attacker: 'DE' });
+  f.reserve = [0, 0];
+  const from = sideFront(f, 0, 32);
+  assert.ok(!addVector(f, 0, 'fix', from, { x: f.centers.x[from] + 8, y: f.centers.y[from] }).error);
+  const cap0 = f.stats.captured[0];
+  beginDay(f);
+  for (let t = 0; t < 12; t++) stepTick(f);
+  assert.ok(f.pinned.some((v, i) => v && f.owner[i] === 1), 'des cases ennemies fixées');
+  assert.ok(f.stats.captured[0] - cap0 <= 2, 'une fixation ne prend (presque) rien');
+  assert.ok(f.field[0].fixing.some((v) => v > 0.5), 'troupes en fixation');
+});
+
 test('repli ordonné : moins de pertes qu\'en tenant face à une percée', () => {
   const losses = (retreat) => {
     const f = createFront({ seed: 'ord', attacker: 'SU' });
