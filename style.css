@@ -678,3 +678,12 @@ kbd {
 .score-table tr.ko td:first-child { color: var(--ink-muted); text-decoration: line-through; }
 .f-line { flex-wrap: wrap; }
 .f-line .seg { flex-basis: 100%; margin-top: 4px; }
+
+/* Jauge des troupes engagées. */
+.f-gauge { margin: 0 0 10px; font-size: 13px; color: var(--muted); }
+.f-gauge b { color: var(--text); }
+.f-gauge i { position: relative; display: block; height: 5px; margin-top: 4px; border-radius: 3px; background: rgba(0, 0, 0, 0.4); overflow: hidden; }
+.f-gauge i::before { content: ''; position: absolute; inset: 0 auto 0 0; width: calc(var(--g) * 100%); background: var(--brass); }
+.f-gauge i::after { content: ''; position: absolute; top: 0; bottom: 0; left: calc(var(--c) * 100%); width: 2px; background: var(--text); }
+.f-gauge.over b { color: #f0a093; }
+.f-gauge.over i::before { background: var(--pencil); }

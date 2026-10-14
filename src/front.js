@@ -28,8 +28,9 @@ export const FRONT_SETUP = {
   reinforce: [240, 280], // renforts quotidiens, au prorata du bord de carte ravitaillé
   townBonus: 25, // renforts quotidiens par ville tenue
   quality: [1.45, 1], // qualité allemande (calée sur 90 batailles IA contre IA : Wehrmacht 38 %, Armée rouge 39 %, indécis 23 %)
-  maxVectors: 4, // vecteurs par jour (infanterie, blindés, repli)
-  maxArmor: 2,
+  maxVectors: 16, // garde-fou seulement : la vraie limite est la part des troupes engagées (engageCap)
+  maxArmor: 2, // ancien vecteur blindé (moteur et tests)
+  engageCap: 0.6, // part au plus des troupes d'un camp engagée sur ses vecteurs ; au-delà, tous sont réduits d'autant
   maxLines: 2, // lignes de défense par jour
   lineLen: 30, // longueur maximale d'une ligne, en cases
   lineWidth: 1.8, // demi-largeur de la bande retranchée (unités de grille ; deux cases voisines sont à 1,73)
@@ -230,7 +231,7 @@ export function addVector(front, s, type, fromI, to) {
   if (front.phase !== 'plan') return { error: 'Les ordres se donnent le matin.' };
   if (front.owner[fromI] !== s) return { error: 'Un vecteur part de vos lignes.' };
   const mine = front.orders[s].filter((v) => !v.pocket);
-  if (mine.length >= front.cfg.maxVectors) return { error: `${front.cfg.maxVectors} vecteurs au plus par journée.` };
+  if (mine.length >= front.cfg.maxVectors) return { error: `${front.cfg.maxVectors} ordres au plus : regroupez vos attaques.` };
   if (type === 'armor' && mine.filter((v) => v.type === 'armor').length >= front.cfg.maxArmor) return { error: `${front.cfg.maxArmor} percées blindées au plus par journée.` };
   const from = { x: front.centers.x[fromI], y: front.centers.y[fromI] };
   let target = { ...to };
@@ -307,6 +308,12 @@ export function setLineLevel(front, s, id, level) {
   if (front.phase !== 'plan') return { error: 'Les ordres se donnent le matin.' };
   l.level = Math.max(1, Math.min(3, level));
   return l;
+}
+
+// Part des troupes du camp s engagée par ses ordres du matin (avant plafonnement), pour la jauge de l'interface.
+export function engagement(front, s) {
+  rebuildFields(front, s);
+  return { share: front.engaged[s], cap: front.cfg.engageCap };
 }
 
 export function removeOrder(front, s, id) {
@@ -463,6 +470,17 @@ export function rebuildFields(front, s) {
     F.speed[i] /= w;
     F.atk[i] /= w;
     F.w[i] = Math.min(1, w);
+  }
+  // Répartition des troupes : au-delà de engageCap, tous les vecteurs sont réduits d'autant, pour que le front
+  // garde de quoi tenir.
+  let total = 0, engaged = 0;
+  for (let i = 0; i < N; i++) if (owner[i] === s) { total += front.dens[i]; engaged += front.dens[i] * F.w[i]; }
+  const share = total > 0 ? engaged / total : 0;
+  front.engaged ??= [0, 0];
+  front.engaged[s] = share;
+  if (share > front.cfg.engageCap) {
+    const k = front.cfg.engageCap / share;
+    for (let i = 0; i < N; i++) if (F.w[i] > 0) F.w[i] *= k;
   }
   // Festung : la poche se contracte vers son centre, plus dense, plus meurtrière, mais cède du terrain.
   for (const p of front.pockets[s]) {

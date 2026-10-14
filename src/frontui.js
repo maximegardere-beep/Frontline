@@ -6,7 +6,7 @@
 // de viser une case précise. Sans outil, toucher la carte donne une estimation des forces dans la zone.
 
 import {
-  createFront, beginDay, stepTick, addVector, addLine, setLineLevel, addBarrage, removeOrder, deployReserve, undoDeployment,
+  createFront, beginDay, stepTick, addVector, engagement, addLine, setLineLevel, addBarrage, removeOrder, deployReserve, undoDeployment,
   repeatOrders, setPocketMode, vectorCatchment, troops, territory, townsHeld, attackerTowns, pocketName,
   cellAtPoint, FRONT_WEATHER, POCKET_MODES, VECTOR_TYPES, sideIndex,
 } from './front.js';
@@ -206,7 +206,7 @@ function frontRules() {
       <summary>Front stratégique</summary>
       <ol>
         <li><b>Masses.</b> Plus d'unités : chaque camp est une masse de troupes, plus sombre où elle est dense. Le trait noir est le front. Hors de vue, l'ennemi n'est qu'une estimation estompée.</li>
-        <li><b>Le matin.</b> Le jeu est en pause. Donnez jusqu'à ${c.maxVectors} vecteurs d'infanterie ou de repli : les troupes autour du départ s'y engagent et poussent vers la cible. Un vecteur draine son voisinage : là où il prend, le front se dégarnit.</li>
+        <li><b>Le matin.</b> Le jeu est en pause. Donnez autant de vecteurs d'infanterie ou de repli que vous voulez : les troupes autour du départ s'y engagent et poussent vers la cible. Un vecteur draine son voisinage : là où il prend, le front se dégarnit, et deux vecteurs proches se partagent les mêmes hommes. La jauge « Troupes engagées » plafonne à ${Math.round((fui.front?.cfg.engageCap ?? 0.6) * 100)} % : au-delà, tous vos vecteurs sont réduits d'autant.</li>
         <li><b>Outils.</b> Infanterie : large, lente, tenace. Blindés : vos formations (divisions de Panzer, corps blindés), visibles sur la carte ; touchez-en une puis son objectif. Elle rejoint le front par vos lignes (vite sur route, mal en forêt, jamais à travers une rivière sans pont), perce, dépose ses grenadiers dans les cases prises et exploite ; riposte, hérissons, villes et forêts lui coûtent des chars, elle consomme du carburant, se refait la nuit si elle est ravitaillée, et meurt encerclée. Repli ordonné : les troupes décrochent avec moins de pertes. Ligne de défense (${c.maxLines} nouvelles par jour, 4 chantiers au plus) : un chantier de plusieurs jours, trois fois plus lent au contact de l'ennemi. Tranchées en un jour (défense de l'infanterie, à moitié pour qui les prend), barbelés en deux (l'assaut d'infanterie qui les traverse s'use), hérissons antichar en trois (les chars y perdent élan et vitesse). Barbelés et hérissons gênent quiconque les traverse, dans les deux sens. Un barrage les détruit (l'artillerie lourde vient seule à bout des hérissons) et fait sauter les ponts ; les ruines restent sur la carte. Barrage : une zone pilonnée au début de la journée, même dans le brouillard, par un groupe d'artillerie qui l'a à portée (une mission par groupe et par jour). Artillerie : touchez un groupe puis sa destination ; en batterie il tire à 100 %, en appui mobile à 40 %, en déplacement pas du tout. Sans mission, il frappe les assaillants à sa portée ; un groupe dont la position tombe est perdu. Réserves : chaque appui fait monter des renforts en ligne.</li>
         <li><b>La journée.</b> Une vingtaine de secondes, sans intervention : le combat compare les pressions de part et d'autre du front, selon la densité, le terrain, le retranchement et la qualité des troupes. Le bouton discret « Passer » abrège la journée.</li>
         <li><b>Défense élastique.</b> Sans ordre, les troupes colmatent d'elles-mêmes les secteurs menacés.</li>
@@ -810,7 +810,7 @@ function refreshFront() {
 function used(tool) {
   const f = fui.front, s = fui.side;
   const mine = f.orders[s].filter((v) => !v.pocket);
-  if (tool === 'infantry' || tool === 'retreat') return [mine.length, f.cfg.maxVectors];
+  if (tool === 'infantry' || tool === 'retreat') return [mine.length, f.cfg.maxVectors, false, 'engaged'];
   if (tool === 'armor') {
     const alive = f.armor.filter((a) => a.side === s && !a.lost);
     return [alive.filter((a) => a.target).length, alive.length + 1, !alive.length];
@@ -828,12 +828,13 @@ function renderTools() {
   const bar = byId('f-tools');
   bar.hidden = f.phase !== 'plan';
   if (bar.hidden) return;
+  engagement(f, fui.side); // jauge des troupes engagées (compteur des outils Infanterie et Repli)
   for (const b of bar.querySelectorAll('[data-tool]')) {
     const t = b.dataset.tool;
-    const [n, max, full] = used(t);
+    const [n, max, full, kind] = used(t);
     b.setAttribute('aria-pressed', String(fui.tool === t));
     b.disabled = (n >= max || full) && fui.tool !== t;
-    const left = max === Infinity ? fmtMen(men(f.reserve[fui.side])).replace(' h', '') : `${max - n}`;
+    const left = kind === 'engaged' ? `${Math.round((f.engaged?.[fui.side] ?? 0) * 100)} %` : max === Infinity ? fmtMen(men(f.reserve[fui.side])).replace(' h', '') : `${max - n}`;
     b.querySelector('.tool-n').textContent = left;
   }
 }
@@ -865,9 +866,13 @@ function renderOrders() {
   const guns = f.guns.filter((g) => g.side === s);
   const armor = f.armor.filter((a) => a.side === s);
   const deployed = f.deployments[s].reduce((a, d) => a + d.amount, 0);
+  const eng = planning ? engagement(f, s) : { share: f.engaged?.[s] ?? 0, cap: f.cfg.engageCap };
+  const over = eng.share > eng.cap;
+  const gauge = `<div class="f-gauge${over ? ' over' : ''}" title="Part de vos troupes engagée par vos ordres"><span>Troupes engagées : <b>${Math.round(eng.share * 100)} %</b> (${Math.round(eng.cap * 100)} % au plus${over ? ' : tous vos vecteurs sont réduits d\'autant' : ''})</span><i style="--g:${Math.min(1, eng.share)};--c:${eng.cap}"></i></div>`;
   const pockets = bigPockets(f, s);
   const canRepeat = planning && f.lastOrders[s].length > 0 && !vecs.length;
   el.innerHTML = `
+    ${vecs.length || planning ? gauge : ''}
     <p class="eyebrow">${planning ? `Ordres du jour ${f.day}` : f.phase === 'resolve' ? 'Ordres en cours d\'exécution' : 'Bataille terminée'}</p>
     ${items.length ? `<ul class="f-orders">${items.join('')}</ul>` : `<p class="muted">${planning ? 'Aucun ordre : vos troupes tiennent et colmatent les brèches d\'elles-mêmes.' : f.phase === 'over' ? 'Le brouillard est levé : la carte montre les forces réelles des deux camps.' : 'Défense élastique sur tout le front.'}</p>`}
     ${planning ? `
