@@ -9,6 +9,7 @@
 // Comme les sons, seulement là où le camp observateur a des troupes ou une vue, et seulement à l'écran.
 
 import { ARMOR_ATK } from './frontinput.js';
+import { AIR, airBase } from './frontair.js';
 
 const TRACER = ['#fff27a', '#ff7a3c']; // Wehrmacht (jaune), Armée rouge (orange)
 // Obus en cloche par type de pièce (frontguns.js) : obus par tick de barrage, durée de vol (ms, + par pixel),
@@ -234,6 +235,41 @@ export class FrontFx {
       const salvo = front.tick <= front.cfg.barrageTicks && mission;
       for (let q = 0; q < (salvo ? 5 : 2); q++) this.blast(gx + (Math.random() - 0.5) * 10, gy + (Math.random() - 0.5) * 6, at(), 2.2, true);
     }
+    // Aviation : les avions décollent au tick d'approche, piquent sur l'objectif, puis rentrent ; la DCA tire sur
+    // leur route. On voit ses propres sorties, et celles de l'ennemi qui frappent là où l'on voit.
+    const first = AIR.strikeTicks[0];
+    for (const s of [0, 1]) {
+      for (const m of front.air?.[s] ?? []) {
+        const tc = Math.max(0, Math.min(front.map.N - 1, Math.round(m.y / 1.5) * front.map.W + Math.round(m.x / 1.732)));
+        if (viewer !== null && s !== viewer && !front.vision[viewer][tc]) continue;
+        if (front.tick === first && m.power > 0) {
+          const o = airBase(front, s, m), life = dur * 4.4;
+          for (let k = 0; k < 3; k++) {
+            const off = (k - 1) * 1.4;
+            this.parts.push({ k: 'plane', t0: now + k * 260, life, x0: o.x * C, y0: (o.y + off) * C, x1: (m.x + off * 0.6) * C, y1: (m.y + off * 0.4) * C, side: s, down: k >= 3 - (m.downed ?? 0), smoked: 0 });
+          }
+          // Flocons de DCA autour de la route, là où elle passe près des batteries.
+          for (const id of m.flak ?? []) {
+            const a = front.aa.find((x) => x.id === id);
+            if (!a) continue;
+            const vx = m.x - o.x, vy = m.y - o.y, L2 = vx * vx + vy * vy || 1;
+            const t = Math.max(0, Math.min(1, ((a.x - o.x) * vx + (a.y - o.y) * vy) / L2));
+            for (let q = 0; q < 14; q++) {
+              const tt = Math.max(0, Math.min(1, t + (Math.random() - 0.5) * 0.25));
+              this.parts.push({ k: 'flak', t0: now + tt * life * 0.45 + Math.random() * 400, life: 1500, x: (o.x + vx * tt) * C + (Math.random() - 0.5) * 20, y: (o.y + vy * tt) * C + (Math.random() - 0.5) * 16 - 10 });
+            }
+          }
+        }
+        // Bombes : au fil des ticks de frappe (chasse : une seule passe).
+        if (AIR.strikeTicks.includes(front.tick - 1) && m.power > 0 && (m.kind === 'strike' || front.tick - 1 === first)) {
+          const R = (m.kind === 'strike' ? AIR.strikeR : 0.8) * C;
+          for (let q = 0; q < (m.kind === 'strike' ? 6 : 5); q++) {
+            const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * R;
+            this.blast(m.x * C + Math.cos(a) * r, m.y * C + Math.sin(a) * r, at(), 7 + Math.random() * 3);
+          }
+        }
+      }
+    }
     // Villes qui tombent : une grosse explosion.
     for (const ev of events) {
       if (ev.kind !== 'capture' || !front.map.towns.some((t) => t.i === ev.i) || !seen(ev.i)) continue;
@@ -356,6 +392,79 @@ export class FrontFx {
       ctx.fill();
     }
     ctx.restore();
+  }
+
+  // Avions vus de dessus : approche en altitude, piqué sur l'objectif, retour vers leur bord de carte ; ombre portée
+  // d'autant plus loin qu'ils volent haut. Abattu : il part en vrille dans la fumée et s'écrase. Flocons de DCA.
+  drawPlanes(ctx, now, px) {
+    const k = Math.max(1, px * 0.9) * 1.25;
+    for (const p of this.parts) {
+      if (p.k !== 'flak' || now < p.t0 || now > p.t0 + p.life) continue;
+      const u = (now - p.t0) / p.life;
+      ctx.globalAlpha = 0.85 * (1 - u);
+      ctx.fillStyle = '#1e1c1a';
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, (1.6 + 3.4 * Math.sqrt(u)) * k * 0.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    for (const p of this.parts) {
+      if (p.k !== 'plane' || now < p.t0 || now > p.t0 + p.life) continue;
+      const u = (now - p.t0) / p.life;
+      const dx = p.x1 - p.x0, dy = p.y1 - p.y0, L = Math.hypot(dx, dy) || 1;
+      let x, y, alt, ang;
+      if (u < 0.5) {
+        const v = u / 0.5;
+        x = p.x0 + dx * v; y = p.y0 + dy * v; alt = 1 - 0.75 * v ** 3; ang = Math.atan2(dy, dx);
+      } else {
+        // Dégagement : virage vers le nord puis retour.
+        const v = (u - 0.5) / 0.5, bx = p.x1 + (dx / L) * 140, by = p.y1 - 60, ex = p.x0, ey = p.y1 - 160;
+        x = (1 - v) ** 2 * p.x1 + 2 * (1 - v) * v * bx + v * v * ex;
+        y = (1 - v) ** 2 * p.y1 + 2 * (1 - v) * v * by + v * v * ey;
+        const tx = 2 * (1 - v) * (bx - p.x1) + 2 * v * (ex - bx), ty = 2 * (1 - v) * (by - p.y1) + 2 * v * (ey - by);
+        alt = 0.25 + 0.75 * v; ang = Math.atan2(ty, tx);
+      }
+      if (p.down) {
+        // Touché aux deux cinquièmes de l'approche : vrille, fumée, chute.
+        const hit = 0.38;
+        if (u > hit) {
+          const v = Math.min(1, (u - hit) / 0.12);
+          const hx = p.x0 + dx * (hit / 0.5), hy = p.y0 + dy * (hit / 0.5);
+          x = hx + (dx / L) * 40 * v; y = hy + (dy / L) * 40 * v + 18 * v * v;
+          alt = (1 - 0.75 * (hit / 0.5) ** 3) * (1 - v); ang = Math.atan2(dy, dx) + v * 7;
+          if (Math.random() < 0.5) this.parts.push({ k: 'smoke', t0: now, life: 2200, x, y: y - alt * 14 * k, r: 2, dx: 3, dy: -6 });
+          if (v >= 1) {
+            if (!p.crashed) { p.crashed = true; this.blast(x, y, now, 7); }
+            continue;
+          }
+        }
+      }
+      const lift = alt * 14 * k;
+      this.planeSprite(ctx, x + alt * 10 * k, y + alt * 7 * k, ang, p.side, k, 0.22, true);
+      this.planeSprite(ctx, x, y - lift, ang, p.side, k, 1, false);
+    }
+  }
+
+  planeSprite(ctx, x, y, ang, side, k, alpha, shadow) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(ang);
+    ctx.scale(k, k);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = shadow ? '#141008' : side ? '#6c7a4a' : '#7c8590';
+    ctx.strokeStyle = '#22261c';
+    ctx.lineWidth = 0.5;
+    const poly = (pts) => { ctx.beginPath(); pts.forEach(([a, b], i) => (i ? ctx.lineTo(a, b) : ctx.moveTo(a, b))); ctx.closePath(); ctx.fill(); if (!shadow) ctx.stroke(); };
+    poly([[7, 0], [-6, -0.9], [-6, 0.9]]);
+    poly([[2, -8], [3.6, -8], [3.6, 8], [2, 8]]);
+    poly([[-5, -3], [-4, -3], [-4, 3], [-5, 3]]);
+    if (!shadow) {
+      ctx.fillStyle = side ? '#c0392b' : '#1d1b17';
+      ctx.fillRect(2.2, -6.5, 1.1, 1.6);
+      ctx.fillRect(2.2, 4.9, 1.1, 1.6);
+    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
   }
 
   // Sol noirci : sous les masses de troupes.

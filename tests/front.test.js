@@ -497,3 +497,29 @@ test('regroupement de nuit : la route porte plus loin et davantage, transfert an
   runDay(f);
   assert.ok(Array.isArray(f.nightMoves));
 });
+
+test('aviation : sorties par jour, la DCA sur la route émousse la mission et se dévoile, brouillard au sol', async () => {
+  const { AIR, addAirMission, airTick, sortiesToday } = await import('../src/frontair.js');
+  const f = createFront({ seed: 'air', attacker: 'DE', biome: 'steppe' });
+  f.weather = 'clear';
+  assert.equal(sortiesToday(f, 0), f.cfg.sorties[0]);
+  // Cible : une case soviétique au contact ; une DCA soviétique posée sur la route des avions.
+  const t = sideFront(f, 1, 32);
+  const m = addAirMission(f, 0, { x: f.centers.x[t], y: f.centers.y[t] });
+  assert.equal(m.kind, 'strike');
+  const aa = f.aa.find((a) => a.side === 1);
+  aa.x = f.centers.x[t] - 3; aa.y = f.centers.y[t];
+  for (let k = 1; k < f.cfg.sorties[0]; k++) addAirMission(f, 0, { x: f.centers.x[t], y: f.centers.y[t] + 8 * k });
+  assert.ok(addAirMission(f, 0, { x: 5, y: 5 }).error, 'plus de sortie');
+  const before = f.dens[t];
+  f.phase = 'resolve';
+  for (let tick = 0; tick <= AIR.strikeTicks.at(-1); tick++) { f.tick = tick; airTick(f, []); }
+  assert.ok(m.power < 1, 'la DCA a émoussé la mission');
+  assert.ok(aa.seen[0], 'en tirant, la DCA s\'est dévoilée');
+  assert.ok(f.dens[t] < before, 'la zone a été frappée');
+  // Brouillard : au sol.
+  const g = createFront({ seed: 'air', attacker: 'DE' });
+  g.weather = 'fog';
+  assert.equal(sortiesToday(g, 0), 0);
+  assert.ok(addAirMission(g, 0, { x: 10, y: 10 }).error);
+});

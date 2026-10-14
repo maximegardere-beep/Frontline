@@ -536,6 +536,7 @@ kbd {
 .otool[data-tool="barrage"] { border-bottom-color: #8d6a9f; }
 .otool[data-tool="reserve"] { border-bottom-color: #7fbf4d; }
 .otool[data-tool="transfer"] { border-bottom-color: #8fb3d9; }
+.otool[data-tool="air"] { border-bottom-color: #d9d2b0; }
 .otool[aria-pressed="true"] { background: var(--paper); color: var(--ink); }
 .otool:disabled { opacity: 0.4; cursor: default; }
 .otool:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }

@@ -18,6 +18,7 @@ import { MIN_POCKET, ARMOR_ATK } from './frontinput.js';
 import { FrontFx } from './frontfx.js';
 import { GUN_KINDS, visibleGuns, gunPower } from './frontguns.js';
 import { visibleArmor, armorRoute } from './frontarmor.js';
+import { AIR, airBase, visibleAA } from './frontair.js';
 import { railPoint } from './frontsupply.js';
 import { SPRITE_PAL, piece, tank, howitzer, towed, mortar, rocket, pit, dust } from './frontsprites.js';
 
@@ -686,7 +687,10 @@ export class FrontRenderer extends Renderer {
     this.drawPockets(view.viewer ?? null);
     this.drawGuns(view);
     if (f.phase === 'plan') this.drawTransfers(view.viewer ?? null);
+    this.drawAA(view);
+    if (f.phase === 'plan') this.drawAirPlans(view.viewer ?? null);
     this.fx.drawArcs(ctx, now, 1 / cam.s);
+    this.fx.drawPlanes(ctx, now, 1 / cam.s);
     if (view.orders) this.drawFrontOrders(view.orders, view.viewer);
     if (view.preview) this.drawFrontOrders(view.preview, view.viewer, 0.55);
     if (view.origin != null && view.origin >= 0) {
@@ -1160,6 +1164,80 @@ export class FrontRenderer extends Renderer {
           ctx.fillRect(1.1 * k, -1.2 * k, 1.1 * k, 2.4 * k);
           ctx.restore();
         }
+      }
+    }
+  }
+
+  // DCA : batterie vue de dessus (affût rond, deux tubes). Le matin, son rayon d'action. Chez l'ennemi : seulement
+  // celles qu'on a repérées, en pointillé rouge, estompées si l'information date.
+  drawAA(view) {
+    const f = this.front;
+    if (!f.aa) return;
+    const viewer = view.viewer ?? null;
+    const { ctx, cam } = this;
+    const px = 1 / cam.s, k = SPRITE_K * Math.max(1, px);
+    const planning = f.phase === 'plan';
+    for (const { a, x, y, known, age } of visibleAA(f, viewer)) {
+      const c = this.toWorld({ x, y });
+      const own = viewer === null || a.side === viewer;
+      const sel = view.aa === a.id;
+      ctx.save();
+      ctx.globalAlpha = own ? 1 : known ? 0.9 : Math.max(0.35, 1 - (age ?? 0) / f.cfg.ticks);
+      if (planning || sel) {
+        const R = AIR.aaRange * CELL;
+        ctx.beginPath();
+        ctx.arc(c.x, c.y, R, 0, Math.PI * 2);
+        if (own) { ctx.fillStyle = 'rgba(52, 84, 138, 0.08)'; ctx.fill(); ctx.strokeStyle = sel ? ORDER_INK : 'rgba(38, 48, 61, 0.7)'; ctx.lineWidth = (sel ? 2 : 1.2) * px; ctx.stroke(); }
+        else { ctx.setLineDash([3 * px, 4 * px]); ctx.strokeStyle = 'rgba(193, 54, 36, 0.85)'; ctx.lineWidth = 1.4 * px; ctx.stroke(); ctx.setLineDash([]); }
+      }
+      const P = SPRITE_PAL[a.side];
+      ctx.translate(c.x, c.y);
+      ctx.fillStyle = 'rgba(30, 24, 16, 0.3)'; ctx.beginPath(); ctx.arc(0.8 * k, 0.8 * k, 3.4 * k, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = P.body; ctx.strokeStyle = P.dark; ctx.lineWidth = 0.6 * k;
+      ctx.beginPath(); ctx.arc(0, 0, 3.2 * k, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.rotate(-0.7 + (a.id % 3) * 0.5);
+      ctx.lineWidth = 0.9 * k;
+      for (const o of [-1, 1]) { ctx.beginPath(); ctx.moveTo(0, o * 0.9 * k); ctx.lineTo(6 * k, o * 0.9 * k); ctx.stroke(); }
+      ctx.restore();
+      if (sel || cam.s > 1.4) {
+        ctx.font = `700 ${9 * px}px "IBM Plex Sans Condensed", "Arial Narrow", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.lineWidth = 3 * px;
+        ctx.strokeStyle = 'rgba(250, 240, 210, 0.85)';
+        ctx.strokeText(a.name, c.x, c.y + 9 * k);
+        ctx.fillStyle = SIDE_LINE[a.side];
+        ctx.fillText(a.name, c.x, c.y + 9 * k);
+      }
+    }
+  }
+
+  // Missions aériennes du matin : route de vol en pointillé depuis notre bord de carte, objectif cerclé.
+  drawAirPlans(viewer) {
+    const f = this.front;
+    const { ctx, cam } = this;
+    const px = 1 / cam.s;
+    for (const s of viewer === null ? [0, 1] : [viewer]) {
+      for (const m of f.air?.[s] ?? []) {
+        const o = this.toWorld(airBase(f, s, m)), t = this.toWorld(m);
+        ctx.save();
+        ctx.lineCap = 'round';
+        ctx.setLineDash([6 * px, 5 * px]);
+        ctx.beginPath(); ctx.moveTo(o.x, o.y); ctx.lineTo(t.x, t.y);
+        ctx.strokeStyle = ORDER_HALO; ctx.lineWidth = 4 * px; ctx.stroke();
+        ctx.strokeStyle = ORDER_INK; ctx.lineWidth = 1.8 * px; ctx.stroke();
+        ctx.setLineDash([5 * px, 4 * px]);
+        const R = (m.kind === 'strike' ? AIR.strikeR : 1) * CELL;
+        ctx.beginPath(); ctx.arc(t.x, t.y, R, 0, Math.PI * 2);
+        ctx.strokeStyle = ORDER_HALO; ctx.lineWidth = 4 * px; ctx.stroke();
+        ctx.strokeStyle = ORDER_INK; ctx.lineWidth = 2 * px; ctx.stroke();
+        ctx.setLineDash([]);
+        const ang = Math.atan2(t.y - o.y, t.x - o.x), g = 7 * px;
+        ctx.translate(t.x - Math.cos(ang) * (R + 8 * px), t.y - Math.sin(ang) * (R + 8 * px));
+        ctx.rotate(ang);
+        ctx.beginPath(); ctx.moveTo(g, 0); ctx.lineTo(-g * 0.7, -g * 0.8); ctx.lineTo(-g * 0.25, 0); ctx.lineTo(-g * 0.7, g * 0.8); ctx.closePath();
+        ctx.fillStyle = ORDER_INK; ctx.strokeStyle = ORDER_HALO; ctx.lineWidth = 1.2 * px; ctx.stroke(); ctx.fill();
+        ctx.restore();
       }
     }
   }

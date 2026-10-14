@@ -10,6 +10,7 @@
 // L'attaquant engage plus volontiers que le défenseur, qui contre-attaque surtout ce qui est faible.
 // Poches : tirage pondéré entre statu quo, Festung et percée d'évasion (troupes piégées, distance aux lignes amies).
 
+import { planAir } from './frontair.js';
 import { addVector, addLine, addBarrage, deployReserve, setPocketMode, edgeCol, cellAtPoint, FRONT_WEATHER, VECTOR_TYPES } from './front.js';
 import { bfsDistance } from './path.js';
 import { GUN_KINDS, setGunOrder } from './frontguns.js';
@@ -224,6 +225,9 @@ export function planFront(front, s) {
 
   // 4. Poches : réexamen chaque matin d'une poche restée au statu quo.
   for (const p of front.pockets[s]) if (p.info.mode === 'hold') choosePocket(front, p, true);
+
+  // 5. Aviation.
+  planAir(front, s);
 }
 
 // Artillerie : chaque groupe se tient à mi-portée derrière le front connu. Trop près (menacé d'être débordé), il

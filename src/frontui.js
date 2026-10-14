@@ -11,6 +11,7 @@ import {
   cellAtPoint, FRONT_WEATHER, POCKET_MODES, VECTOR_TYPES, sideIndex, windLabel,
 } from './front.js';
 import { addTransfer, NIGHT } from './frontnight.js';
+import { AIR, addAirMission, moveAA, sortiesToday } from './frontair.js';
 import { installAI } from './frontai.js';
 import { GUN_KINDS, GUN_POSTURES, gunPower, gunFor, setGunOrder } from './frontguns.js';
 import { setArmorOrder, expLabel } from './frontarmor.js';
@@ -44,6 +45,7 @@ const TOOLS = {
   retreat: { label: 'Repli', short: 'Repli', taps: 2, hint: 'Repli ordonné : touchez le secteur à dégager, puis où se replier dans vos lignes.' },
   line: { label: 'Ligne de défense', short: 'Ligne', taps: 2, hint: 'Ligne de défense : touchez une extrémité, puis l\'autre, dans vos lignes. Tranchées en un jour, barbelés en deux, antichar en trois (niveau réglable dans le panneau).' },
   barrage: { label: 'Barrage', short: 'Barrage', taps: 1, hint: 'Barrage de zone : touchez la zone à pilonner. Le groupe d\'artillerie disponible le plus puissant qui l\'a à portée tirera.' },
+  air: { label: 'Aviation', short: 'Air', taps: 1, hint: 'Aviation : touchez la zone à frapper en fin de matinée (appui rapproché, redoutable contre les chars), ou une batterie ennemie repérée (chasse). Les avions partent de votre bord de carte : la DCA ennemie sur leur route les émousse et peut en abattre.' },
   reserve: { label: 'Réserves', short: 'Réserves', taps: 1, hint: 'Chaque appui fait monter 800 hommes en ligne autour du point touché.' },
   transfer: { label: 'Transfert', short: 'Transf.', taps: 2, hint: 'Regroupement de nuit : touchez le secteur à dégarnir, puis où envoyer ses troupes, dans vos lignes. Par une route tenue, jusqu\'à 600 hommes et loin ; à travers champs, 150 hommes et tout près.' },
 };
@@ -58,6 +60,7 @@ const fui = {
   pending: null, // premier appui d'un ordre à deux appuis : { cell, point }
   breakout: null, // id de la poche dont on trace la percée
   gun: null, // id du groupe d'artillerie sélectionné (le prochain appui fixe sa destination)
+  aaSel: null, // id de la batterie de DCA sélectionnée (le prochain appui la déplace)
   armor: null, // id de la formation blindée sélectionnée (outil Blindés : le prochain appui fixe son objectif)
   hoverPoint: null,
   probe: null, // estimation au toucher : { x, y, r }
@@ -350,13 +353,13 @@ function setTool(t) {
     if (!list.length) return setHint('Aucune formation blindée disponible.', true);
     const k = fui.tool === 'armor' ? list.findIndex((a) => a.id === fui.armor) + 1 : 0;
     if (fui.tool === 'armor' && k >= list.length) { cancelTool(); return; }
-    fui.gun = null;
+    fui.gun = null; fui.aaSel = null;
     fui.pending = null;
     return selectArmor(list[k].id);
   }
   fui.tool = fui.tool === t ? null : t;
   fui.pending = null;
-  fui.gun = null;
+  fui.gun = null; fui.aaSel = null;
   fui.armor = null;
   fui.breakout = null;
   fui.probe = null;
@@ -367,7 +370,7 @@ function setTool(t) {
 
 function cancelTool() {
   fui.tool = null;
-  fui.gun = null;
+  fui.gun = null; fui.aaSel = null;
   fui.armor = null;
   fui.pending = null;
   fui.breakout = null;
@@ -391,6 +394,14 @@ function onTap(p) {
   if (!f || !byId('overlay').hidden) return;
   const s = fui.side;
   if (f.phase === 'plan' && !fui.tool && !fui.breakout) {
+    // DCA : toucher une batterie la sélectionne ; l'appui suivant la déplace (elle a roulé de nuit).
+    const aa = aaNear(p);
+    if (fui.aaSel != null) {
+      if (aa && aa.id === fui.aaSel) { fui.aaSel = null; setHint(TOOLS_HELP()); return refreshFront(); }
+      const r = moveAA(f, s, fui.aaSel, { x: p.x, y: p.y });
+      if (!fail(r)) { placed(`${r.name} : en position. Elle protège ${Math.round(AIR.aaRange / 1.73)} cases autour d'elle.`); fui.aaSel = null; }
+      return refreshFront();
+    }
     // Artillerie : toucher un de ses groupes le sélectionne ; l'appui suivant fixe sa destination.
     const g = gunNear(p);
     if (fui.gun != null) {
@@ -403,9 +414,14 @@ function onTap(p) {
       return refreshFront();
     }
     const a = armorNear(p);
-    // Le plus proche du doigt, groupe d'artillerie ou formation blindée.
-    if (a && (!g || Math.hypot(a.x - p.x, a.y - p.y) < Math.hypot(g.x - p.x, g.y - p.y))) return selectArmor(a.id);
-    if (g) return selectGun(g.id);
+    // Le plus proche du doigt : groupe d'artillerie, formation blindée ou DCA.
+    const dd = (u) => (u ? Math.hypot(u.x - p.x, u.y - p.y) : Infinity);
+    const near = Math.min(dd(a), dd(g), dd(aa));
+    if (near < Infinity) {
+      if (dd(aa) === near) return selectAA(aa.id);
+      if (dd(a) === near) return selectArmor(a.id);
+      return selectGun(g.id);
+    }
   }
   if (f.phase !== 'plan' || (!fui.tool && !fui.breakout)) return probeAt(p);
 
@@ -430,6 +446,15 @@ function onTap(p) {
   if (tool === 'barrage') {
     const r = addBarrage(f, s, { x: p.x, y: p.y });
     if (!fail(r)) { placed(`Barrage réglé : ${f.guns.find((g) => g.id === r.gun).name} pilonnera la zone au lever du jour.`); fui.tool = null; }
+    return refreshFront();
+  }
+  if (tool === 'air') {
+    const r = addAirMission(f, s, { x: p.x, y: p.y });
+    if (!fail(r)) {
+      const t = r.kind === 'hunt' ? (r.target.type === 'gun' ? f.guns : f.aa).find((x) => x.id === r.target.id) : null;
+      placed(r.kind === 'hunt' ? `Chasse : les avions viseront ${t?.name ?? 'la batterie'} en fin de matinée.` : 'Appui rapproché : la zone sera attaquée en fin de matinée.');
+      fui.tool = null;
+    }
     return refreshFront();
   }
   if (tool === 'reserve') {
@@ -495,7 +520,7 @@ function selectArmor(id) {
   if (!a || a.lost || fui.front.phase !== 'plan') return;
   fui.tool = 'armor';
   fui.armor = id;
-  fui.gun = null;
+  fui.gun = null; fui.aaSel = null;
   fui.probe = null;
   sound.ui('select');
   setHint(`${a.name} · ${Math.round(a.tanks)} chars · ${expLabel(a.exp).toLowerCase()} · carburant ${Math.round(a.fuel * 100)} %. Touchez son objectif.`);
@@ -503,6 +528,28 @@ function selectArmor(id) {
 }
 
 // Groupe d'artillerie à soi sous le doigt.
+function aaNear(p) {
+  const f = fui.front, R = reach() * 1.2;
+  let best = null, bd = R;
+  for (const a of f.aa ?? []) {
+    if (a.side !== fui.side || a.lost) continue;
+    const d = Math.hypot(a.x - p.x, a.y - p.y);
+    if (d < bd) { bd = d; best = a; }
+  }
+  return best;
+}
+
+function selectAA(id) {
+  const a = fui.front.aa.find((x) => x.id === id);
+  if (!a || a.lost || fui.front.phase !== 'plan') return;
+  fui.aaSel = id;
+  fui.gun = null;
+  fui.probe = null;
+  sound.ui('select');
+  setHint(`${a.name} · DCA, ${Math.round(a.str * 100)} %. Touchez sa nouvelle position dans vos lignes (${Math.round(AIR.aaMove / 1.73)} cases au plus en une nuit). L'ennemi ne la voit que de près, ou quand elle tire.`);
+  refreshFront();
+}
+
 function gunNear(p) {
   const f = fui.front, R = reach() * 1.2;
   let best = null, bd = R;
@@ -728,6 +775,7 @@ function drawFront(t = 1) {
     origin: planning && fui.pending ? fui.pending.cell : null,
     gun: planning ? fui.gun : null,
     armor: planning ? fui.armor : null,
+    aa: planning ? fui.aaSel : null,
     probe: fui.probe,
   });
   const { cam, worldW, worldH } = fui.r;
@@ -833,6 +881,7 @@ function used(tool) {
     return [alive.filter((a) => a.target).length, alive.length + 1, !alive.length];
   }
   if (tool === 'line') return [f.lines[s].filter((l) => l.day === f.day).length, f.cfg.maxLines, f.lines[s].length >= 4];
+  if (tool === 'air') return [f.air[s].length, sortiesToday(f, s)];
   if (tool === 'transfer') return [f.transfers[s].filter((t) => !t.auto && t.day === f.day).length, NIGHT.perDay];
   if (tool === 'barrage') {
     const able = f.guns.filter((g) => g.side === s && gunPower(g) > 0).length;
@@ -880,9 +929,11 @@ function renderOrders() {
     ...vecs.map((v) => orderLine(VECTOR_TYPES[v.type].label, `≈ ${fmtMen(men(vectorCatchment(f, v)))}`, planning ? v.id : null)),
     ...f.lines[s].map((l) => lineItem(f, l, planning)),
     ...f.barrages[s].map((b) => orderLine('Barrage', f.guns.find((g) => g.id === b.gun)?.name ?? '', planning ? b.id : null)),
+    ...f.air[s].map((m) => orderLine(m.kind === 'hunt' ? 'Chasse de batterie' : 'Appui aérien', m.kind === 'hunt' ? ((m.target.type === 'gun' ? f.guns : f.aa).find((x) => x.id === m.target.id)?.name ?? '') : 'fin de matinée', planning ? m.id : null)),
     ...f.transfers[s].map((t) => orderLine(t.auto ? 'Regroupement de l\'état-major' : 'Transfert', `${fmtMen(men(t.amount))} · ${t.road ? 'par la route' : 'à travers champs'}${t.auto ? ' · cette nuit' : ''}`, planning && !t.auto ? t.id : null)),
   ];
   const guns = f.guns.filter((g) => g.side === s);
+  const aaList = (f.aa ?? []).filter((a) => a.side === s);
   const armor = f.armor.filter((a) => a.side === s);
   const deployed = f.deployments[s].reduce((a, d) => a + d.amount, 0);
   const eng = planning ? engagement(f, s) : { share: f.engaged?.[s] ?? 0, cap: f.cfg.engageCap };
@@ -901,6 +952,7 @@ function renderOrders() {
       </div>
       <p class="muted small">Réserves : ${fmtMen(men(f.reserve[s]))}${deployed ? ` · ${fmtMen(men(deployed))} montés en ligne ce matin` : ''}.</p>` : ''}
     ${armor.length ? `<h3 class="f-sub f-sub-art">Blindés</h3><ul class="f-guns">${armor.map((a) => armorItem(f, a, planning)).join('')}</ul>` : ''}
+    ${aaList.length ? `<h3 class="f-sub f-sub-art">DCA</h3><ul class="f-guns">${aaList.map((a) => `<li class="f-gun${a.lost ? ' lost' : ''}${fui.aaSel === a.id ? ' sel' : ''}"><p>${a.lost ? `<b>${escHtml(a.name)}</b> · perdue` : `<button class="linkish" data-aa-sel="${a.id}" aria-pressed="${fui.aaSel === a.id}"><b>${escHtml(a.name)}</b></button> · ${Math.round(a.str * 100)} % · <em>${a.seen[1 - s] && f.clock - a.seen[1 - s].clock <= f.cfg.ticks ? 'repérée par l\'ennemi' : 'camouflée'}</em>`}</p></li>`).join('')}</ul>` : ''}
     ${guns.length ? `<h3 class="f-sub f-sub-art">Artillerie</h3><ul class="f-guns">${guns.map((g) => gunItem(f, g, planning)).join('')}</ul>` : ''}
     ${pockets.length ? `<h3 class="f-sub">Troupes encerclées</h3><ul class="f-pockets">${pockets.map((p) => `
       <li>
@@ -911,6 +963,7 @@ function renderOrders() {
   el.querySelectorAll('[data-line]').forEach((b) => b.addEventListener('click', () => { const r = setLineLevel(f, s, Number(b.dataset.line), Number(b.dataset.level)); if (!fail(r)) placed(`Ligne de défense : ${['', 'tranchées seules (un jour)', 'tranchées et barbelés (deux jours)', 'tranchées, barbelés et obstacles antichar (trois jours)'][r.level]}.`); refreshFront(); }));
   el.querySelectorAll('[data-armor-sel]').forEach((b) => b.addEventListener('click', () => (fui.armor === Number(b.dataset.armorSel) ? cancelTool() : selectArmor(Number(b.dataset.armorSel)))));
   el.querySelectorAll('[data-armor-halt]').forEach((b) => b.addEventListener('click', () => { const r = setArmorOrder(f, s, Number(b.dataset.armorHalt), null); if (!fail(r)) placed(`${r.name} : halte, elle tient sa position.`); refreshFront(); }));
+  el.querySelectorAll('[data-aa-sel]').forEach((b) => b.addEventListener('click', () => (fui.aaSel === Number(b.dataset.aaSel) ? cancelTool() : selectAA(Number(b.dataset.aaSel)))));
   el.querySelectorAll('[data-gun-sel]').forEach((b) => b.addEventListener('click', () => (fui.gun === Number(b.dataset.gunSel) ? cancelTool() : selectGun(Number(b.dataset.gunSel)))));
   el.querySelectorAll('[data-gun]').forEach((b) => b.addEventListener('click', () => gunPosture(Number(b.dataset.gun), b.dataset.posture)));
   el.querySelectorAll('[data-pocket]').forEach((b) => b.addEventListener('click', () => pocketMode(Number(b.dataset.pocket), b.dataset.mode)));
@@ -1054,7 +1107,7 @@ function bind() {
   }));
   window.addEventListener('keydown', (e) => {
     if (!frontActive() || !byId('overlay').hidden || e.target.tagName === 'INPUT') return;
-    const keys = { 1: 'infantry', 2: 'armor', 3: 'retreat', 4: 'line', 5: 'barrage', 6: 'reserve', 7: 'fix', 8: 'transfer' };
+    const keys = { 1: 'infantry', 2: 'armor', 3: 'retreat', 4: 'line', 5: 'barrage', 6: 'reserve', 7: 'fix', 8: 'transfer', 9: 'air' };
     if (keys[e.key]) setTool(keys[e.key]);
     else if (e.key === 'Escape') cancelTool();
     else if (e.key === 'Enter') { if (fui.front.phase === 'resolve') fui.skip = true; else launchDay(); }

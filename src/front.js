@@ -17,6 +17,7 @@ import { staffNight, undoTransfer } from './frontnight.js';
 import { createArmor, armorAfter, armorNight, updateArmorSightings, ARMOR_SETUP } from './frontarmor.js';
 import { WORKS, initWorks, defenderBelt, barrageWorks, captureWorks, buildTick, trenchFor } from './frontworks.js';
 import { initScore, eveningScore, noteCapture, scoreBreakdown, GRADES } from './frontscore.js';
+import { createAA, airTick, updateAASightings, airNight } from './frontair.js';
 import { GUN_KINDS, GUN_RULES, createGuns, gunFor, gunPower, moveGuns, supportFire, gunsNight, updateGunSightings } from './frontguns.js';
 
 export const FRONT_SIDES = ['DE', 'SU'];
@@ -53,6 +54,8 @@ export const FRONT_SETUP = {
   entrenchDepth: 6, // profondeur (en cases depuis le front) du retranchement initial du défenseur
   recover: 0.2, // part des pertes du jour qui rejoint la nuit (réserves)
   entrenchDef: 0.4, // bonus de défense d'une case pleinement retranchée (+40 %)
+  sorties: [2, 2], // sorties aériennes par jour (frontair.js ; selon l'année)
+  aaBatteries: [2, 2], // batteries de DCA pour la bataille
   goalShare: 0.75, // part des villes du défenseur que l'attaquant doit tenir au dernier jour (arrondie au-dessus)
 };
 
@@ -125,6 +128,7 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
     lastOrders: [[], []],
     lines: [[], []], // lignes de défense du jour
     barrages: [[], []], // barrages de zone du jour
+    air: [[], []], // missions aériennes du jour (frontair.js)
     lineMask: new Uint8Array(N), // cases couvertes par une ligne de défense aujourd'hui
     deployments: [[], []],
     transfers: [[], []], // regroupements : tracés le matin, ou de l'état-major la nuit (frontnight.js)
@@ -157,6 +161,7 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
     for (let i = 0; i < N; i++) if (owner[i] === s) dens[i] = (cfg.troops[s] * need[i] * map.flow[i] ** 0.5) / total;
   }
   front.guns = createGuns(front, cfg.guns);
+  front.aa = createAA(front, cfg.aaBatteries);
   // Rôles : l'attaquant reçoit plus de réserves ; le défenseur est retranché sur quelques cases derrière le front.
   const att = front.attacker, def = 1 - att;
   front.reserve[att] = Math.round(front.reserve[att] * cfg.attackReserve);
@@ -186,6 +191,7 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
   updateMemory(front);
   front.armor = createArmor(front, cfg.armor ?? ARMOR_SETUP);
   updateGunSightings(front);
+  updateAASightings(front);
   updateArmorSightings(front);
   initSupply(front);
   initScore(front);
@@ -369,6 +375,7 @@ export function removeOrder(front, s, id) {
   front.lines[s] = front.lines[s].filter((v) => v.id !== id);
   front.barrages[s] = front.barrages[s].filter((v) => v.id !== id);
   undoTransfer(front, s, id);
+  front.air[s] = front.air[s].filter((m) => m.id !== id);
 }
 
 // Comportement d'une poche, choisi le matin (par le joueur pour les siennes, par l'IA pour les autres).
@@ -657,6 +664,7 @@ export function stepTick(front) {
   const early = [];
   updateSupplyK(front);
   applyWorks(front, early);
+  airTick(front, early);
   rebuildFields(front, 0);
   rebuildFields(front, 1);
   const densBefore = Float32Array.from(front.dens);
@@ -669,9 +677,11 @@ export function stepTick(front) {
   for (const e of events) {
     if (e.kind === 'armorLost') { const a = front.armor.find((x) => x.id === e.id); flog(front, 'armor', `${a.name} (${FRONT_SIDES[a.side] === 'DE' ? 'Wehrmacht' : 'Armée rouge'}) ${e.spent ? 'est saignée à blanc : ses derniers chars sont retirés du front' : 'est encerclée et détruite'}.`, a.side); continue; }
     if (e.kind === 'bridge') { flog(front, 'bridge', `Un pont s'effondre sous les obus, près de ${nearestTownName(front, e.i)}.`, e.side); continue; }
+    if (e.kind === 'planeDown') { flog(front, 'air', `${e.side === 0 ? 'Un Stuka abattu' : 'Un Sturmovik abattu'} par la DCA ${front.aa.find((a) => a.id === e.by)?.name ?? 'ennemie'}.`, e.side); continue; }
+    if (e.kind === 'aaLost') { const a = front.aa.find((x) => x.id === e.id); flog(front, 'air', `${a.name} détruite par l'aviation ennemie.`, a.side); continue; }
     if (e.kind !== 'gunLost') continue;
     const g = front.guns.find((x) => x.id === e.id);
-    flog(front, 'gun', `${g.name} (${FRONT_SIDES[g.side] === 'DE' ? 'Wehrmacht' : 'Armée rouge'}) ${e.counter ? 'réduit au silence par la contre-batterie' : 'débordé et perdu'}.`, g.side);
+    flog(front, 'gun', `${g.name} (${FRONT_SIDES[g.side] === 'DE' ? 'Wehrmacht' : 'Armée rouge'}) ${e.air ? 'détruit par l\'aviation' : e.counter ? 'réduit au silence par la contre-batterie' : 'débordé et perdu'}.`, g.side);
   }
   for (const e of events) {
     if (e.kind !== 'capture') continue;
@@ -703,6 +713,7 @@ export function stepTick(front) {
   front.tick++;
   updateMemory(front);
   updateGunSightings(front);
+  updateAASightings(front);
   updateArmorSightings(front);
   checkFrontVictory(front);
   if (front.phase === 'resolve' && front.tick >= front.cfg.ticks) endDay(front);
@@ -791,6 +802,7 @@ function endDay(front) {
     front.deployments[s] = [];
   }
   gunsNight(front);
+  airNight(front);
   armorNight(front);
   advanceRails(front);
   restTroops(front);

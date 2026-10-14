@@ -554,3 +554,24 @@ densités. Le moteur garde des points d'accroche pour cela.
   « +N h » à l'arrivée ; les transferts de l'état-major sont marqués comme tels.
 - Mesure (42 batailles IA contre IA) : 8 regroupements de l'état-major par bataille et par carte en moyenne, la moitié
   par la route ; équilibre inchangé (attaquant 15, défenseur 17).
+
+### Aviation et DCA
+
+- `frontair.js`. Deux réserves séparées, réglées par l'année (`frontscenario.js`) : sorties par jour (1941-1942 :
+  Luftwaffe 3, VVS 1 ; 1943 : 2 et 2 ; 1944 : 1 et 3) et batteries de DCA pour la bataille (2 à 3 par camp, placées
+  à 7 unités derrière le front). Brouillard : l'aviation reste au sol ; pluie × 0,6, neige × 0,8.
+- Missions, le matin (outil « Air », touche 9) : appui rapproché sur une zone (rayon 2,4), n'importe où sur la carte,
+  frappée aux ticks 6 à 8 (−6 % des troupes ennemies par tick, −7 % des chars d'une formation prise dedans) ; chasse
+  de batteries quand on touche près d'un groupe d'artillerie ou d'une DCA ennemie repérés (−25 % de puissance de feu,
+  détruit sous 25 %).
+- Les avions partent de leur bord de carte et filent droit sur l'objectif. Chaque DCA ennemie dont le rayon (6 unités)
+  croise leur route émousse la mission de 35 % et a 40 % de chances d'abattre un avion ; en tirant, elle se dévoile à
+  l'attaquant. Sinon elle reste camouflée (repérée à 5,5 unités de ses troupes, comme l'artillerie). On la déplace
+  le matin (10 unités au plus, elle a roulé de nuit). Une DCA dont la case tombe est perdue.
+- IA : une chasse par jour au plus, sur la batterie la plus fraîchement repérée (si elle a plus d'une sortie), puis
+  l'appui sur ses blindés repérés ou les cases ennemies les plus denses au contact, en évitant les DCA connues.
+- Rendu : le matin, route de vol en pointillé et objectif cerclé, rayon de sa DCA, DCA ennemies repérées en
+  pointillé rouge. Pendant la journée, trois avions vus de dessus avec leur ombre, piqué, bombes, retour ; flocons
+  de DCA sur leur route ; un avion abattu part en vrille dans la fumée et s'écrase.
+- Mesure (6 batailles) : 2 groupes d'artillerie détruits par l'aviation au total, 34 avions abattus ; équilibre
+  inchangé sur 42 batailles (attaquant 17, défenseur 14).
