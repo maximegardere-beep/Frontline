@@ -244,10 +244,10 @@ export function armorRoute(front, a, target = a.target) {
     const t = Math.max(0, Math.min(1, ((cx[k] - x0) * vx + (cy[k] - y0) * vy) / L2));
     return Math.hypot(cx[k] - x0 - vx * t, cy[k] - y0 - vy * t) <= ROUTE.detour + span * 0.15;
   };
-  const dist = new Float32Array(N).fill(Infinity), prev = new Int32Array(N).fill(-1);
+  const dist = new Float64Array(N).fill(Infinity), prev = new Int32Array(N).fill(-1); // 64 bits : un arrondi relancerait le tas sans fin
   dist[a.cell] = 0;
   const heap = [[0, a.cell]];
-  let goal = a.cell, gd = Math.hypot(target.x - x0, target.y - y0);
+  let goal = a.cell, gd = Math.hypot(target.x - x0, target.y - y0); // gd : distance restante + coût pour y aller
   while (heap.length) {
     // Tas binaire minimal sur le coût.
     const top = heap[0], last = heap.pop();
@@ -265,12 +265,14 @@ export function armorRoute(front, a, target = a.target) {
     }
     const [d, k] = top;
     if (d > dist[k]) continue;
-    const gk = Math.hypot(target.x - cx[k], target.y - cy[k]);
+    // Destination : rapprocher de l'objectif sans longer le front pour gagner quelques mètres (sinon la formation
+    // glisse latéralement au lieu de percer au plus court).
+    const gk = Math.hypot(target.x - cx[k], target.y - cy[k]) + ROUTE.reach * d;
     if (gk < gd - 1e-6) { gd = gk; goal = k; }
     for (let q = 0; q < 6; q++) {
       const j = nb[k * 6 + q];
       if (j < 0 || !ok(j) || !near(j)) continue;
-      const nd = d + 1 / Math.min(ROUTE.maxFlow, flowA[j]);
+      const nd = d + ROUTE.step + (1 - ROUTE.step) / Math.min(ROUTE.maxFlow, flowA[j]);
       if (nd < dist[j]) {
         dist[j] = nd;
         prev[j] = k;
@@ -288,7 +290,8 @@ export function armorRoute(front, a, target = a.target) {
   for (let k = goal; k >= 0; k = prev[k]) path.push(k);
   return path.reverse();
 }
-const ROUTE = { detour: 6, maxFlow: 1.6 }; // écart toléré à la ligne droite (unités de grille), fluidité prise en compte
+const ROUTE = { detour: 6, maxFlow: 1.6, step: 0.5, reach: 0.9 }; // écart toléré à la ligne droite (unités de grille), fluidité prise en compte, part fixe du coût d'un pas (carburant, détours),
+// poids du coût de marche dans le choix de la destination
 
 function moveTo(front, a, j) {
   const px = front.centers.x[a.cell], py = front.centers.y[a.cell];

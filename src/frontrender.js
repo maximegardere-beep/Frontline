@@ -17,7 +17,7 @@ import { FRONT_WEATHER, POCKET_MODES, VECTOR_TYPES, pocketName } from './front.j
 import { MIN_POCKET, ARMOR_ATK } from './frontinput.js';
 import { FrontFx } from './frontfx.js';
 import { GUN_KINDS, visibleGuns, gunPower } from './frontguns.js';
-import { visibleArmor } from './frontarmor.js';
+import { visibleArmor, armorRoute } from './frontarmor.js';
 import { railPoint } from './frontsupply.js';
 import { SPRITE_PAL, piece, tank, howitzer, towed, mortar, rocket, pit, dust } from './frontsprites.js';
 
@@ -33,6 +33,8 @@ const FIRE = { decay: 0.965, gain: 5, min: 0.08 }; // incendies : déclin par ti
 // Fumée des combats : chaleur par unité de densité perdue, déclin par tick, apport d'un cratère ; seuil d'un foyer,
 // chaleur d'un foyer à plein, espacement (unités de grille), nombre au plus, débit relatif à un incendie.
 const SMOKE = { loss: 1.5, decay: 0.9, barrage: 0.25, min: 0.6, full: 3, space: 3.5, max: 28, rate: 0.8 };
+// Colonnes sur les routes : vitesse (pixels monde par ms), camions par colonne, écart entre deux camions.
+const CONVOY = { speed: 0.012, trucks: 4, gap: 6 };
 // Cratères par tick de barrage à pleine puissance, et leur rayon (pixels monde ; une case fait 9 de rayon).
 const SCAR = { div: { n: 6, r: 1.1 }, heavy: { n: 5, r: 1.6 }, mortar: { n: 7, r: 0.9 }, rocket: { n: 9, r: 0.9 } };
 
@@ -675,6 +677,7 @@ export class FrontRenderer extends Renderer {
     this.fx.plumeSources(this.smoke, 'battle');
     this.fx.drawPlumes(ctx, now);
     this.drawSpearTips(spears.filter((sp) => !sp.formation));
+    if (f.phase === 'resolve' && !this.fx.still) this.drawConvoys(view.viewer ?? null, now);
     this.drawArmor(view);
 
     this.drawTowns(view.viewer ?? null);
@@ -1044,13 +1047,22 @@ export class FrontRenderer extends Renderer {
       let ang = dir;
       if (own && a.target) ang = Math.atan2(a.target.y - y, a.target.x - x);
       if (own && planning && a.target) {
+        // Trajet aimanté : la marche dans nos lignes suit le chemin le plus rapide (la route, surlignée), puis l'assaut
+        // file droit vers l'objectif.
         const t = this.toWorld(a.target);
+        const { pts, road } = this.armorPath(a);
+        ctx.strokeStyle = 'rgba(255, 210, 63, 0.35)';
+        ctx.lineWidth = 12 * px;
+        for (const [p, q] of road) { ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke(); }
+        const path = () => { ctx.beginPath(); splineTo(ctx, pts); };
         ctx.strokeStyle = ORDER_HALO;
         ctx.lineWidth = 6 * px;
-        ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(t.x, t.y); ctx.stroke();
+        path(); ctx.stroke();
         ctx.strokeStyle = ORDER_INK;
         ctx.lineWidth = 3.4 * px;
-        ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(t.x, t.y); ctx.stroke();
+        path(); ctx.stroke();
+        const last = pts[pts.length - 2] ?? c;
+        ang = Math.atan2(t.y - last.y, t.x - last.x);
         const s = 14 * px;
         ctx.beginPath();
         ctx.moveTo(t.x + Math.cos(ang) * 4 * px, t.y + Math.sin(ang) * 4 * px);
@@ -1088,6 +1100,78 @@ export class FrontRenderer extends Renderer {
       }
       ctx.globalAlpha = 1;
     }
+  }
+
+  // Colonnes de ravitaillement sur les routes tenues pendant la journée : camions qui soulèvent la poussière, sur nos
+  // routes à l'abri du front (ou celles de l'ennemi qu'on voit). Ambiance seulement.
+  drawConvoys(viewer, now) {
+    const f = this.front, { nb } = this.map;
+    if (!this.roadLines) {
+      this.roadLines = (this.map.roads ?? []).filter((r) => r.length > 6).map((cells) => {
+        const pts = cells.map((i) => this.center(i));
+        let L = 0;
+        const d = pts.map((p, k) => (k ? (L += Math.hypot(p.x - pts[k - 1].x, p.y - pts[k - 1].y)) : 0));
+        return { cells, pts, d, L };
+      });
+    }
+    const { ctx, cam } = this;
+    const k = Math.max(1, 1 / cam.s);
+    const quiet = (i, s) => {
+      if (f.owner[i] !== s) return false;
+      for (let q = 0; q < 6; q++) { const j = nb[i * 6 + q]; if (j >= 0 && f.owner[j] === 1 - s) return false; }
+      return viewer === null || s === viewer || f.vision[viewer][i];
+    };
+    for (const [ri, r] of this.roadLines.entries()) {
+      // Une colonne pour 160 pixels de route, alternativement dans un sens et dans l'autre.
+      const n = Math.max(1, Math.floor(r.L / 160));
+      for (let c = 0; c < n; c++) {
+        const dir = (c + ri) % 2 ? 1 : -1;
+        const head = (((now * CONVOY.speed * dir + (c / n) * r.L + ri * 37) % r.L) + r.L) % r.L;
+        for (let v = 0; v < CONVOY.trucks; v++) {
+          const at = head - dir * v * CONVOY.gap * k;
+          if (at < 0 || at > r.L) continue;
+          let m = 1;
+          while (m < r.d.length - 1 && r.d[m] < at) m++;
+          const a = r.pts[m - 1], b = r.pts[m], u = (at - r.d[m - 1]) / Math.max(1e-6, r.d[m] - r.d[m - 1]);
+          const cell = u < 0.5 ? r.cells[m - 1] : r.cells[m];
+          const side = f.owner[cell];
+          if (side < 0 || !quiet(cell, side)) continue;
+          const x = a.x + (b.x - a.x) * u, y = a.y + (b.y - a.y) * u, ang = Math.atan2(b.y - a.y, b.x - a.x) + (dir < 0 ? Math.PI : 0);
+          // Poussière derrière le camion.
+          ctx.fillStyle = 'rgb(214, 198, 156)';
+          for (let q = 1; q <= 3; q++) {
+            ctx.globalAlpha = 0.28 / q;
+            ctx.beginPath();
+            ctx.arc(x - Math.cos(ang) * q * 3 * k, y - Math.sin(ang) * q * 3 * k, (1.2 + q * 0.9) * k, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.globalAlpha = 1;
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.rotate(ang);
+          ctx.fillStyle = 'rgba(30, 24, 16, 0.3)';
+          ctx.fillRect(-2.2 * k + 0.5, -1.2 * k + 0.5, 4.4 * k, 2.4 * k);
+          ctx.fillStyle = SPRITE_PAL[side].body;
+          ctx.fillRect(-2.2 * k, -1.2 * k, 4.4 * k, 2.4 * k);
+          ctx.fillStyle = SPRITE_PAL[side].dark;
+          ctx.fillRect(1.1 * k, -1.2 * k, 1.1 * k, 2.4 * k);
+          ctx.restore();
+        }
+      }
+    }
+  }
+
+  // Trajet d'une formation vers son objectif (armorRoute), en pixels monde, et ses tronçons de route ; mis en cache.
+  armorPath(a) {
+    const key = `${a.cell}:${a.target.x}:${a.target.y}:${this.front.clock}`;
+    if (this.pathCache?.[a.id]?.key === key) return this.pathCache[a.id];
+    const cells = armorRoute(this.front, a);
+    const pts = cells.map((i) => this.center(i));
+    pts.push(this.toWorld(a.target));
+    const road = [];
+    for (let k = 1; k < cells.length; k++) if (this.map.road?.[cells[k - 1]] && this.map.road?.[cells[k]]) road.push([pts[k - 1], pts[k]]);
+    (this.pathCache ??= {})[a.id] = { key, pts, road };
+    return this.pathCache[a.id];
   }
 
   // Masse blindée : hachures serrées, de la couleur sombre du camp, sur les cases entraînées par les chars.

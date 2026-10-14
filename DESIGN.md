@@ -502,3 +502,18 @@ densités. Le moteur garde des points d'accroche pour cela.
 - Ailleurs le long du front (lineShot) : feu de ligne discret, un éclair de départ par case au contact avec une
   probabilité de 0,2 + 6 × pertes (0,8 au plus), un traçant court et sa poussière une fois sur trois. Les coups partent
   près de la frontière entre les deux cases, plus de case à case : le front se lit sur toute sa longueur.
+
+### Routes et offensives blindées
+
+- Vitesse (`terrain.js`) : sur route, la fluidité blindée est doublée et plafonnée à 1,6 (1,3 auparavant) : les chars
+  y roulent 60 % plus vite qu'en steppe. Aucun bonus de choc : la route accélère, elle ne protège pas.
+- Marche aimantée (`frontarmor.js`, armorRoute) : une formation rejoint le front par le chemin le plus rapide dans
+  ses lignes (Dijkstra ; coût d'un pas 0,5 + 0,5 / fluidité blindée, dans un couloir de 6 unités autour de la ligne
+  droite), vers la case amie qui rapproche le plus de l'objectif sans longer le front (distance restante + 0,9 × coût
+  de marche). La route l'attire quand elle va à peu près dans le bon sens ; forêts et marais sont contournés. Route
+  gardée en cache 4 ticks. Le matin, le trajet est dessiné (route surlignée), puis l'assaut file droit sur l'objectif.
+- Colonnes (`frontrender.js`, drawConvoys) : pendant la journée, des camions soulèvent la poussière sur les routes
+  tenues, à l'abri du front. Ambiance seulement.
+- Mesure (84 batailles IA contre IA, même graine) : avant, attaquant 44 % / défenseur 37 % / nuls 19 %, Wehrmacht 35 %
+  / Armée rouge 46 %, 5,9 encerclements ; après, 51 / 21 / 27, Wehrmacht 33 / Armée rouge 39, 5,4 encerclements.
+  L'offensive y gagne un peu, comme attendu.
