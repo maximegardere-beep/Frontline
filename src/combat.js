@@ -102,6 +102,17 @@ export const FRONT_RULES = {
   EMPTY: 0.3, // en dessous : case considérée vide
   HOLD_MIN: 2, // densité minimale pour réoccuper une case vide sans ordre
   LINE_NEED: 0.8, // besoin supplémentaire des cases d'une ligne de défense
+  // Cohésion : une case engagée dont l'ennemi tient plus de deux voisines (pointe ou flanc découvert) avance et frappe
+  // moins fort, jusqu'à −COHESION quand elle est presque cernée. Les blindés n'en subissent qu'une part (ARMOR_DARE) :
+  // la Blitzkrieg reste possible, au prix de flancs fragiles.
+  COHESION: 0.6,
+  ARMOR_DARE: 0.35,
+  // Saillant d'une case de large : feux croisés (usure × 1 + CROSSFIRE par voisine ennemie au-delà de deux) et
+  // étranglement : une case dont l'ennemi tient au moins SQUEEZE_N voisines tombe si leur densité dépasse
+  // SQUEEZE × sa défense. Les doigts de gant ne survivent plus sans être élargis.
+  CROSSFIRE: 0.8,
+  SQUEEZE_N: 4,
+  SQUEEZE: 3,
 };
 
 // Champs d'ordres d'un camp (calculés par front.js) : w (part engagée sur un vecteur), dx, dy (direction),
@@ -155,6 +166,16 @@ export function frontTick(front) {
   const edges = []; // poussées : [i assaillant, j visé, valeur]
   const q = new Float32Array(6);
   const needs = [frontNeed(front, 0), frontNeed(front, 1)];
+  // Voisines ennemies de chaque case (saillants : feux croisés, étranglement, cohésion des poussées).
+  const foesOf = new Uint8Array(N), cross = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    const s = owner[i];
+    if (s < 0) continue;
+    let k = 0;
+    for (let d = 0; d < 6; d++) { const j = nb[i * 6 + d]; if (j >= 0 && owner[j] === 1 - s) k++; }
+    foesOf[i] = k;
+    cross[i] = 1 + R.CROSSFIRE * Math.max(0, k - 2);
+  }
 
   for (let i = 0; i < N; i++) {
     const s = owner[i];
@@ -164,6 +185,10 @@ export function frontTick(front) {
     // 1a. Vecteurs : la part engagée avance dans la direction de l'ordre ; ce qui bute sur l'ennemi le pousse.
     if (w > 0.01) {
       let sum = 0;
+      const foes = foesOf[i];
+      // Part blindée de la poussée, déduite de sa puissance de choc (1,2 infanterie, 1,8 blindés).
+      const armored = Math.max(0, Math.min(1, (S.atk[i] - 1.2) / 0.6));
+      const cohesion = 1 - R.COHESION * (Math.max(0, foes - 2) / 4) * (1 - armored * (1 - R.ARMOR_DARE));
       for (let d = 0; d < 6; d++) {
         const j = nb[i * 6 + d];
         q[d] = 0;
@@ -174,13 +199,13 @@ export function frontTick(front) {
         sum += q[d];
       }
       if (sum > 0) {
-        const moving = dens[i] * w * S.speed[i];
+        const moving = dens[i] * w * S.speed[i] * cohesion;
         for (let d = 0; d < 6; d++) {
           if (!q[d]) continue;
           const j = nb[i * 6 + d], share = q[d] / sum;
           if (owner[j] === s) { delta[i] -= moving * share; delta[j] += moving * share; }
           else {
-            const v = dens[i] * w * S.atk[i] * quality[s] * share;
+            const v = dens[i] * w * S.atk[i] * quality[s] * share * cohesion;
             push[j] += v;
             edges.push(i, j, v);
           }
@@ -214,7 +239,7 @@ export function frontTick(front) {
     for (let d = 0; d < 6; d++) {
       const j = nb[i * 6 + d];
       if (j < 0 || owner[j] !== o) continue;
-      loss[j] += (R.SKIRMISH * Math.sqrt(dens[i] * dens[j]) * (quality[s] / quality[o]) * S.skirm[i] * field[o].cover[j]) / (map.def[j] * field[o].fort[j]);
+      loss[j] += (R.SKIRMISH * Math.sqrt(dens[i] * dens[j]) * (quality[s] / quality[o]) * S.skirm[i] * field[o].cover[j] * cross[j]) / (map.def[j] * field[o].fort[j]);
     }
   }
 
@@ -287,6 +312,20 @@ export function frontTick(front) {
           front.stats.byBreach++;
           continue;
         }
+      }
+    }
+    // Étranglement d'un saillant étroit, sans ordre : les voisines ennemies se referment sur lui.
+    if (foesOf[j] >= R.SQUEEZE_N) {
+      let F = 0;
+      const att = [];
+      for (let d = 0; d < 6; d++) {
+        const n = nb[j * 6 + d];
+        if (n >= 0 && owner[n] === s && !captured[n]) { F += dens[n] * quality[s]; att.push([n, dens[n]]); }
+      }
+      if (F > R.SQUEEZE * defense(j) + R.HOLD_MIN) {
+        tryCapture(j, s, att.map(([n, v]) => [n, (0.6 * v * quality[s]) / F]));
+        front.stats.bySqueeze = (front.stats.bySqueeze ?? 0) + 1;
+        continue;
       }
     }
     if (dens[j] < R.EMPTY) {
