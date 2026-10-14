@@ -204,10 +204,10 @@ function rollWeather(front) {
 // Vent du jour (purement visuel : il pousse la fumée) : surtout d'ouest, plus fort sous la pluie et la neige, presque
 // nul dans le brouillard. Le temps gardé de la veille garde à peu près son vent. Tirage à part, pour ne pas changer
 // le déroulé des batailles.
-export const WIND = { clear: [0.15, 0.55], rain: [0.45, 0.9], fog: [0, 0.15], snow: [0.35, 0.8] };
+export const FRONT_WIND = { clear: [0.15, 0.55], rain: [0.45, 0.9], fog: [0, 0.15], snow: [0.35, 0.8] };
 function rollWind(front, keep) {
   const r = createRng(`wind:${front.seed}:${front.day}`);
-  const [lo, hi] = WIND[front.weather] ?? WIND.clear;
+  const [lo, hi] = FRONT_WIND[front.weather] ?? FRONT_WIND.clear;
   const gauss = (r.next() + r.next() + r.next() - 1.5) * 2; // ≈ normale réduite
   const fresh = { dir: gauss * 1.2, force: lo + (hi - lo) * r.next() }; // dir : vers où il souffle (0 : vers l'est)
   front.wind = keep && front.wind
