@@ -23,18 +23,18 @@ export const sideIndex = (s) => (s === 'DE' ? 0 : 1);
 export const FRONT_SETUP = {
   days: 10,
   ticks: 30, // ticks par journée
-  troops: [5200, 6200], // densité totale sur la carte au départ
+  troops: [5800, 6000], // densité totale sur la carte au départ (équilibrage après formations et artillerie)
   reserve: [600, 700], // pool logistique initial
   reinforce: [240, 280], // renforts quotidiens, au prorata du bord de carte ravitaillé
   townBonus: 25, // renforts quotidiens par ville tenue
-  quality: [1.25, 1], // qualité allemande : 1,15 laissait l'Armée rouge gagner 58 % des batailles IA contre IA
+  quality: [1.45, 1], // qualité allemande (calée sur 90 batailles IA contre IA : Wehrmacht 38 %, Armée rouge 39 %, indécis 23 %)
   maxVectors: 4, // vecteurs par jour (infanterie, blindés, repli)
   maxArmor: 2,
   maxLines: 2, // lignes de défense par jour
   lineLen: 30, // longueur maximale d'une ligne, en cases
   lineWidth: 1.8, // demi-largeur de la bande retranchée (unités de grille ; deux cases voisines sont à 1,73)
   // Groupes d'artillerie (frontguns.js) : une mission de barrage par groupe et par jour, dans sa portée.
-  guns: [['div', 'div', 'heavy'], ['div', 'div', 'mortar', 'rocket']],
+  guns: [['div', 'div', 'heavy'], ['div', 'mortar', 'rocket']],
   barrageTicks: 6, // le barrage martèle la zone pendant les premiers ticks de la journée
   retreatCover: 0.33, // usure subie par les troupes qui décrochent en bon ordre
   chunk: 80, // densité déposée par clic de déploiement

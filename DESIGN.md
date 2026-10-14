@@ -407,3 +407,14 @@ densités. Le moteur garde des points d'accroche pour cela.
 - L'ancien vecteur blindé reste dans le moteur (tests, outils) mais ni l'interface ni l'IA ne l'utilisent plus. L'IA
   lance la formation la plus proche en fer de lance de ses attaques, et garde les autres en contre-attaque ou en
   réserve derrière ses secteurs menacés.
+
+### Rééquilibrage après les nouveaux chantiers
+
+- Mesure de départ (formations, artillerie, terrain, ouvrages en place) : Wehrmacht 14 % des victoires, Armée rouge
+  63 % (Wehrmacht en défense : 5 %).
+- Réglages retenus : qualité allemande 1,45 (au lieu de 1,25) ; troupes de départ 5 800 / 6 000 (au lieu de
+  5 200 / 6 200) ; artillerie soviétique ramenée à trois groupes (obusiers, mortiers, Katioucha) ; corps blindés
+  soviétiques de 150, 170 et 120 chars.
+- Résultat sur 2 × 90 batailles IA contre IA (graines différentes) : Wehrmacht 32 à 38 %, Armée rouge 39 à 42 %,
+  indécis 23 à 26 % ; attaquant 40 à 44 %, défenseur 32 à 34 %. L'écart restant est dans le bruit de mesure (± 5 %).
+- Le serpentement de l'IA reste à reprendre (branche `claude/doctrine-wip`).

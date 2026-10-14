@@ -16,9 +16,9 @@ export const ARMOR_SETUP = [
     { name: '11. Panzer-Division', tanks: 140, exp: 1.8, gren: 120 },
   ],
   [
-    { name: '1er corps blindé', tanks: 190, exp: 0.4, gren: 110 },
-    { name: '5e corps blindé de la Garde', tanks: 210, exp: 0.9, gren: 120 },
-    { name: '18e corps blindé', tanks: 170, exp: 0.3, gren: 100 },
+    { name: '1er corps blindé', tanks: 150, exp: 0.4, gren: 110 },
+    { name: '5e corps blindé de la Garde', tanks: 170, exp: 0.9, gren: 120 },
+    { name: '18e corps blindé', tanks: 120, exp: 0.2, gren: 90 },
   ],
 ];
 

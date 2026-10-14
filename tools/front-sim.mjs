@@ -11,7 +11,7 @@ Object.assign(AI_TUNING, JSON.parse(process.env.AI ?? '{}'));
 if (process.env.JSON) process.on('exit', () => {});
 const N = Number(process.argv[2] ?? 40), SEED = process.argv[3] ?? 'sim';
 const BIOMES = ['steppe', 'bocage', 'polesie', 'bourg', 'montagne', 'foret', 'fleuve'];
-const tally = { att: 0, def: 0, nul: 0, DE: 0, SU: 0 };
+const tally = { att: 0, def: 0, nul: 0, DE: 0, SU: 0, deAtt: 0, deAttWin: 0, deDefWin: 0 };
 const reasons = {};
 let days = 0, pockets = 0, towns = 0, ms = 0, early = 0;
 const perBiome = {};
@@ -37,6 +37,7 @@ for (let k = 0; k < N; k++) {
   scores.push(scoreBreakdown(f, true).total);
   if (w === null) tally.nul++;
   else { tally[w === f.attacker ? 'att' : 'def']++; tally[w === 0 ? 'DE' : 'SU']++; }
+  if (f.attacker === 0) { tally.deAtt++; if (w === 0) tally.deAttWin++; } else if (w === 0) tally.deDefWin++;
   const r = f.result.reason.replace(/\d+/g, '#').replace(/(la Wehrmacht|l'Armée rouge|La Wehrmacht|L'Armée rouge)/g, 'X').slice(0, 60);
   reasons[r] = (reasons[r] ?? 0) + 1;
   perBiome[biome] ??= { n: 0, att: 0 };
