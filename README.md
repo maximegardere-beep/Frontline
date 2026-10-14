@@ -278,7 +278,6 @@ dernier mouvement observé : c'est la base pour anticiper et placer ses barrages
 | `src/frontai.js` | IA du front (ne lit que sa mémoire du brouillard) |
 | `src/frontinput.js` | Saisie du front sans DOM : case autour du doigt, estimation au toucher, foyers de combat |
 | `src/frontfx.js` | Effets de combat du front : lueurs au contact, tirs traçants, obus, barrages |
-| `src/frontunits.js` | Symboles d'unités du front (prototype : points, bataillons, symboles OTAN) |
 | `src/frontrender.js` | Rendu du front : masses fondues, ligne de front, ordres, poches |
 | `src/frontui.js` | Interface du front : briefing, outils, journée animée, bilans, sons |
 

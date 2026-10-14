@@ -317,3 +317,7 @@ densités. Le moteur garde des points d'accroche pour cela.
   accéléré ni en mouvement réduit. ~55 images/s en émulation iPhone pendant les barrages.
 - Sons : rafales de mitrailleuse, canons plus proches où les blindés poussent, 4 explosions par tick et par
   barrage.
+- Unités : trois symbolisations essayées (un point par 100 hommes, un rectangle par bataillon, un symbole OTAN par
+  secteur) et écartées ; on garde les masses fondues, avec un dégradé de densité plus marqué : opacité
+  0,2 + 0,66 k et teinte foncée de 32 % × k, où k = 1 − e^(−densité / 5) (arrières pâles, front et concentrations
+  sombres).

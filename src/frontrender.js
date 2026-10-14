@@ -16,7 +16,6 @@ import { FRONT_KINDS } from './terrain.js';
 import { FRONT_WEATHER, POCKET_MODES, pocketName } from './front.js';
 import { MIN_POCKET } from './frontinput.js';
 import { FrontFx } from './frontfx.js';
-import { drawUnits } from './frontunits.js';
 
 export const CELL = 9; // rayon d'une case de la micro-grille, en pixels monde
 
@@ -343,13 +342,14 @@ export class FrontRenderer extends Renderer {
       const d = de ? dA[s] / Math.max(0.05, o[s]) : dB[s] / Math.max(0.05, 1 - o[s]);
       const rgb = SIDE_RGB[de ? 0 : 1];
       const enemy = b.viewer !== null && (de ? 0 : 1) !== b.viewer;
-      // Opacité : la masse s'épaissit avec la densité ; hors de vue, l'ennemi n'est qu'une estimation estompée.
-      // Teinte de base du territoire, renforcée par la densité (les masses du front).
-      let alpha = (0.3 + 0.45 * (1 - Math.exp(-d / 7))) * Math.min(1, open * 1.3);
+      // Opacité et teinte : la masse s'épaissit et fonce avec la densité (arrières pâles, front et concentrations
+      // sombres) ; hors de vue, l'ennemi n'est qu'une estimation estompée.
+      const k = 1 - Math.exp(-d / 5), dark = 1 - 0.32 * k;
+      let alpha = (0.2 + 0.66 * k) * Math.min(1, open * 1.3);
       if (enemy) alpha *= 0.6 + 0.4 * vis;
-      px[s * 4] = rgb[0];
-      px[s * 4 + 1] = rgb[1];
-      px[s * 4 + 2] = rgb[2];
+      px[s * 4] = rgb[0] * dark;
+      px[s * 4 + 1] = rgb[1] * dark;
+      px[s * 4 + 2] = rgb[2] * dark;
       px[s * 4 + 3] = Math.round(alpha * 255);
     }
     this.massCanvas.getContext('2d').putImageData(this.massImg, 0, 0);
@@ -407,7 +407,6 @@ export class FrontRenderer extends Renderer {
     ctx.strokeStyle = '#1d1a12';
     ctx.lineWidth = 2.4;
     strokeSegments(ctx, line);
-    drawUnits(ctx, f, view.viewer ?? null, this.unitStyle, CELL, 1 / cam.s);
     this.fx.drawOver(ctx, now, 1 / cam.s);
 
     this.drawTowns(view.viewer ?? null);
