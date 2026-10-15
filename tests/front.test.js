@@ -552,6 +552,34 @@ test('IA : un saillant en passe d\'être encerclé décroche vers son goulot (pr
   assert.ok(!f.orders[0].some((v) => v.type === 'infantry' && z.cells.includes(v.fromI)), 'pas d\'attaque depuis le saillant évacué');
 });
 
+test('alerte SOS : un secteur qui perd plusieurs cases en quelques heures appelle à l\'aide, puis se tait', async () => {
+  const { noteLosses, crackingSectors, updateAlerts, ALERT } = await import('../src/frontalert.js');
+  const f = createFront({ seed: 'sos', attacker: 'DE' });
+  const row = Math.floor(f.map.H / 2);
+  // L'Armée rouge perd ALERT.score cases voisines (deux lignes), dans le même tick.
+  const lost = [];
+  for (const r of [row, row + 1]) {
+    const i = frontCell(f, r);
+    for (let k = 1; k <= Math.ceil(ALERT.score / 2); k++) { const j = i + k; if (f.owner[j] === 1) { f.owner[j] = 0; lost.push(j); } }
+  }
+  assert.ok(lost.length >= ALERT.score);
+  noteLosses(f, lost.map((j) => ({ kind: 'capture', i: j, side: 0 })));
+  const sec = crackingSectors(f, 1);
+  assert.equal(sec.length, 1, 'un secteur qui craque');
+  assert.equal(f.owner[cellAtPointOf(f, sec[0])], 1, 'l\'officier parle depuis ses lignes');
+  assert.equal(crackingSectors(f, 0).length, 0, 'le camp qui avance n\'appelle pas à l\'aide');
+  const alerts = [];
+  assert.equal(updateAlerts(f, 1, alerts).length, 1, 'nouvelle alerte (son)');
+  assert.equal(updateAlerts(f, 1, alerts).length, 0, 'pas deux fois la même');
+  // Le secteur se calme : les pertes sortent de la fenêtre, l'alerte reste encore quelques heures, puis disparaît.
+  const tick = () => { f.clock++; noteLosses(f, []); updateAlerts(f, 1, alerts); };
+  for (let t = 0; t < ALERT.window; t++) tick();
+  assert.equal(crackingSectors(f, 1).length, 0, 'plus de pertes récentes');
+  assert.equal(alerts.length, 1, 'elle s\'estompe encore');
+  for (let t = 0; t < ALERT.hold + 1; t++) tick();
+  assert.equal(alerts.length, 0, 'puis disparaît');
+});
+
 test('formations blindées : en réserve sans ordre, elles percent vers leur objectif, perdent des chars, se ravitaillent', async () => {
   const { setArmorOrder } = await import('../src/frontarmor.js');
   const f = createFront({ seed: 'panzer', attacker: 'DE', biome: 'steppe' });

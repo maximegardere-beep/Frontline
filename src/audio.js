@@ -614,7 +614,7 @@ class AudioBoard {
 
   // ---------- Interface ----------
 
-  ui(kind) {
+  ui(kind, where = null) {
     if (!this.live) return;
     const t = this.ctx.currentTime + 0.005;
     const dest = this.out(0, 1);
@@ -638,6 +638,20 @@ class AudioBoard {
       }
       this.burst(tt + 0.15, { type: 'lowpass', f0: 400, peak: 0.3, attack: 0.001, decay: 0.05 }, dest);
       this.burst(tt + 0.15, { type: 'bandpass', f0: 2000, q: 2, peak: 0.15, attack: 0.001, decay: 0.03 }, dest);
+    } else if (kind === 'sos') {
+      // Appel à l'aide d'un secteur qui craque : souffle radio, puis · · · — — — · · · pressé, deux fois.
+      const d = this.out(where?.pan ?? 0, 0.7 + 0.3 * (where?.gain ?? 1));
+      this.burst(t, { type: 'bandpass', f0: 1300, q: 0.6, peak: 0.07, attack: 0.02, decay: 0.3 }, d);
+      let tt = t + 0.25;
+      for (let r = 0; r < 2; r++) {
+        for (const c of '...---...') {
+          const len = c === '-' ? 0.13 : 0.05;
+          this.tone(tt, { wave: 'sine', f0: 820, peak: 0.06, attack: 0.004, decay: len }, d);
+          tt += len + 0.055;
+        }
+        tt += 0.22;
+      }
+      for (let i = 0; i < 6; i++) this.burst(t + Math.random() * (tt - t), { type: 'highpass', f0: 3200, peak: 0.035, attack: 0.001, decay: 0.012 }, d);
     } else if (kind === 'bell') {
       // Cloche de fin de tour : partiels inharmoniques.
       for (const [r, a] of [[1, 0.12], [2.76, 0.05], [5.4, 0.025]]) this.tone(t, { f0: 660 * r, peak: a, attack: 0.003, decay: 1.4 / r }, dest);

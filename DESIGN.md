@@ -667,3 +667,16 @@ densités. Le moteur garde des points d'accroche pour cela.
 - Mesures : tenaille du banc, 16 cartes, camp soviétique joué par l'IA : 4 000 hommes encerclés au total contre
   13 700 sans repli. Batailles IA contre IA (21) : 29 % d'hommes encerclés en moins. Équilibre (70 batailles, deux
   graines) : attaquant 27 % et 31 %.
+
+### Alerte « SOS » d'un secteur qui craque
+
+- Détection (`frontalert.js`), après chaque tick, pour le camp du joueur : cases perdues depuis 6 ticks (1 point) et
+  cases dont la jauge de brèche dépasse 60 % (0,5 point ; `combat.js` expose `front.breachFrac`), par blocs de 8 × 8
+  cases. Un bloc craque à 6 points dont au moins 4 cases perdues. Mesure (défenseur, batailles IA contre IA) : 0 à
+  2 alertes par jour, à l'écran environ un quart du temps de la journée.
+- Rendu (`frontrender.js`, drawAlerts) : médaillon cerclé de rouge au bout d'un mât, officier (casquette, combiné à
+  l'oreille, poste radio dont l'antenne oscille, uniforme du camp), bulle où · · · — — — · · · s'allume signe par
+  signe, suivi de « SOS » ; au sol, deux ondes rouges. Taille à peu près constante à l'écran, trois alertes au plus ;
+  elle reste 6 ticks après le dernier signal en s'estompant.
+- Son (`audio.js`, ui('sos')) : souffle radio et · · · — — — · · · deux fois, placé dans l'espace stéréo comme les
+  combats ; à l'apparition d'une alerte seulement, jamais en accéléré.

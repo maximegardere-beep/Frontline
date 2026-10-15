@@ -10,6 +10,7 @@
 
 import { Renderer, splineTo, blobPath, contourSegments, strokeSegments, ELEV_STOPS, PALETTE } from './render.js';
 import { hexToPixel, pixelToHex, SQRT3 } from './hex.js';
+import { ALERT } from './frontalert.js';
 import { bfsDistance } from './path.js';
 import { createRng } from './rng.js';
 import { makeNoise } from './mapgen.js';
@@ -749,6 +750,7 @@ export class FrontRenderer extends Renderer {
     this.fx.drawPlanes(ctx, now, 1 / cam.s);
     if (view.orders) this.drawFrontOrders(view.orders, view.viewer);
     if (view.preview) this.drawFrontOrders(view.preview, view.viewer, 0.55);
+    if (view.alerts?.length) this.drawAlerts(view.alerts, view.viewer ?? 0, now);
     if (view.origin != null && view.origin >= 0) {
       const p = this.center(view.origin);
       ctx.beginPath();
@@ -1646,6 +1648,104 @@ export class FrontRenderer extends Renderer {
         dust(ctx, x, y, moveAng, k);
         piece(ctx, x, y, moveAng, k, g.kind === 'rocket' ? rocket : towed, P);
       }
+    }
+  }
+
+  // Alerte « SOS » (frontalert.js) : au-dessus d'un secteur qui craque, un officier au combiné, à côté de son poste
+  // radio, appelle à l'aide ; une bulle fait défiler · · · — — — · · · (le signe émis s'allume) ; au sol, un cercle
+  // rouge pulse. Taille à peu près constante à l'écran ; l'alerte s'estompe quand le secteur se calme.
+  drawAlerts(alerts, side, now) {
+    const { ctx, cam } = this;
+    const f = this.front;
+    const k = Math.max(0.9, Math.min(3.2, 1.3 / cam.s));
+    const uniform = side === 0 ? '#5d6650' : '#7d6c42', capColor = side === 0 ? '#3f4636' : '#5c4f2e';
+    const MORSE = '...---...';
+    for (const a of alerts) {
+      const fade = Math.max(0, Math.min(1, 1 - (f.clock - a.last) / (ALERT.hold + 1)));
+      if (fade <= 0) continue;
+      const c = this.toWorld(a);
+      const pulse = (now / 700 + (a.key % 7) * 0.13) % 1;
+      ctx.save();
+      ctx.globalAlpha = fade;
+      // Au sol : deux ondes rouges.
+      for (const ph of [pulse, (pulse + 0.5) % 1]) {
+        ctx.strokeStyle = `rgba(196, 38, 26, ${0.85 * (1 - ph)})`;
+        ctx.lineWidth = 2.2 * k * (1 - ph) + 0.5;
+        ctx.beginPath();
+        ctx.arc(c.x, c.y, (5 + 14 * ph) * k, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      // Mât et médaillon.
+      const bx = c.x, by = c.y - 30 * k;
+      ctx.strokeStyle = 'rgba(29, 26, 18, 0.8)';
+      ctx.lineWidth = 1.2 * k;
+      ctx.beginPath(); ctx.moveTo(c.x, c.y - 3 * k); ctx.lineTo(bx, by + 14 * k); ctx.stroke();
+      ctx.fillStyle = 'rgba(244, 236, 210, 0.96)';
+      ctx.strokeStyle = '#a8261a';
+      ctx.lineWidth = 2 * k;
+      ctx.beginPath();
+      ctx.arc(bx, by, 14 * k, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      // Poste radio et antenne qui oscille.
+      ctx.fillStyle = '#3d4331';
+      ctx.fillRect(bx + 2.5 * k, by + 1.5 * k, 8 * k, 7.5 * k);
+      ctx.fillStyle = '#c9b77a';
+      ctx.beginPath(); ctx.arc(bx + 5 * k, by + 4.5 * k, 1.2 * k, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#d24a2a';
+      ctx.beginPath(); ctx.arc(bx + 8.3 * k, by + 3.5 * k, 0.8 * k, 0, Math.PI * 2); ctx.fill();
+      const sway = Math.sin(now / 160) * 1.5 * k;
+      ctx.strokeStyle = '#2b2b22';
+      ctx.lineWidth = 0.8 * k;
+      ctx.beginPath(); ctx.moveTo(bx + 9 * k, by + 1.5 * k); ctx.quadraticCurveTo(bx + 10 * k, by - 5 * k, bx + 11 * k + sway, by - 11 * k); ctx.stroke();
+      // Officier : buste, tête, casquette, bras levé tenant le combiné à l'oreille.
+      ctx.fillStyle = uniform;
+      ctx.beginPath();
+      ctx.moveTo(bx - 8.5 * k, by + 11 * k); ctx.lineTo(bx - 7.5 * k, by - 0.5 * k); ctx.lineTo(bx + 0.5 * k, by - 0.5 * k); ctx.lineTo(bx + 1.5 * k, by + 11 * k);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#e0b88e';
+      ctx.beginPath(); ctx.arc(bx - 3.5 * k, by - 4 * k, 3.3 * k, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = capColor;
+      ctx.beginPath(); ctx.arc(bx - 3.5 * k, by - 5.2 * k, 3.5 * k, Math.PI, 0); ctx.fill();
+      ctx.fillRect(bx - 7.6 * k, by - 5.6 * k, 6.5 * k, 1.1 * k); // visière
+      ctx.strokeStyle = uniform;
+      ctx.lineWidth = 2.6 * k;
+      ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(bx - 0.5 * k, by + 1 * k); ctx.lineTo(bx + 1.2 * k, by - 3.5 * k); ctx.stroke();
+      ctx.strokeStyle = '#141410';
+      ctx.lineWidth = 1.7 * k;
+      ctx.beginPath(); ctx.moveTo(bx - 0.3 * k, by - 7 * k); ctx.lineTo(bx + 1.8 * k, by - 1.5 * k); ctx.stroke();
+      ctx.lineWidth = 0.5 * k;
+      ctx.beginPath(); ctx.moveTo(bx + 1.8 * k, by - 1.5 * k); ctx.bezierCurveTo(bx + 4 * k, by + 1 * k, bx + 1 * k, by + 4 * k, bx + 3 * k, by + 5 * k); ctx.stroke();
+      // Bulle : le message en morse, signe par signe.
+      const sym = (ch) => (ch === '.' ? 2.1 : 4.6) * k, gap = 1.5 * k, letter = 3 * k;
+      let w = 0;
+      for (let q = 0; q < MORSE.length; q++) w += sym(MORSE[q]) + (q % 3 === 2 ? letter : gap);
+      const tw = 15 * k, pad = 3 * k, h = 10 * k;
+      const x0 = bx + 9 * k, y0 = by - 24 * k, W = pad * 2 + w + tw;
+      ctx.fillStyle = 'rgba(244, 236, 210, 0.96)';
+      ctx.strokeStyle = '#1d1a12';
+      ctx.lineWidth = 1 * k;
+      ctx.beginPath();
+      ctx.moveTo(x0 + 2 * k, y0 + h); ctx.lineTo(bx + 2 * k, by - 11 * k); ctx.lineTo(x0 + 7 * k, y0 + h); // queue vers l'officier
+      ctx.lineTo(x0 + W, y0 + h); ctx.lineTo(x0 + W, y0); ctx.lineTo(x0, y0); ctx.lineTo(x0, y0 + h);
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      const lit = Math.floor(now / 140) % (MORSE.length + 4);
+      let x = x0 + pad;
+      for (let q = 0; q < MORSE.length; q++) {
+        ctx.fillStyle = q < lit ? '#c0261a' : 'rgba(60, 44, 30, 0.3)';
+        const sw = sym(MORSE[q]);
+        if (MORSE[q] === '.') { ctx.beginPath(); ctx.arc(x + sw / 2, y0 + h / 2, sw / 2, 0, Math.PI * 2); ctx.fill(); }
+        else ctx.fillRect(x, y0 + h / 2 - 1.05 * k, sw, 2.1 * k);
+        x += sw + (q % 3 === 2 ? letter : gap);
+      }
+      ctx.fillStyle = '#a8261a';
+      ctx.font = `700 ${7.5 * k}px "IBM Plex Mono", monospace`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('SOS', x - 1 * k, y0 + h / 2 + 0.4 * k);
+      ctx.restore();
     }
   }
 

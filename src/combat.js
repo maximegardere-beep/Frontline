@@ -320,11 +320,14 @@ export function frontTick(front) {
       // gonflent la défense, retardent ainsi la percée au lieu de seulement coûter plus cher.
       const ratio = F / Math.max(defense(j), 1e-6);
       if (F > 0.3 && ratio > R.BREAK) {
+        front.breachFrac ??= new Float32Array(N);
         // Plafond : une position tenue ne tombe pas d'un coup, quel que soit le rapport de forces ; il faut des heures
         // pour la réduire, d'autant moins qu'elle est mince. Le choc des feux de préparation abaisse le seuil.
         breach[j] += Math.min(R.BREACH * (ratio - R.BREAK), (R.BREACH_CAP * (1 + R.THIN / Math.max(dens[j], 0.3))) / shaken(j) ** R.SHOCK_CAP_EXP);
         pressed[j] = 1;
-        if (breach[j] >= (map.def[j] * field[o].fort[j]) ** R.FORT_EXP * field[o].cover[j] * shaken(j)) {
+        const need = (map.def[j] * field[o].fort[j]) ** R.FORT_EXP * field[o].cover[j] * shaken(j);
+        front.breachFrac[j] = breach[j] / need; // remplissage de la jauge (alerte « SOS », frontalert.js)
+        if (breach[j] >= need) {
           breach[j] = 0;
           tryCapture(j, s, att.map(([i, v]) => [i, v / F]));
           front.stats.byBreach++;
@@ -345,6 +348,7 @@ export function frontTick(front) {
     }
   }
   for (let j = 0; j < N; j++) if (!pressed[j] && breach[j] > 0) breach[j] = breach[j] * R.BREACH_DECAY < 0.01 ? 0 : breach[j] * R.BREACH_DECAY;
+  if (front.breachFrac) for (let j = 0; j < N; j++) if (!pressed[j] || captured[j]) front.breachFrac[j] = 0;
   front.tickLoss = loss; // pertes par case de ce tick (sons et effets du front)
   // Le choc s'efface ; une case qui change de mains repart à zéro.
   if (front.shock) for (let j = 0; j < N; j++) if (front.shock[j]) front.shock[j] = captured[j] || front.shock[j] * R.SHOCK_DECAY < 0.01 ? 0 : front.shock[j] * R.SHOCK_DECAY;

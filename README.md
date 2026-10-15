@@ -52,6 +52,9 @@ défenseur, est tiré de la graine et annoncé au briefing, avec l'objectif : le
 
 - **La carte** : chaque camp est une masse de troupes (bleue pour la Wehrmacht, rouge pour l'Armée rouge), plus
   sombre où elle est dense ; le trait noir est le front. Hors de vue, l'ennemi n'est qu'une estimation estompée.
+- **Alerte « SOS »** : pendant la journée, quand l'un de vos secteurs craque (au moins quatre cases perdues en six
+  heures), un officier au combiné apparaît au-dessus, son appel défile en morse (· · · — — — · · ·) et on l'entend
+  à la radio. L'alerte s'estompe quelques heures après que le secteur s'est stabilisé.
 - **Préparer ses attaques** : sans feux, un assaut piétine et se paie cher. Barrages (au lever du jour) et
   frappes aériennes (fin de matinée) ébranlent les défenseurs : défense, riposte et tenue fondent, d'autant plus
   que les deux tombent au même endroit, puis l'effet s'efface en quelques heures. Visez le point de départ de vos
