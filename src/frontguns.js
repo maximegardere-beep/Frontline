@@ -28,6 +28,7 @@ export const GUN_RULES = {
   regen: 0.15, // récupération nocturne
   minStr: 0.25, // en dessous, le groupe est hors de combat (détruit)
   flee: 0.12, // part des troupes d'une case pilonnée qui décroche vers l'arrière, par tick de barrage
+  shock: 0.15, // choc infligé aux troupes ennemies d'une case pilonnée, par tick de barrage à pleine puissance (combat.js)
   spot: 5.5, // distance de repérage d'un groupe camouflé (unités de grille, ~3 cases)
 };
 

@@ -3,7 +3,8 @@
 // Cibles (DESIGN.md, « front mobile ») : front calme 1 à 2 % de pertes par jour ; percée blindée sur un secteur
 // ordinaire 10 à 15 cases de profondeur par jour ; attaque frontale sur un secteur renforcé : peu de gain et
 // l'assaillant perd plus que le défenseur ; tenaille : encerclement en 2 à 3 jours.
-import { createFront as baseCreate, runDay, beginDay, stepTick, troops, addVector, deployReserve, VECTOR_TYPES, FRONT_SETUP, applyWeather } from '../src/front.js';
+import { createFront as baseCreate, runDay, beginDay, stepTick, troops, addVector, addBarrage, deployReserve, VECTOR_TYPES, FRONT_SETUP, applyWeather } from '../src/front.js';
+import { addAirMission } from '../src/frontair.js';
 
 // Temps clair forcé (WEATHER=rain… pour mesurer une météo) : le calibrage reste comparable d'une version à l'autre.
 const createFront = (o) => {
@@ -130,6 +131,30 @@ for (let k = 0; k < MAPS; k++) {
   }
 }
 
+// Préparation : la même attaque (point faible, secteur ordinaire), sans feux, après barrages, après barrages et
+// appui aérien sur le point de départ. Chaque jour, deux barrages et deux sorties sur les cases ennemies juste devant.
+const prepOut = { armor: { none: [], arty: [], both: [] }, infantry: { none: [], arty: [], both: [] } };
+for (let k = 0; k < MAPS; k++) {
+  for (const type of ['armor', 'infantry']) {
+    for (const prep of ['none', 'arty', 'both']) {
+      const f = createFront({ seed: `bench${k}` });
+      const row = Math.floor(f.map.H / 2);
+      const start = lineCol(f, row - 2, row + 2);
+      const l0 = f.stats.losses.slice();
+      for (let d = 0; d < DAYS; d++) {
+        f.reserve = [0, 0];
+        const from = frontCell(f, row);
+        const at = { x: f.centers.x[from] + 2.5, y: f.centers.y[from] };
+        addVector(f, 0, type, from, { x: f.centers.x[from] + 40, y: f.centers.y[from] });
+        if (prep !== 'none') for (let b = 0; b < 2; b++) addBarrage(f, 0, at);
+        if (prep === 'both') for (let a = 0; a < 2; a++) addAirMission(f, 0, { x: at.x + a * 1.5, y: at.y });
+        runDay(f);
+      }
+      prepOut[type][prep].push({ profondeur: (lineCol(f, row - 2, row + 2) - start) / DAYS, pertesDE: (f.stats.losses[0] - l0[0]) / DAYS, pertesSU: (f.stats.losses[1] - l0[1]) / DAYS });
+    }
+  }
+}
+
 // Percée blindée sur point faible selon la météo.
 const byWeather = {};
 for (const w of ['clear', 'rain', 'fog', 'snow']) {
@@ -148,13 +173,21 @@ for (const w of ['clear', 'rain', 'fog', 'snow']) {
 
 const avg = (a, k) => a.reduce((s, x) => s + x[k], 0) / a.length;
 console.log(`Front calme      pertes/jour DE ${pct(avg(out.calme, 'de'), 1)} · SU ${pct(avg(out.calme, 'su'), 1)} · cases changées ${avg(out.calme, 'cases').toFixed(1)}   (cible 1–2 %, ~0)`);
-const LABEL = { percee: ['Percée, pt faible', '10–15'], frontale: ['Frontale, renfort', '≤ 3, DE > SU'], infanterie: ['Infant., pt faib', '3–6'] };
+const LABEL = { percee: ['Percée, pt faible', '≤ 3 sans feux'], frontale: ['Frontale, renfort', '≈ 0, DE > SU'], infanterie: ['Infant., pt faib', '≤ 1 sans feux'] };
 for (const k of ['percee', 'frontale', 'infanterie']) {
   const a = out[k];
   const med = [...a.map((x) => x.profondeur)].sort((x, y) => x - y)[Math.floor(a.length / 2)];
   console.log(`${LABEL[k][0]} profondeur/jour médiane ${med.toFixed(1)} [${a.map((x) => x.profondeur.toFixed(0)).join(' ')}] · pertes/jour DE ${avg(a, 'pertesDE').toFixed(0)} · SU ${avg(a, 'pertesSU').toFixed(0)}   (cible ${LABEL[k][1]})`);
 }
 const med = (a) => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)];
+const PREP = { none: 'sans feux', arty: 'artillerie', both: 'art. + avions' };
+const PREP_GOAL = { armor: { none: '≤ 3', arty: '4–6', both: '5–8' }, infantry: { none: '≤ 1', arty: '2–3', both: '3–5' } };
+for (const type of ['armor', 'infantry']) {
+  for (const p of ['none', 'arty', 'both']) {
+    const a = prepOut[type][p];
+    console.log(`Préparation ${type === 'armor' ? 'blindés' : 'infant.'} · ${PREP[p].padEnd(13)} profondeur/jour médiane ${med(a.map((x) => x.profondeur)).toFixed(1)} [${a.map((x) => x.profondeur.toFixed(0)).join(' ')}] · pertes/jour DE ${avg(a, 'pertesDE').toFixed(0)} · SU ${avg(a, 'pertesSU').toFixed(0)}   (cible ${PREP_GOAL[type][p]})`);
+  }
+}
 const fmtT = (a) => `médiane ${med(a) === Infinity ? '—' : med(a)} [${a.map((x) => (x === Infinity ? '—' : x)).join(' ')}]`;
 console.log(`Traversée 7 cases en ticks : point faible ${fmtT(out.traversee[0])} · fortifié ${fmtT(out.traversee[1])}   (cible : fortifié nettement plus long, ~½ journée de plus)`);
 console.log(`Percée blindée sur 1 jour selon le temps (médiane) : ${Object.entries(byWeather).map(([w, a]) => `${w} ${med(a)}`).join(' · ')}`);

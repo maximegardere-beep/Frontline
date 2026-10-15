@@ -94,10 +94,13 @@ const RIVER_THREAT = 0.35; // part de la menace d'en face qui pèse sur une rive
 export const FRONT_RULES = {
   SKIRMISH: 0.00036, // usure mutuelle au contact, par tick (front calme : ~1 % de pertes par jour)
   ASSAULT: 0.036, // pertes infligées par unité de pression (−40 % : batailles moins meurtrières)
-  DEF_FIRE: 0.8, // riposte de la case assaillie
+  DEF_FIRE: 1.2, // riposte de la case assaillie (relevée : un assaut sans préparation se paie cher)
+  DEF_TOUGH: 0.7, // part des pertes d'assaut que subit le défenseur (divisée par son ébranlement)
   BREAK: 1.45, // la pression doit dépasser BREAK × la défense pour entamer la case
   BREACH: 0.35, // remplissage de la jauge de brèche par tick, par point de rapport pression / défense au-delà de BREAK
   BREACH_DECAY: 0.7, // la jauge se vide quand la pression cesse
+  BREACH_CAP: 0.06, // remplissage maximal de la jauge par tick (case dense) : une position tenue résiste des heures
+  THIN: 4, // … plus vite pour une case mince : plafond × (1 + THIN / densité)
   FORT_EXP: 3, // seuil de la jauge = (terrain × retranchement) ^ FORT_EXP : forcer une ligne fortifiée prend du temps
   ADVANCE: 0.4, // part de la densité des assaillants qui entre dans la case conquise
   ELASTIC: 0.12, // vitesse du colmatage élastique (trop rapide, il rendait toute percée impossible ; ralenti avec le front)
@@ -109,6 +112,11 @@ export const FRONT_RULES = {
   LINE_NEED: 0.8, // besoin supplémentaire des cases d'une ligne de défense
   PIN_OUT: 0.2, // une case fixée ne cède plus que cette part de ce qu'elle céderait
   PIN_NEED: 0.5, // besoin supplémentaire d'une case fixée (elle appelle des renforts)
+  // Choc (front.shock, 0 à 1) : barrages et frappes aériennes ébranlent les défenseurs (frontguns.js, frontair.js).
+  // Une case ébranlée défend moins, riposte moins et cède plus vite ; le choc s'efface en quelques heures.
+  SHOCK_EFFECT: 0.85, // défense, riposte et seuil de brèche × (1 − SHOCK_EFFECT × choc)
+  SHOCK_DECAY: 0.93, // part du choc qui subsiste d'un tick à l'autre
+  SHOCK_CAP_EXP: 2, // une position ébranlée cède aussi plus vite : plafond de la brèche ÷ (1 − effet) ^ SHOCK_CAP_EXP
 };
 
 // Champs d'ordres d'un camp (calculés par front.js) : w (part engagée sur un vecteur), dx, dy (direction),
@@ -246,12 +254,15 @@ export function frontTick(front) {
   // 2b. Assauts : pertes du défenseur, riposte répartie sur les assaillants au prorata de leur poussée.
   // Ténacité dans les villes : un camp peut y tenir mieux que l'autre (frontscenario.js).
   const hold = (j) => (map.kind[j] === TOWN ? front.cfg?.townHold?.[owner[j]] ?? 1 : 1);
-  const defense = (j) => (dens[j] + (AR.def.get(j) ?? 0)) * map.def[j] * quality[owner[j]] * field[owner[j]].fort[j] * hold(j);
+  // Choc : défenseurs ébranlés par les feux de préparation (barrage, aviation).
+  const shaken = (j) => 1 - R.SHOCK_EFFECT * (front.shock?.[j] ?? 0);
+  const defense = (j) => (dens[j] + (AR.def.get(j) ?? 0)) * map.def[j] * quality[owner[j]] * field[owner[j]].fort[j] * hold(j) * shaken(j);
   for (let j = 0; j < N; j++) {
     if (!push[j]) continue;
     const F = push[j], D = defense(j);
     // Une troupe qui décroche en bon ordre (repli) subit moins de pertes d'assaut : elle cède le terrain au lieu de le tenir.
-    loss[j] += (R.ASSAULT * F * field[owner[j]].cover[j]) / (map.def[j] * field[owner[j]].fort[j]);
+    // Ténacité : des défenseurs à couvert encaissent l'assaut ; ébranlés par les feux de préparation, ils fondent.
+    loss[j] += (R.ASSAULT * R.DEF_TOUGH * F * field[owner[j]].cover[j]) / (map.def[j] * field[owner[j]].fort[j] * shaken(j));
     const riposte = R.ASSAULT * R.DEF_FIRE * D * Math.sqrt(Math.min(1, F / Math.max(D, 1e-6))) * (1 + WORKS.wireCost * (front.wire?.[j] ?? 0));
     for (let k = 0; k < edges.length; k += 3) if (edges[k + 1] === j) loss[edges[k]] += riposte * (edges[k + 2] / F);
     if (AR.hits.length) armorRiposte(front, AR.hits, j, riposte, F);
@@ -309,9 +320,11 @@ export function frontTick(front) {
       // gonflent la défense, retardent ainsi la percée au lieu de seulement coûter plus cher.
       const ratio = F / Math.max(defense(j), 1e-6);
       if (F > 0.3 && ratio > R.BREAK) {
-        breach[j] += R.BREACH * (ratio - R.BREAK);
+        // Plafond : une position tenue ne tombe pas d'un coup, quel que soit le rapport de forces ; il faut des heures
+        // pour la réduire, d'autant moins qu'elle est mince. Le choc des feux de préparation abaisse le seuil.
+        breach[j] += Math.min(R.BREACH * (ratio - R.BREAK), (R.BREACH_CAP * (1 + R.THIN / Math.max(dens[j], 0.3))) / shaken(j) ** R.SHOCK_CAP_EXP);
         pressed[j] = 1;
-        if (breach[j] >= (map.def[j] * field[o].fort[j]) ** R.FORT_EXP * field[o].cover[j]) {
+        if (breach[j] >= (map.def[j] * field[o].fort[j]) ** R.FORT_EXP * field[o].cover[j] * shaken(j)) {
           breach[j] = 0;
           tryCapture(j, s, att.map(([i, v]) => [i, v / F]));
           front.stats.byBreach++;
@@ -333,6 +346,8 @@ export function frontTick(front) {
   }
   for (let j = 0; j < N; j++) if (!pressed[j] && breach[j] > 0) breach[j] = breach[j] * R.BREACH_DECAY < 0.01 ? 0 : breach[j] * R.BREACH_DECAY;
   front.tickLoss = loss; // pertes par case de ce tick (sons et effets du front)
+  // Le choc s'efface ; une case qui change de mains repart à zéro.
+  if (front.shock) for (let j = 0; j < N; j++) if (front.shock[j]) front.shock[j] = captured[j] || front.shock[j] * R.SHOCK_DECAY < 0.01 ? 0 : front.shock[j] * R.SHOCK_DECAY;
   // Fatigue : les cases qui ont poussé s'usent ; une case prise hérite de la fatigue de ses assaillants.
   if (front.fatigue) {
     for (let k = 0; k < edges.length; k += 3) front.fatigue[edges[k]] = Math.min(1, front.fatigue[edges[k]] + FATIGUE.gain);

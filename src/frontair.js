@@ -24,6 +24,7 @@ export const AIR = {
   strikeTicks: [6, 7, 8], // ticks où les avions frappent (fin de matinée)
   rate: 0.06, // part de la densité ennemie détruite par tick de frappe, à pleine puissance
   tankRate: 0.07, // part des chars d'une formation prise dans la zone, par tick
+  shock: 0.35, // choc infligé aux troupes ennemies de la zone, par tick de frappe à pleine puissance (combat.js)
   bridge: 0.12, // solidité retirée à un pont en dur dans la zone, par tick de frappe (un pont de bateaux est coulé)
   hunt: 0.25, // puissance de feu retirée à un groupe (artillerie ou DCA) par une chasse réussie
   huntR: 2.5, // la cible doit encore être à cette distance du point visé
@@ -159,6 +160,7 @@ export function airTick(front, events) {
           const l = front.dens[i] * AIR.rate * m.power;
           front.dens[i] -= l;
           front.stats.losses[1 - s] += l;
+          if (front.shock) front.shock[i] = Math.min(1, front.shock[i] + AIR.shock * m.power);
         }
         // Ponts ennemis dans la zone : un pont de bateaux est coulé, un pont en dur s'use (bridgeHp, frontworks.js).
         if (front.map.bridge && front.bridgeHp) {

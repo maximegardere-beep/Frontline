@@ -52,6 +52,10 @@ défenseur, est tiré de la graine et annoncé au briefing, avec l'objectif : le
 
 - **La carte** : chaque camp est une masse de troupes (bleue pour la Wehrmacht, rouge pour l'Armée rouge), plus
   sombre où elle est dense ; le trait noir est le front. Hors de vue, l'ennemi n'est qu'une estimation estompée.
+- **Préparer ses attaques** : sans feux, un assaut piétine et se paie cher. Barrages (au lever du jour) et
+  frappes aériennes (fin de matinée) ébranlent les défenseurs : défense, riposte et tenue fondent, d'autant plus
+  que les deux tombent au même endroit, puis l'effet s'efface en quelques heures. Visez le point de départ de vos
+  poussées. L'attaquant dispose d'une artillerie de rupture (deux groupes de plus) et d'une sortie aérienne de plus.
 - **Les cours d'eau** : une rivière ne se franchit que sur ses ponts (ou gelée) ; ses cases n'appartiennent à
   personne et le front s'arrête sur les rives. Un barrage fait sauter un pont. Les ruisseaux ralentissent la
   progression et donnent +15 % de défense à qui tient leurs berges.

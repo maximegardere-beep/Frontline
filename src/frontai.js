@@ -6,11 +6,12 @@
 // 2. défense élastique : là où elle est en infériorité, ligne de défense derrière le front, réserves, barrage sur
 //    les concentrations qui la menacent ; un saillant intenable loin des villes est raccourci par un repli ;
 // 3. attaque : sur les secteurs où elle est la plus forte, blindés (infanterie sous la pluie) vers la ville ennemie
-//    la plus proche ; deux percées vers la même ville font une tenaille ; préparation au barrage, réserves en tête.
+//    la plus proche ; deux percées vers la même ville font une tenaille ; préparation au barrage et par l'aviation sur
+//    le même point de départ (leur choc se cumule), réserves en tête ; sans aucun feu disponible, pas d'assaut.
 // L'attaquant engage plus volontiers que le défenseur, qui contre-attaque surtout ce qui est faible.
 // Poches : tirage pondéré entre statu quo, Festung et percée d'évasion (troupes piégées, distance aux lignes amies).
 
-import { planAir } from './frontair.js';
+import { planAir, addAirMission } from './frontair.js';
 import { addVector, addLine, addBarrage, addPontoon, deployReserve, setPocketMode, edgeCol, cellAtPoint, waterOpen, FRONT_WEATHER, VECTOR_TYPES } from './front.js';
 import { bfsDistance } from './path.js';
 import { GUN_KINDS, setGunOrder } from './frontguns.js';
@@ -192,6 +193,13 @@ export function planFront(front, s) {
       if (i >= 0) { goA += Math.min(1, front.map.flowA[i]); n++; }
     }
     const armorGround = n ? goA / n : 1;
+    // Préparation, sur le point de départ : barrage au lever du jour puis appui aérien en fin de matinée, au même endroit
+    // (le choc des deux se cumule, combat.js). Sans aucun feu, un assaut piétine : on ne l'engage qu'écrasant.
+    const L = Math.hypot(to.x - h.x, to.y - h.y) || 1;
+    const at = { x: h.x + ((to.x - h.x) / L) * 3, y: h.y + ((to.y - h.y) / L) * 3 };
+    const fired = !addBarrage(front, s, at).error;
+    const flown = !addAirMission(front, s, at).error;
+    if (!fired && !flown && sec.ratio < engage * 2) continue;
     // Fer de lance : la formation la plus proche mène l'attaque vers l'objectif ; l'infanterie pousse sur le même axe.
     if (armorOK && armorGround > 0.6 && free.length && sec.ratio > engage * 1.1) {
       const a = free.reduce((b, x) => (dist(x, sec.head) < dist(b, sec.head) ? x : b));
@@ -202,10 +210,27 @@ export function planFront(front, s) {
     }
     const v = addVector(front, s, 'infantry', sec.head, to);
     if (v.error) continue;
-    // Préparation : barrage sur les cases ennemies juste devant le départ, puis réserves en tête de colonne.
-    const L = Math.hypot(to.x - h.x, to.y - h.y) || 1;
-    addBarrage(front, s, { x: h.x + ((to.x - h.x) / L) * 3, y: h.y + ((to.y - h.y) / L) * 3 });
+    // Réserves en tête de colonne.
     feed(sec.head, attackBudgetShare);
+  }
+
+  // Concentration : les groupes d'artillerie restés sans mission rejoignent l'axe d'attaque principal, à mi-portée
+  // derrière son départ, pour que demain leurs barrages tombent ensemble au même endroit.
+  if (chosen.length) {
+    const main = chosen[0], h = point(front, main.head);
+    for (const g of front.guns) {
+      if (g.side !== s || g.lost || g.dest || front.barrages[s].some((b) => b.gun === g.id)) continue;
+      const R = GUN_KINDS[g.kind].range;
+      if (Math.hypot(g.x - h.x, g.y - h.y) <= R * 0.75) continue;
+      const want = { x: h.x - dirX * R * 0.45, y: h.y };
+      let best = null, bd = Infinity;
+      for (let i = 0; i < front.map.N; i++) {
+        if (front.owner[i] !== s || front.map.flow[i] <= 0) continue;
+        const d = Math.hypot(front.centers.x[i] - want.x, front.centers.y[i] - want.y);
+        if (d < bd) { bd = d; best = point(front, i); }
+      }
+      if (best) setGunOrder(front, s, g.id, { dest: best });
+    }
   }
 
   // Front de rive sans attaque possible : l'attaquant prépare un franchissement sur son secteur le plus fort.
@@ -236,7 +261,13 @@ export function planFront(front, s) {
     const sec = threatened.find((x) => dist(a, x.head) < 45) ?? null;
     if (!sec) continue;
     const h = point(front, sec.head);
-    if (armorOK && sec.hold < 0.85 && a.tanks > a.max * 0.5) setArmorOrder(front, s, a.id, { x: h.x + dirX * 10, y: h.y });
+    if (armorOK && sec.hold < 0.85 && a.tanks > a.max * 0.5) {
+      // Contre-attaque préparée elle aussi : barrage et aviation sur les cases ennemies devant le secteur.
+      const at = { x: h.x + dirX * 3, y: h.y };
+      addBarrage(front, s, at);
+      addAirMission(front, s, at);
+      setArmorOrder(front, s, a.id, { x: h.x + dirX * 10, y: h.y });
+    }
     else setArmorOrder(front, s, a.id, { x: h.x - dirX * 6, y: h.y });
   }
 

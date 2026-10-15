@@ -23,6 +23,7 @@ import { SEASON } from './conditions.js';
 import { scenarioOf, DEFAULT_YEAR } from './frontscenario.js';
 import { FRONT_BIOMES } from './mapgen.js';
 import { describeCell } from './terrain.js';
+import { FRONT_RULES } from './combat.js';
 import { createRng } from './rng.js';
 import { sound } from './audio.js';
 
@@ -220,7 +221,7 @@ function frontRules() {
       <ol>
         <li><b>Masses.</b> Plus d'unités : chaque camp est une masse de troupes, plus sombre où elle est dense. Le trait noir est le front. Hors de vue, l'ennemi n'est qu'une estimation estompée.</li>
         <li><b>Le matin.</b> Le jeu est en pause. Donnez autant de vecteurs d'infanterie ou de repli que vous voulez : les troupes autour du départ s'y engagent et poussent vers la cible. Un vecteur draine son voisinage : là où il prend, le front se dégarnit, et deux vecteurs proches se partagent les mêmes hommes. La jauge « Troupes engagées » plafonne à ${Math.round((fui.front?.cfg.engageCap ?? 0.6) * 100)} % : au-delà, tous vos vecteurs sont réduits d'autant.</li>
-        <li><b>Outils.</b> Infanterie : large, lente, tenace. Blindés : vos formations (divisions de Panzer, corps blindés), visibles sur la carte ; touchez-en une puis son objectif. Elle rejoint le front par vos lignes (vite sur route, mal en forêt, jamais à travers une rivière sans pont), perce, dépose ses grenadiers dans les cases prises et exploite ; riposte, hérissons, villes et forêts lui coûtent des chars, elle consomme du carburant, se refait la nuit si elle est ravitaillée, et meurt encerclée. Repli ordonné : les troupes décrochent avec moins de pertes. Fixer : une bande large qui presse l'ennemi sans chercher à prendre, à pertes réduites de moitié ; toute case ennemie pressée (par une fixation ou une attaque) ne peut plus envoyer ses troupes ailleurs et appelle des renforts : fixez un secteur pour percer à côté. Ligne de défense (${c.maxLines} nouvelles par jour, 4 chantiers au plus) : un chantier de plusieurs jours, trois fois plus lent au contact de l'ennemi. Tranchées en un jour (défense de l'infanterie, à moitié pour qui les prend), barbelés en deux (l'assaut d'infanterie qui les traverse s'use), hérissons antichar en trois (les chars y perdent élan et vitesse). Barbelés et hérissons gênent quiconque les traverse, dans les deux sens. Un barrage les détruit (l'artillerie lourde vient seule à bout des hérissons) et fait sauter les ponts ; les ruines restent sur la carte. Rivières : infranchissables hors des ponts (sauf gelées) ; Pont (G) : le génie jette un pont de bateaux la nuit depuis votre rive, deux par bataille, qu'un barrage ou une frappe aérienne coule. Ruisseaux : ils ralentissent et donnent +15 % au défenseur. Barrage : une zone pilonnée au début de la journée, même dans le brouillard, par un groupe d'artillerie qui l'a à portée (une mission par groupe et par jour). Artillerie : touchez un groupe puis sa destination ; en batterie il tire à 100 %, en appui mobile à 40 %, en déplacement pas du tout. Sans mission, il frappe les assaillants à sa portée ; un groupe dont la position tombe est perdu. Réserves : chaque appui fait monter des renforts en ligne.</li>
+        <li><b>Outils.</b> Infanterie : large, lente, tenace. Blindés : vos formations (divisions de Panzer, corps blindés), visibles sur la carte ; touchez-en une puis son objectif. Elle rejoint le front par vos lignes (vite sur route, mal en forêt, jamais à travers une rivière sans pont), perce, dépose ses grenadiers dans les cases prises et exploite ; riposte, hérissons, villes et forêts lui coûtent des chars, elle consomme du carburant, se refait la nuit si elle est ravitaillée, et meurt encerclée. Repli ordonné : les troupes décrochent avec moins de pertes. Fixer : une bande large qui presse l'ennemi sans chercher à prendre, à pertes réduites de moitié ; toute case ennemie pressée (par une fixation ou une attaque) ne peut plus envoyer ses troupes ailleurs et appelle des renforts : fixez un secteur pour percer à côté. Ligne de défense (${c.maxLines} nouvelles par jour, 4 chantiers au plus) : un chantier de plusieurs jours, trois fois plus lent au contact de l'ennemi. Tranchées en un jour (défense de l'infanterie, à moitié pour qui les prend), barbelés en deux (l'assaut d'infanterie qui les traverse s'use), hérissons antichar en trois (les chars y perdent élan et vitesse). Barbelés et hérissons gênent quiconque les traverse, dans les deux sens. Un barrage les détruit (l'artillerie lourde vient seule à bout des hérissons) et fait sauter les ponts ; les ruines restent sur la carte. Rivières : infranchissables hors des ponts (sauf gelées) ; Pont (G) : le génie jette un pont de bateaux la nuit depuis votre rive, deux par bataille, qu'un barrage ou une frappe aérienne coule. Ruisseaux : ils ralentissent et donnent +15 % au défenseur. Barrage : une zone pilonnée au début de la journée, même dans le brouillard, par un groupe d'artillerie qui l'a à portée (une mission par groupe et par jour). Sans feux, un assaut piétine et se paie cher : barrages et frappes aériennes ébranlent les défenseurs (défense, riposte et tenue fondent), d'autant plus qu'ils tombent au même endroit, puis l'effet s'efface en quelques heures. Préparez le point de départ de vos attaques au barrage (lever du jour) et à l'aviation (fin de matinée). Artillerie : touchez un groupe puis sa destination ; en batterie il tire à 100 %, en appui mobile à 40 %, en déplacement pas du tout. Sans mission, il frappe les assaillants à sa portée ; un groupe dont la position tombe est perdu. Réserves : chaque appui fait monter des renforts en ligne.</li>
         <li><b>Ravitaillement et fatigue.</b> Vos têtes de ligne (pointillé brun, caisses) suivent le front de deux cases par nuit, plus vite le long des routes. À plus de cinq cases en avant, vos attaques faiblissent et vos blindés brûlent plus de carburant : une percée s'essouffle d'elle-même. Des troupes qui attaquent s'usent ; la nuit en efface la moitié : alternez les secteurs. Une part des pertes du jour rejoint chaque nuit.</li>
         <li><b>La journée.</b> Une minute environ, sans intervention : le combat compare les pressions de part et d'autre du front, selon la densité, le terrain, le retranchement et la qualité des troupes. Le bouton discret « Passer » abrège la journée.</li>
         <li><b>Défense élastique.</b> Sans ordre, les troupes colmatent d'elles-mêmes les secteurs menacés.</li>
@@ -599,11 +600,14 @@ function probeAt(p) {
   else if (omni || side === s) {
     const pocket = bigPockets(f, side).find((q) => q.cells.includes(i));
     const tired = f.fatigue?.[i] ?? 0, sup = f.supplyK?.[side][i] ?? 1;
-    text = `${side === s && !omni ? 'Vos troupes' : SIDE_NAME[side]} : ${fmtMen(men(sum))} dans la zone · ${terrain}${pocket ? ` · poche ${pocketName(f, pocket)}` : ''}${tired > 0.25 ? ` · troupes éprouvées (fatigue ${Math.round(tired * 100)} %)` : ''}${sup < 0.95 ? ` · loin des dépôts (poussée ${Math.round(sup * 100)} %)` : ''}`;
+    const shock = Math.max(0, ...shockAround(f, p, R));
+    text = `${side === s && !omni ? 'Vos troupes' : SIDE_NAME[side]} : ${fmtMen(men(sum))} dans la zone · ${terrain}${pocket ? ` · poche ${pocketName(f, pocket)}` : ''}${shock > 0.15 ? ` · ébranlées par les feux (défense −${Math.round(FRONT_RULES.SHOCK_EFFECT * shock * 100)} %)` : ''}${tired > 0.25 ? ` · troupes éprouvées (fatigue ${Math.round(tired * 100)} %)` : ''}${sup < 0.95 ? ` · loin des dépôts (poussée ${Math.round(sup * 100)} %)` : ''}`;
   } else {
     const n = men(sum);
     const age = visible ? '' : seen < Infinity ? ` (vu il y a ${hoursAgo(seen)})` : '';
-    text = `Ennemi estimé : ${n < 50 ? 'quelques éléments' : menRange(n)}${age} · ${terrain}`;
+    // Choc des feux de préparation, visible tant que la zone est sous les yeux.
+    const shock = visible ? Math.max(0, ...shockAround(f, p, R)) : 0;
+    text = `Ennemi estimé : ${n < 50 ? 'quelques éléments' : menRange(n)}${age}${shock > 0.15 ? ` · défenseurs ébranlés (défense −${Math.round(FRONT_RULES.SHOCK_EFFECT * shock * 100)} %)` : ''} · ${terrain}`;
   }
   setHint(text);
   drawFront();
@@ -901,6 +905,13 @@ function refreshFront() {
   renderFrontLog();
   fui.hooks.syncAmbient?.();
   drawFront();
+}
+
+// Choc (front.shock) des cases dans un rayon R autour du point p.
+function shockAround(f, p, R) {
+  const out = [];
+  for (let j = 0; j < f.map.N; j++) if (f.shock?.[j] > 0 && Math.hypot(f.centers.x[j] - p.x, f.centers.y[j] - p.y) <= R) out.push(f.shock[j]);
+  return out;
 }
 
 function used(tool) {

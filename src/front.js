@@ -55,6 +55,8 @@ export const FRONT_SETUP = {
   recover: 0.2, // part des pertes du jour qui rejoint la nuit (réserves)
   entrenchDef: 0.4, // bonus de défense d'une case pleinement retranchée (+40 %)
   sorties: [2, 2], // sorties aériennes par jour (frontair.js ; selon l'année)
+  attackGuns: ['heavy', 'div'], // artillerie de rupture : groupes en plus pour l'attaquant
+  attackSorties: 1, // sorties aériennes en plus par jour pour l'attaquant
   aaBatteries: [2, 2], // batteries de DCA pour la bataille
   pontoons: [2, 2], // ponts de bateaux du génie pour la bataille (un par jour au plus, lancé de nuit)
   pontoonHp: 0.35, // solidité d'un pont de bateaux (1 : pont en dur) : un barrage ou une frappe aérienne le coule
@@ -126,6 +128,7 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
     weather: 'clear',
     entrench: new Float32Array(N), // 0 à 1 : retranchement de chaque case (défense × 1 + entrenchDef × e)
     ruin: new Float32Array(N), // 0 à 1 : destruction des cases de ville (terrain.js, RUINS)
+    shock: new Float32Array(N), // 0 à 1 : choc des troupes de la case (barrages, aviation ; combat.js)
     orders: [[], []],
     lastOrders: [[], []],
     lines: [[], []], // lignes de défense du jour
@@ -168,6 +171,11 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
     for (let i = 0; i < N; i++) if (owner[i] === s) total += need[i] * map.flow[i] ** 0.5;
     for (let i = 0; i < N; i++) if (owner[i] === s) dens[i] = (cfg.troops[s] * need[i] * map.flow[i] ** 0.5) / total;
   }
+  // Moyens de rupture de l'attaquant : groupes d'artillerie et sorties aériennes en plus (la défense, renforcée, ne cède
+  // qu'à des feux concentrés ; combat.js, choc).
+  const attSide = sideIndex(attacker);
+  cfg.guns = cfg.guns.map((l, s) => (s === attSide ? [...l, ...cfg.attackGuns] : l));
+  cfg.sorties = cfg.sorties.map((n, s) => (s === attSide ? n + cfg.attackSorties : n));
   front.guns = createGuns(front, cfg.guns);
   front.aa = createAA(front, cfg.aaBatteries);
   // Rôles : l'attaquant reçoit plus de réserves ; le défenseur est retranché sur quelques cases derrière le front.
@@ -877,6 +885,8 @@ function applyWorks(front, events) {
         const l = front.dens[i] * K.rate * k;
         front.dens[i] -= l;
         front.stats.losses[1 - s] += l;
+        // Choc : les survivants, terrés et désorientés, défendront moins bien l'assaut qui suit (combat.js).
+        front.shock[i] = Math.min(1, front.shock[i] + GUN_RULES.shock * k * Math.sqrt(K.rate / 0.04));
         // Sous les obus, une part des troupes décroche vers les cases amies plus éloignées du centre du barrage :
         // la zone se vide (moins de pertes, mais des cases faciles à prendre pour qui attaque derrière).
         const d0 = Math.hypot(front.centers.x[i] - b.x, front.centers.y[i] - b.y), back = [];

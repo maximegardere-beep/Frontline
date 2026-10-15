@@ -46,30 +46,49 @@ test('front calme : usure faible et symétrique, aucune case ne change de main',
   }
 });
 
-test('percée blindée : passe un point faible, bute sur un secteur renforcé, ralentit sur des fortifications', () => {
-  const day = (seed, setup) => {
-    const f = createFront({ seed });
+test('percée : sans feux elle piétine ; barrage et aviation sur le même point ébranlent la défense et l\'ouvrent', async () => {
+  const { addBarrage } = await import('../src/front.js');
+  const { addAirMission } = await import('../src/frontair.js');
+  // Deux journées de percée blindée au même endroit, avec ou sans préparation (barrage puis appui aérien sur le départ).
+  const run = (setup, prep) => {
+    const f = createFront({ seed: 'bench1' });
+    f.weather = 'clear'; applyWeather(f); f.rng.chance = () => true;
     const row = Math.floor(f.map.H / 2), W = f.map.W;
     setup(f, row, W);
-    const from = frontCell(f, row);
-    addVector(f, 0, 'armor', from, { x: f.centers.x[from] + 40, y: f.centers.y[from] });
-    beginDay(f);
-    let firstTicks = 0;
-    while (f.phase === 'resolve') { stepTick(f); if (!firstTicks && f.stats.captured[0] >= 5) firstTicks = f.tick; }
-    return { captured: f.stats.captured[0], firstTicks: firstTicks || Infinity };
+    let first = 0, shock = 0;
+    for (let d = 0; d < 2; d++) {
+      f.reserve = [0, 0];
+      const from = frontCell(f, row);
+      addVector(f, 0, 'armor', from, { x: f.centers.x[from] + 40, y: f.centers.y[from] });
+      const at = { x: f.centers.x[from] + 2.5, y: f.centers.y[from] };
+      if (prep) { assert.ok(!addBarrage(f, 0, at).error); assert.ok(!addAirMission(f, 0, at).error); }
+      beginDay(f);
+      while (f.phase === 'resolve') { stepTick(f); shock = Math.max(shock, ...f.shock); if (!first && f.stats.captured[0] >= 3) first = f.clock; }
+    }
+    return { captured: f.stats.captured[0], first: first || Infinity, lost: f.stats.losses[0], killed: f.stats.losses[1], shock };
   };
   const band = (f, row, W, e) => { for (let i = 0; i < f.map.N; i++) if (Math.abs(Math.floor(i / W) - row) <= 6 && f.owner[i] === 1) f.entrench[i] = e; };
-  const weak = day('bench1', (f, row, W) => band(f, row, W, 0));
-  const fort = day('bench1', (f, row, W) => band(f, row, W, 1));
-  const massed = day('bench1', (f, row, W) => {
+  const massed = (f, row, W) => {
     band(f, row, W, 1);
-    // Toutes les réserves soviétiques en face du point d'attaque.
     const from = frontCell(f, row);
     for (let dc = 1; dc < 8; dc++) if (f.owner[from + dc] === 1) { f.dens[from + dc] += f.reserve[1]; f.reserve[1] = 0; break; }
-  });
-  assert.ok(weak.captured >= 6, `point faible : ${weak.captured} cases prises`);
-  assert.ok(fort.firstTicks > weak.firstTicks, `fortifié plus lent (${fort.firstTicks} contre ${weak.firstTicks} ticks)`);
-  assert.ok(massed.captured < weak.captured / 2, `secteur renforcé : ${massed.captured} cases`);
+  };
+  const fortBare = run((f, row, W) => band(f, row, W, 1), false);
+  const fortFired = run((f, row, W) => band(f, row, W, 1), true);
+  const weakBare = run((f, row, W) => band(f, row, W, 0), false);
+  const massBare = run(massed, false), massFired = run(massed, true);
+  // Sans feux : un secteur fortifié ne cède que quelques cases, et l'assaut coûte bien plus à l'attaquant.
+  assert.equal(fortBare.shock, 0);
+  assert.ok(fortBare.captured <= 8, `fortifié sans feux : ${fortBare.captured} cases`);
+  assert.ok(fortBare.lost > fortBare.killed * 1.3, `assaut sans feux coûteux (${fortBare.lost.toFixed(0)} contre ${fortBare.killed.toFixed(0)})`);
+  // Préparé : le choc ouvre la ligne vite et loin.
+  assert.ok(fortFired.shock > 0.5, `choc des feux (${fortFired.shock.toFixed(2)})`);
+  assert.ok(fortFired.captured >= fortBare.captured * 3, `préparé : ${fortFired.captured} cases contre ${fortBare.captured}`);
+  assert.ok(fortFired.first < fortBare.first, `préparé : brèche plus tôt (${fortFired.first} contre ${fortBare.first} ticks)`);
+  // Point faible : il cède même sans feux ; un secteur renforcé tient sans feux, et saigne sous les feux.
+  assert.ok(weakBare.captured > fortBare.captured * 2, `point faible : ${weakBare.captured} cases`);
+  assert.equal(massBare.captured, 0, 'secteur renforcé, sans feux : rien');
+  assert.ok(massFired.killed > massBare.killed * 3, 'secteur renforcé sous les feux : lourdes pertes');
 });
 
 test('poche : détectée par flood-fill, coupée du ravitaillement, elle fond chaque tick', () => {
@@ -190,7 +209,9 @@ test('artillerie : groupes à portée, posture contre puissance, camouflage, per
   const { setGunOrder, gunPower, visibleGuns, GUN_KINDS } = await import('../src/frontguns.js');
   const f = createFront({ seed: 'ord' });
   const mine = f.guns.filter((g) => g.side === 0);
-  assert.equal(mine.length, FRONT_SETUP.guns[0].length, 'groupes de départ');
+  assert.equal(mine.length, FRONT_SETUP.guns[0].length + FRONT_SETUP.attackGuns.length, 'groupes de départ, plus l\'artillerie de rupture de l\'attaquant');
+  assert.equal(f.guns.filter((x) => x.side === 1).length, FRONT_SETUP.guns[1].length, 'le défenseur n\'en a pas');
+  assert.equal(f.cfg.sorties[0], FRONT_SETUP.sorties[0] + FRONT_SETUP.attackSorties, 'une sortie aérienne de plus pour l\'attaquant');
   // Camouflés : au départ, l'ennemi ne voit aucun groupe.
   assert.equal(visibleGuns(f, 1).filter((v) => v.g.side === 0).length, 0, 'groupes cachés au départ');
   // Barrage : par un groupe à portée, une mission par groupe.
@@ -234,10 +255,10 @@ test('ouvrages : barbelés et antichar freinent l\'assaut, un barrage les détru
       addVector(f, 0, 'infantry', from, { x: f.centers.x[from] + 20, y: f.centers.y[from] });
       runDay(f);
     }
-    return f.stats.captured[0];
+    return { captured: f.stats.captured[0], lost: f.stats.losses[0] };
   };
   const open = take(0), wired = take(1);
-  assert.ok(wired < open, `barbelés : ${wired} cases prises contre ${open}`);
+  assert.ok(wired.captured <= open.captured && wired.lost > open.lost, `barbelés : ${wired.captured} cases prises contre ${open.captured}, pertes ${wired.lost.toFixed(0)} contre ${open.lost.toFixed(0)}`);
   // Barrage sur des barbelés pleins : ils tombent, la ruine reste.
   const f = createFront({ seed: 'wire', attacker: 'DE' });
   const i = sideFront(f, 1, 32);

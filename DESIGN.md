@@ -623,3 +623,30 @@ densités. Le moteur garde des points d'accroche pour cela.
 - Mesure (70 batailles IA contre IA, avant le renforcement des défenses) : attaquant 31 % (40 % avant), fleuve 3/10
   (6/10), encerclements 4,8 par bataille (3,3). Sur 10 batailles à rivière : 9 ponts de bateaux lancés, 2 coulés,
   3 ponts sautés.
+
+### Défense renforcée, choc des feux de préparation
+
+- But : ralentir les percées ; pour percer, il faut faire coïncider barrages et frappes aériennes sur le point
+  d'attaque, qui désorientent et affaiblissent les défenseurs.
+- Choc (`front.shock`, 0 à 1, par case) : un tick de barrage ajoute 0,15 × puissance × √(cadence / 0,04) aux
+  troupes ennemies de la zone ; un tick de frappe aérienne 0,35 × puissance. Il s'efface de 7 % par tick (×0,93) et
+  retombe à zéro quand la case change de mains. Un barrage seul (ticks 0 à 4) monte vers 0,6 ; l'aviation (ticks 6
+  à 8) sur la même zone le porte au plein. Effet (`combat.js`) : défense, riposte et seuil de brèche
+  × (1 − 0,85 × choc) ; plafond de remplissage de la brèche ÷ (1 − 0,85 × choc)² ; pertes d'assaut du défenseur
+  ÷ (1 − 0,85 × choc).
+- Défense de base : riposte 1,2 (0,8) ; ténacité, le défenseur ne subit que 70 % des pertes d'assaut ; plafond de
+  remplissage de la jauge de brèche, 0,06 par tick × (1 + 4 / densité) : une position dense résiste des heures quel
+  que soit le rapport de forces, une case mince cède plus vite (exploitation).
+- L'attaquant reçoit une artillerie de rupture (`attackGuns`, un groupe lourd et un divisionnaire de plus) et une
+  sortie aérienne de plus par jour (`attackSorties`).
+- IA : barrage puis appui aérien sur le même point (3 unités devant le départ de chaque attaque, et de chaque
+  contre-attaque blindée) ; sans aucun feu disponible, pas d'assaut à moins d'un rapport de forces écrasant ; les
+  groupes d'artillerie restés sans mission rejoignent l'axe principal pour que leurs barrages coïncident le
+  lendemain.
+- Interface : toucher la carte indique les défenseurs ébranlés et la baisse de leur défense ; l'aide l'explique.
+- Banc (`front-bench.mjs`, préparation, 6 cartes × 2 jours, cases par jour) : blindés 3 sans feux, 4,5 avec
+  artillerie, 6 avec artillerie et aviation ; infanterie 0 / 2,5 / 3. Sans feux, l'attaquant perd 1,5 (blindés) à
+  2,4 fois (infanterie) ce que perd le défenseur. Secteur fortifié sur deux jours : 4 cases sans feux, 26 préparé.
+- Équilibre IA contre IA (70 batailles, deux graines) : attaquant 19 % et 30 % (31 % après les rivières, 40 % avant).
+  Les percées sont plus lentes, l'offensive gagne moins souvent ; le levier de réglage le plus direct est
+  `DEF_TOUGH` (ténacité) puis `BREACH_CAP`.
