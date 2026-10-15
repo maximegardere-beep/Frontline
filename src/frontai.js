@@ -4,7 +4,9 @@
 // Chaque matin :
 // 1. elle lit le front par secteurs : ses forces voisines contre l'estimation de celles d'en face, terrain compris ;
 // 2. défense élastique : là où elle est en infériorité, ligne de défense derrière le front, réserves, barrage sur
-//    les concentrations qui la menacent ; un saillant intenable loin des villes est raccourci par un repli ;
+//    les concentrations qui la menacent ; un saillant intenable loin des villes est raccourci par un repli ; un
+//    saillant en passe d'être encerclé (pré-encerclement : goulot que l'ennemi refermerait en rongeant quelques cases)
+//    décroche vers son goulot, tenu par une ligne et des réserves ;
 // 3. attaque : sur les secteurs où elle est la plus forte, blindés (infanterie sous la pluie) vers la ville ennemie
 //    la plus proche ; deux percées vers la même ville font une tenaille ; préparation au barrage et par l'aviation sur
 //    le même point de départ (leur choc se cumule), réserves en tête ; sans aucun feu disponible, pas d'assaut.
@@ -13,7 +15,7 @@
 
 import { planAir, addAirMission } from './frontair.js';
 import { addVector, addLine, addBarrage, addPontoon, deployReserve, setPocketMode, edgeCol, cellAtPoint, waterOpen, FRONT_WEATHER, VECTOR_TYPES } from './front.js';
-import { bfsDistance } from './path.js';
+import { bfsDistance, floodFill, components } from './path.js';
 import { GUN_KINDS, setGunOrder } from './frontguns.js';
 import { setArmorOrder } from './frontarmor.js';
 
@@ -26,6 +28,12 @@ export const AI_TUNING = {
   defEngage: 1.6, // idem pour le défenseur (contre-attaques)
   attVectors: 3, // secteurs attaqués par jour au plus
   defVectors: 2,
+  erode: 5, // pré-encerclement : profondeur (en cases) que l'ennemi au contact pourrait ronger en un jour ou deux
+  armorReach: 8, // … et jusqu'à cette distance (unités de grille) autour d'une formation blindée ennemie repérée
+  pocketMin: 60, // troupes (densité) d'un saillant menacé pour qu'il vaille un repli (600 hommes)
+  acute: 0.5, // … et seulement si l'ennemi qui le borde pèse au moins acute × ses troupes
+  attAcute: 1.5, // l'attaquant, lui, ne lâche une tête de percée que devant une menace bien plus lourde
+  retreatOdds: 0.85, // tendance au repli d'un saillant menacé (0,4 s'il couvre une ville que l'on défend)
 };
 const REACH = 3; // rayon (en cases) pris en compte de part et d'autre du front
 
@@ -106,6 +114,8 @@ export function planFront(front, s) {
   if (!sectors.length) return;
   const dirX = s === 0 ? 1 : -1;
   // ratio : rapport de forces pour attaquer (l'eau devant soi le dégrade) ; hold : pour tenir (l'eau protège).
+  // Poches en devenir, lues avant tout déploiement de la journée (frontai : preEncirclement).
+  const zones = preEncirclement(front, s);
   for (const sec of sectors) { sec.ratio = sec.own / (sec.foe * sec.foeDef * sec.water); sec.hold = (sec.own * sec.water) / (sec.foe * sec.foeDef); }
   planGuns(front, s);
 
@@ -142,6 +152,24 @@ export function planFront(front, s) {
   worst.forEach((sec, k) => deploy(sec.head, (defendBudget * deficit[k]) / totalDef));
   const feed = (i, n) => deploy(i, budget / Math.max(1, n));
 
+  // Pré-encerclement : un saillant dont le goulot se refermerait si l'ennemi au contact rongeait quelques cases
+  // décroche vers le goulot, qu'une ligne de défense et des réserves tiennent ouvert.
+  const doomed = new Set();
+  for (const z of zones) {
+    // Le défenseur tient plus volontiers une ville ; l'attaquant hésite à lâcher le terrain conquis.
+    const holdTown = !attacking && z.towns > 0;
+    if (attacking && z.foe < z.troops * AI_TUNING.attAcute) continue; // une tête de percée est un saillant par nature
+    if (!rng.chance(holdTown ? 0.4 : AI_TUNING.retreatOdds * (attacking ? 0.7 : 1))) continue;
+    for (const i of z.cells) doomed.add(i);
+    // Décrochage : de la pointe vers la sortie, et du centre si le saillant est grand.
+    for (const from of z.size > 40 ? [z.tip, z.mid] : [z.tip]) addVector(front, s, 'retreat', from, z.exit);
+    const ux = z.exit.x - point(front, z.tip).x, uy = z.exit.y - point(front, z.tip).y, L = Math.hypot(ux, uy) || 1;
+    if (lines < cfg.maxLines && !addLine(front, s, { x: z.exit.x - (uy / L) * 6, y: z.exit.y + (ux / L) * 6 }, { x: z.exit.x + (uy / L) * 6, y: z.exit.y - (ux / L) * 6 }, 2).error) lines++;
+    const neck = cellAtPoint(front, z.exit);
+    if (neck >= 0 && front.owner[neck] === s) deploy(neck, budget * 0.3);
+    aiNote(front, s, z);
+  }
+
   // Repli : un saillant très menacé, loin de toute ville amie, est raccourci.
   for (const sec of threatened.slice(0, 1)) {
     if (sec.hold > 0.35) break;
@@ -156,6 +184,7 @@ export function planFront(front, s) {
   const candidates = [...sectors].filter((x) => x.ratio > engage).sort((a, b) => b.ratio - a.ratio + (rng.next() - 0.5) * 0.3);
   const chosen = [];
   for (const sec of candidates) {
+    if (doomed.has(sec.head)) continue; // on n'attaque pas depuis un saillant qu'on évacue
     if (chosen.some((c) => Math.abs(c.r0 - sec.r0) < 8)) continue;
     chosen.push(sec);
     if (chosen.length >= (attacking ? AI_TUNING.attVectors : AI_TUNING.defVectors)) break;
@@ -291,6 +320,94 @@ export function planFront(front, s) {
 
   // 5. Aviation.
   planAir(front, s);
+}
+
+// Pré-encerclement : on ronge virtuellement son territoire de AI_TUNING.erode cases depuis l'ennemi au contact (vu ou
+// estimé présent) puis on refait le calcul du ravitaillement. Les cases encore ravitaillées aujourd'hui qui ne
+// rejoindraient plus le bord de carte, et sont loin de ce qui resterait relié, forment des poches en devenir. Pour chacune : ses cases, ses troupes, sa pointe
+// (la case la plus loin de la sortie), son centre, et la sortie (la case restée reliée la plus proche du centre).
+export function preEncirclement(front, s) {
+  const { map, owner, dens, centers } = front;
+  const { N, nb, W, H } = map;
+  const mem = front.memory[s];
+  // Profondeur rongée depuis chaque case de contact selon le rapport des forces : là où l'ennemi (estimé) est nettement
+  // plus fort, E cases ; à forces égales, 2 ; là où il est faible, rien.
+  const E = AI_TUNING.erode;
+  const near = new Uint8Array(N).fill(E + 1);
+  const levels = Array.from({ length: E + 1 }, () => []);
+  for (let i = 0; i < N; i++) {
+    if (owner[i] !== s) continue;
+    let foe = 0, n = 0;
+    for (let d = 0; d < 6; d++) { const j = nb[i * 6 + d]; if (j >= 0 && mem.owner[j] === 1 - s) { foe += mem.est[j]; n++; } }
+    if (!n || foe / n <= 2) continue;
+    foe /= n;
+    const r = foe / (dens[i] + 1);
+    const start = r > 1.5 ? 0 : r > 0.8 ? E - 2 : E;
+    if (start < E && start < near[i]) { near[i] = start; levels[start].push(i); }
+  }
+  // Blindés ennemis repérés : en un jour, ils coupent bien plus loin ; tout ce qui est à leur portée est rongé.
+  for (const a of front.armor ?? []) {
+    const seen = a.side === 1 - s && !a.lost ? a.seen?.[s] : null;
+    if (!seen || front.clock - seen.clock > front.cfg.ticks) continue;
+    for (let i = 0; i < N; i++) {
+      if (owner[i] !== s || near[i] === 0) continue;
+      if (Math.hypot(centers.x[i] - seen.x, centers.y[i] - seen.y) <= AI_TUNING.armorReach) { near[i] = 0; levels[0].push(i); }
+    }
+  }
+  if (!levels.some((l) => l.length)) return [];
+  for (let d = 0; d < E; d++) {
+    for (const i of levels[d]) {
+      if (near[i] !== d) continue;
+      for (let k = 0; k < 6; k++) { const j = nb[i * 6 + k]; if (j >= 0 && owner[j] === s && near[j] > d + 1) { near[j] = d + 1; levels[d + 1]?.push(j); } }
+    }
+  }
+  const edge = edgeCol(front, s), edges = [];
+  for (let r = 0; r < H; r++) edges.push(r * W + edge);
+  const reach = floodFill(nb, N, edges, (i) => owner[i] === s && near[i] >= E);
+  // Le long d'un front ordinaire, la bande rongée reste collée à la partie reliée ; un saillant, lui, s'en éloigne :
+  // ses cases à plus de E + 1 cases de la partie reliée (par ses propres lignes) seraient coupées, même s'il est mince.
+  const seedsR = [];
+  for (let i = 0; i < N; i++) if (reach[i]) seedsR.push(i);
+  const far = bfsDistance(nb, N, seedsR, (i) => owner[i] === s, 120);
+  const { list } = components(nb, N, (i) => owner[i] === s && front.supplied[s][i] && !reach[i] && far[i] > E + 1);
+  const out = [];
+  for (const cells of list) {
+    let troops = 0, cx = 0, cy = 0;
+    for (const i of cells) { troops += dens[i]; cx += centers.x[i]; cy += centers.y[i]; }
+    if (troops < AI_TUNING.pocketMin || cells.length < 6) continue;
+    cx /= cells.length; cy /= cells.length;
+    // Sortie : la case encore reliée (dans le territoire rongé) la plus proche du centre.
+    let exit = -1, bd = Infinity;
+    for (let i = 0; i < N; i++) {
+      if (!reach[i]) continue;
+      const d = Math.hypot(centers.x[i] - cx, centers.y[i] - cy);
+      if (d < bd) { bd = d; exit = i; }
+    }
+    if (exit < 0) continue;
+    const ex = { x: centers.x[exit], y: centers.y[exit] };
+    let tip = cells[0], td = -1, mid = cells[0], md = Infinity;
+    for (const i of cells) {
+      const d = Math.hypot(centers.x[i] - ex.x, centers.y[i] - ex.y);
+      if (d > td) { td = d; tip = i; }
+      const c = Math.hypot(centers.x[i] - cx, centers.y[i] - cy);
+      if (c < md) { md = c; mid = i; }
+    }
+    // Menace aiguë seulement : l'ennemi (estimé) qui borde le saillant pèse au moins autant que ce qu'il contient.
+    const ring = new Set();
+    for (const i of cells) for (let d = 0; d < 6; d++) { const j = nb[i * 6 + d]; if (j >= 0 && mem.owner[j] === 1 - s) ring.add(j); }
+    let foe = 0;
+    for (const j of ring) foe += mem.est[j];
+    if (foe < troops * AI_TUNING.acute) continue;
+    const towns = front.map.towns.filter((t) => cells.includes(t.i)).length;
+    out.push({ cells, troops, foe, size: cells.length, tip, mid, exit: ex, towns });
+  }
+  return out.sort((a, b) => b.troops - a.troops).slice(0, 1);
+}
+
+// Trace des replis décidés (outils de simulation, débogage).
+function aiNote(front, s, z) {
+  front.aiNotes ??= [];
+  front.aiNotes.push({ day: front.day, side: s, troops: Math.round(z.troops), cells: z.size });
 }
 
 // Première case d'eau infranchissable sur l'axe [h, to], si la terre juste avant elle est à nous (on est sur la rive).

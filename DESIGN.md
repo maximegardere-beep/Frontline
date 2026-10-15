@@ -650,3 +650,20 @@ densités. Le moteur garde des points d'accroche pour cela.
 - Équilibre IA contre IA (70 batailles, deux graines) : attaquant 19 % et 30 % (31 % après les rivières, 40 % avant).
   Les percées sont plus lentes, l'offensive gagne moins souvent ; le levier de réglage le plus direct est
   `DEF_TOUGH` (ténacité) puis `BREACH_CAP`.
+
+### IA : repli sur pré-encerclement
+
+- Détection (`frontai.js`, preEncirclement), chaque matin, avant tout déploiement : on ronge virtuellement son
+  territoire depuis l'ennemi au contact, d'autant plus profond qu'il y est fort (rapport de la densité ennemie
+  moyenne à la sienne : > 1,5 → 5 cases, > 0,8 → 3, sinon rien), et sur 8 unités autour d'une formation blindée
+  ennemie repérée. Puis on refait le ravitaillement depuis son bord de carte. Les cases ravitaillées aujourd'hui qui
+  ne seraient plus reliées et sont à plus de 6 cases de ce qui le resterait forment une poche en devenir (un
+  saillant mince, entièrement rongé, est donc repéré par sa profondeur). Retenue si elle contient au moins 600 hommes
+  et que l'ennemi qui la borde pèse au moins la moitié de ses troupes ; la plus grosse seulement.
+- Réaction (tendance, tirage : 85 %, 40 % si le défenseur y tient une ville) : repli de la pointe vers la sortie (et
+  du centre si le saillant dépasse 40 cases), ligne de défense en travers du goulot, 30 % des réserves au goulot ; on
+  n'attaque pas depuis le saillant évacué. L'attaquant ne lâche une tête de percée que si l'ennemi qui la borde pèse
+  1,5 fois ses troupes (sinon il évacuait ses propres percées : 11 % de victoires).
+- Mesures : tenaille du banc, 16 cartes, camp soviétique joué par l'IA : 4 000 hommes encerclés au total contre
+  13 700 sans repli. Batailles IA contre IA (21) : 29 % d'hommes encerclés en moins. Équilibre (70 batailles, deux
+  graines) : attaquant 27 % et 31 %.

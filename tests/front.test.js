@@ -4,6 +4,7 @@ import { createFront, runDay, beginDay, stepTick, addVector, troops, FRONT_SETUP
 import { generateFrontMap } from '../src/mapgen.js';
 import { MOUNTAIN, computeTerrain } from '../src/terrain.js';
 const computeTerrainFor = (f) => computeTerrain(f.map, false);
+const cellAtPointOf = (f, p) => { let best = -1, bd = Infinity; for (let i = 0; i < f.map.N; i++) { const d = Math.hypot(f.centers.x[i] - p.x, f.centers.y[i] - p.y); if (d < bd) { bd = d; best = i; } } return best; };
 const applyWeatherOf = (f) => computeTerrain(f.map, false, f.ruin);
 
 // Case allemande au contact la plus proche de la ligne row.
@@ -515,6 +516,40 @@ test('rivières : tracé libre, ponts seuls passages, gel, pont de bateaux ; rui
     assert.ok(Math.abs(m.flow[st] - m.flow[plain] * STREAM.flow) < 1e-6, 'ruisseau : progression ralentie');
     assert.ok(Math.abs(m.def[st] - m.def[plain] * STREAM.def) < 1e-6, 'ruisseau : défense accrue');
   }
+});
+
+test('IA : un saillant en passe d\'être encerclé décroche vers son goulot (pré-encerclement)', async () => {
+  const { planFront, preEncirclement, AI_TUNING } = await import('../src/frontai.js');
+  const { findPockets } = await import('../src/path.js');
+  // Saillant allemand (défenseur) étroit, enfoncé de 18 colonnes, flanqué de troupes soviétiques denses.
+  const make = (salient) => {
+    const f = createFront({ seed: 'saillant', playerSide: null, attacker: 'SU' });
+    const { W, H, N } = f.map;
+    const mid = Math.floor(H / 2);
+    let c0 = 0;
+    for (let c = 0; c < W; c++) if (f.owner[mid * W + c] === 0) c0 = c;
+    if (salient) {
+      for (let r = mid - 3; r <= mid + 3; r++) for (let c = c0; c < c0 + 18; c++) { const i = r * W + c; if (f.owner[i] === 1) { f.owner[i] = 0; f.dens[i] = 12; } }
+      for (let r = mid - 8; r <= mid + 8; r++) for (let c = c0; c < c0 + 20; c++) { const i = r * W + c; if (f.owner[i] === 1) f.dens[i] = 25; }
+    }
+    f.memory[0].owner.set(f.owner);
+    for (let i = 0; i < N; i++) f.memory[0].est[i] = f.owner[i] === 1 ? f.dens[i] : 0;
+    f.supplied[0] = findPockets(f.map, f.owner, 0, 0).supplied;
+    return f;
+  };
+  assert.equal(preEncirclement(make(false), 0).length, 0, 'front ordinaire : rien à craindre');
+  const f = make(true);
+  const [z] = preEncirclement(f, 0);
+  assert.ok(z && z.troops > 100 && z.foe >= z.troops * AI_TUNING.acute, 'saillant menacé repéré');
+  assert.equal(f.owner[cellAtPointOf(f, z.exit)], 0, 'la sortie est dans nos lignes');
+  const odds = AI_TUNING.retreatOdds;
+  AI_TUNING.retreatOdds = 1;
+  try { planFront(f, 0); } finally { AI_TUNING.retreatOdds = odds; }
+  const retreats = f.orders[0].filter((v) => v.type === 'retreat' && z.cells.includes(v.fromI));
+  assert.ok(retreats.length >= 1, 'décrochage depuis le saillant');
+  assert.ok(retreats.every((v) => Math.hypot(v.to.x - z.exit.x, v.to.y - z.exit.y) < Math.hypot(v.from.x - z.exit.x, v.from.y - z.exit.y)), 'vers le goulot');
+  assert.ok(f.lines[0].length >= 1, 'ligne de défense au goulot');
+  assert.ok(!f.orders[0].some((v) => v.type === 'infantry' && z.cells.includes(v.fromI)), 'pas d\'attaque depuis le saillant évacué');
 });
 
 test('formations blindées : en réserve sans ordre, elles percent vers leur objectif, perdent des chars, se ravitaillent', async () => {
