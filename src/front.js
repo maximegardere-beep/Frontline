@@ -56,6 +56,8 @@ export const FRONT_SETUP = {
   entrenchDef: 0.4, // bonus de défense d'une case pleinement retranchée (+40 %)
   sorties: [2, 2], // sorties aériennes par jour (frontair.js ; selon l'année)
   aaBatteries: [2, 2], // batteries de DCA pour la bataille
+  pontoons: [2, 2], // ponts de bateaux du génie pour la bataille (un par jour au plus, lancé de nuit)
+  pontoonHp: 0.35, // solidité d'un pont de bateaux (1 : pont en dur) : un barrage ou une frappe aérienne le coule
   goalShare: 0.75, // part des villes du défenseur que l'attaquant doit tenir au dernier jour (arrondie au-dessus)
 };
 
@@ -153,6 +155,12 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
     planAI: null,
     pocketAI: null,
   };
+  front.pontoons = cfg.pontoons.slice();
+  front.pontoonOrders = [[], []];
+  map.pontoon = new Uint8Array(N);
+  map.pontoonDir = new Int8Array(N).fill(-1);
+  syncWater(front);
+  snapStartLine(front);
   // Répartition initiale : au prorata du besoin de chaque case (forte au contact, faible à l'arrière).
   for (const s of [0, 1]) {
     const { need } = frontNeed(front, s);
@@ -236,6 +244,126 @@ export function windLabel(w) {
 // Le gel rend les marais et les rivières praticables : terrain recalculé.
 export function applyWeather(front) {
   computeTerrain(front.map, !!FRONT_WEATHER[front.weather].frozen, front.ruin);
+  syncWater(front);
+}
+
+// ---------- Eau ----------
+
+// Une case de rivière sans pont ni glace n'appartient à personne : le front s'arrête sur les rives. Quand elle se
+// ferme (pont détruit, dégel), ses occupants refluent sur leurs cases voisines, perdus s'ils n'en ont aucune. Quand
+// elle s'ouvre (pont jeté, gel), elle revient vide au camp qui tient le plus de cases autour.
+export const waterOpen = (front, i) => !front.map.river?.[i] || front.map.bridge[i] === 1 || !!FRONT_WEATHER[front.weather]?.frozen;
+
+export function syncWater(front) {
+  const { map, owner, dens } = front;
+  if (!map.river) return;
+  const { N, nb } = map;
+  for (let i = 0; i < N; i++) {
+    if (!map.river[i] || owner[i] < 0 || waterOpen(front, i)) continue;
+    const s = owner[i];
+    const back = [];
+    for (let d = 0; d < 6; d++) { const j = nb[i * 6 + d]; if (j >= 0 && owner[j] === s && waterOpen(front, j)) back.push(j); }
+    if (back.length) for (const j of back) dens[j] += dens[i] / back.length;
+    else if (dens[i] > 0 && front.stats) front.stats.losses[s] += dens[i];
+    owner[i] = -1;
+    dens[i] = 0;
+    if (front.breach) front.breach[i] = 0;
+  }
+  // Ouverture, de proche en proche (un fleuve fait deux cases de large).
+  for (let pass = 0; pass < 3; pass++) {
+    let changed = false;
+    for (let i = 0; i < N; i++) {
+      if (!map.river[i] || owner[i] >= 0 || map.kind[i] === MOUNTAIN || !waterOpen(front, i)) continue;
+      const n = [0, 0];
+      for (let d = 0; d < 6; d++) { const j = nb[i * 6 + d]; if (j >= 0 && owner[j] >= 0) n[owner[j]]++; }
+      if (!n[0] && !n[1]) continue;
+      owner[i] = n[0] >= n[1] ? 0 : 1;
+      dens[i] = 0;
+      changed = true;
+    }
+    if (!changed) break;
+  }
+}
+
+// Ligne de départ : une case coupée de son bord de carte par l'eau (sans pont) passe au camp d'en face ; le front
+// épouse alors la rivière au lieu de laisser des poches dès le premier jour.
+function snapStartLine(front) {
+  const { map, owner } = front;
+  for (let k = 0; k < 2; k++) {
+    for (const s of [0, 1]) {
+      const { supplied } = findPockets(map, owner, s, edgeCol(front, s));
+      for (let i = 0; i < map.N; i++) if (owner[i] === s && !supplied[i]) owner[i] = 1 - s;
+    }
+  }
+  // Enclaves que ni l'un ni l'autre bord n'atteint (entre montagnes et eau) : terrain neutre, hors jeu.
+  for (const s of [0, 1]) {
+    const { pockets } = findPockets(map, owner, s, edgeCol(front, s));
+    for (const cells of pockets) for (const i of cells) owner[i] = -1;
+  }
+}
+
+// Pont de bateaux : le matin, le génie reçoit une case de rivière au bord de vos lignes ; il jette le pont pendant la
+// nuit, de votre rive jusqu'à l'autre (trois cases d'eau au plus). Fragile : un barrage ou une frappe aérienne le coule.
+export function addPontoon(front, s, at) {
+  if (front.phase !== 'plan') return { error: 'Les ordres se donnent le matin.' };
+  if (!(front.pontoons[s] > 0)) return { error: 'Le génie n\'a plus de pont de bateaux.' };
+  if (front.pontoonOrders[s].length) return { error: 'Un pont de bateaux par nuit au plus.' };
+  const { map, owner, centers } = front;
+  const { N, nb } = map;
+  // Case d'eau fermée la plus proche du point, au bord de vos lignes.
+  let best = null, bd = 2.2;
+  for (let i = 0; i < N; i++) {
+    if (!map.river[i] || waterOpen(front, i)) continue;
+    const dist = Math.hypot(centers.x[i] - at.x, centers.y[i] - at.y);
+    if (dist >= bd) continue;
+    for (let d = 0; d < 6; d++) {
+      const b = nb[i * 6 + d];
+      if (b < 0 || owner[b] !== s || map.river[b]) continue;
+      const span = pontoonSpan(front, b, (d + 3) % 6);
+      if (span) { best = { i, bank: b, ...span }; bd = dist; break; }
+    }
+  }
+  if (!best) return { error: 'Choisissez une rivière au bord de vos lignes, sans pont, assez étroite pour être franchie.' };
+  const o = { id: nextVectorId++, side: s, i: best.i, cells: best.cells, dir: best.dir, bank: best.bank, day: front.day };
+  front.pontoonOrders[s].push(o);
+  return o;
+}
+
+// Cases d'eau franchies par un pont lancé depuis la rive b dans la direction d : jusqu'à la terre d'en face.
+function pontoonSpan(front, b, d) {
+  const { map } = front;
+  const cells = [];
+  let c = map.nb[b * 6 + d];
+  while (c >= 0 && map.river[c] && !waterOpen(front, c) && cells.length < 3) { cells.push(c); c = map.nb[c * 6 + d]; }
+  if (!cells.length || c < 0 || (map.river[c] && !waterOpen(front, c))) return null;
+  return { cells, dir: d };
+}
+
+// Nuit : les ponts commandés sont jetés si la rive de départ est encore tenue.
+function buildPontoons(front) {
+  let built = false;
+  for (const s of [0, 1]) {
+    for (const o of front.pontoonOrders[s]) {
+      if (front.owner[o.bank] !== s || o.cells.some((c) => waterOpen(front, c))) {
+        flog(front, 'bridge', 'Le génie n\'a pu lancer son pont de bateaux : la rive est perdue.', s);
+        continue;
+      }
+      for (const c of o.cells) {
+        front.map.bridge[c] = 1;
+        front.map.pontoon[c] = 1;
+        front.map.pontoonDir[c] = o.dir;
+        front.bridgeHp[c] = front.cfg.pontoonHp;
+        front.owner[c] = s;
+        front.dens[c] = 0;
+      }
+      front.pontoons[s]--;
+      front.worksVersion++;
+      built = true;
+      flog(front, 'bridge', `${s === 0 ? 'Les pionniers de la Wehrmacht lancent' : 'Le génie soviétique lance'} un pont de bateaux près de ${nearestTownName(front, o.i)}.`, s);
+    }
+    front.pontoonOrders[s] = [];
+  }
+  if (built) applyWeather(front);
 }
 
 // Villes sous le feu : la case de ville i s'abîme de amount (barrage, combat, prise) ; son terrain est recalculé.
@@ -376,6 +504,7 @@ export function removeOrder(front, s, id) {
   front.barrages[s] = front.barrages[s].filter((v) => v.id !== id);
   undoTransfer(front, s, id);
   front.air[s] = front.air[s].filter((m) => m.id !== id);
+  front.pontoonOrders[s] = front.pontoonOrders[s].filter((o) => o.id !== id);
 }
 
 // Comportement d'une poche, choisi le matin (par le joueur pour les siennes, par l'IA pour les autres).
@@ -665,6 +794,7 @@ export function stepTick(front) {
   updateSupplyK(front);
   applyWorks(front, early);
   airTick(front, early);
+  if (front.terrainDirty) { front.terrainDirty = false; applyWeather(front); } // pont coulé par l'aviation
   rebuildFields(front, 0);
   rebuildFields(front, 1);
   const densBefore = Float32Array.from(front.dens);
@@ -676,7 +806,7 @@ export function stepTick(front) {
   moveGuns(front, events);
   for (const e of events) {
     if (e.kind === 'armorLost') { const a = front.armor.find((x) => x.id === e.id); flog(front, 'armor', `${a.name} (${FRONT_SIDES[a.side] === 'DE' ? 'Wehrmacht' : 'Armée rouge'}) ${e.spent ? 'est saignée à blanc : ses derniers chars sont retirés du front' : 'est encerclée et détruite'}.`, a.side); continue; }
-    if (e.kind === 'bridge') { flog(front, 'bridge', `Un pont s'effondre sous les obus, près de ${nearestTownName(front, e.i)}.`, e.side); continue; }
+    if (e.kind === 'bridge') { flog(front, 'bridge', `${e.pontoon ? 'Un pont de bateaux est coulé' : 'Un pont s\'effondre'} ${e.air ? 'sous les bombes' : 'sous les obus'}, près de ${nearestTownName(front, e.i)}.`, e.side); continue; }
     if (e.kind === 'planeDown') { flog(front, 'air', `${e.side === 0 ? 'Un Stuka abattu' : 'Un Sturmovik abattu'} par la DCA ${front.aa.find((a) => a.id === e.by)?.name ?? 'ennemie'}.`, e.side); continue; }
     if (e.kind === 'aaLost') { const a = front.aa.find((x) => x.id === e.id); flog(front, 'air', `${a.name} détruite par l'aviation ennemie.`, a.side); continue; }
     if (e.kind !== 'gunLost') continue;
@@ -808,6 +938,7 @@ function endDay(front) {
   restTroops(front);
   front.transfers = [[], []];
   staffNight(front); // regroupement de nuit
+  buildPontoons(front);
   // Nuit : une part des pertes du jour rejoint (blessés légers, isolés), hors troupes perdues dans les poches.
   if (front.dayStart) {
     for (const s of [0, 1]) {

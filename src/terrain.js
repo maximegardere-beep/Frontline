@@ -116,13 +116,17 @@ export const ARMOR_TERRAIN = {
   town: { flow: 0.6, atk: 0.6 },
   mountain: { flow: 0, atk: 0 },
 };
-// Eau : rivière (1), gué (2) ; pont (map.bridge = 1). Gelée, la rivière se franchit presque partout.
+// Eau : rivière (1), gué (2) ; pont (map.bridge = 1). La rivière est infranchissable (ses cases n'appartiennent à
+// personne, front.js : syncWater) ; seuls les ponts la traversent. Gelée, elle se franchit presque partout.
 export const WATER = {
-  river: { flow: 0.25, def: 0.7, flowA: 0.08, atkA: 0.5 },
+  river: { flow: 0, def: 1, flowA: 0, atkA: 0 },
   ford: { flow: 0.55, def: 0.85, flowA: 0.3, atkA: 0.7 },
   bridge: { flow: 0.9, def: 1, flowA: 0.9, atkA: 0.9 },
   frozen: { flow: 0.8, def: 1, flowA: 0.7, atkA: 0.9 },
 };
+// Ruisseau : une case de terre ferme, mais les berges ralentissent (les chars plus encore) et offrent un appui au
+// défenseur qui les tient. Une route le franchit sans peine (ponceau) ; gelé, il ne compte plus.
+export const STREAM = { flow: 0.6, flowA: 0.5, def: 1.15 };
 export const ROAD_ARMOR = 2; // fluidité des blindés sur route…
 export const ROAD_CAP = 1.6; // … plafonnée : les chars y roulent 60 % plus vite qu'en steppe, sans gagner de choc
 
@@ -170,6 +174,10 @@ export function cellTerrain(map, i, frozen = false, ruin = 0) {
     const Wt = WATER[water];
     flow = Math.min(flow, Wt.flow); def = Wt.def; flowA = Math.min(flowA, Wt.flowA); atkA = Math.min(atkA, Wt.atkA);
   }
+  if (map.stream?.[i] && !water && !frozen && k !== 'mountain') {
+    def *= STREAM.def;
+    if (!map.road?.[i]) { flow *= STREAM.flow; flowA *= STREAM.flowA; }
+  }
   if (map.road?.[i] && k !== 'mountain' && water !== 'river') flowA = Math.min(ROAD_CAP, Math.max(flowA, 0.6) * ROAD_ARMOR);
   if (k === 'town' && !water) {
     def = 1 + ruinBonus(ruin);
@@ -197,8 +205,9 @@ export function describeCell(map, i, ruin = 0) {
   const town = k === 'town' ? map.towns.find((t) => t.i === i) : null;
   const parts = [town ? `${FRONT_TERRAIN[k].label} de ${town.name}` : FRONT_TERRAIN[k].label];
   if (k === 'town' && ruinLabel(ruin)) parts[0] += ` ${ruinLabel(ruin)} (défense +${Math.round(ruinBonus(ruin) * 100)} %)`;
-  if (map.river?.[i]) parts.push(map.bridge?.[i] === 1 ? 'pont' : map.bridge?.[i] === 2 ? 'pont détruit' : map.river[i] === 2 ? 'gué' : map.bigRiver?.[i] ? 'fleuve' : 'rivière');
-  else if (map.road?.[i]) parts.push('route');
+  if (map.river?.[i]) parts.push(map.bridge?.[i] === 1 ? (map.pontoon?.[i] ? 'pont de bateaux' : 'pont') : `${map.bridge?.[i] === 2 ? 'pont détruit · ' : ''}${map.river[i] === 2 ? 'gué' : map.bigRiver?.[i] ? 'fleuve' : 'rivière'}${map.river[i] === 2 ? '' : ' (infranchissable hors des ponts)'}`);
+  else if (map.road?.[i]) parts.push(map.stream?.[i] ? 'route · ruisseau' : 'route');
+  else if (map.stream?.[i]) parts.push('ruisseau (berges : progression ralentie, défense +15 %)');
   parts.push(ELEV_LABELS[map.elev[i]]);
   return parts.join(' · ');
 }

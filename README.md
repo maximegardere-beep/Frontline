@@ -52,6 +52,9 @@ défenseur, est tiré de la graine et annoncé au briefing, avec l'objectif : le
 
 - **La carte** : chaque camp est une masse de troupes (bleue pour la Wehrmacht, rouge pour l'Armée rouge), plus
   sombre où elle est dense ; le trait noir est le front. Hors de vue, l'ennemi n'est qu'une estimation estompée.
+- **Les cours d'eau** : une rivière ne se franchit que sur ses ponts (ou gelée) ; ses cases n'appartiennent à
+  personne et le front s'arrête sur les rives. Un barrage fait sauter un pont. Les ruisseaux ralentissent la
+  progression et donnent +15 % de défense à qui tient leurs berges.
 - **Le matin**, le jeu attend vos ordres. Choisir un outil en bas de la carte, puis toucher le départ et la cible :
   le jeu prend lui-même la case la plus pertinente autour du doigt (on peut déplacer la carte entre les deux appuis).
 
@@ -63,6 +66,7 @@ défenseur, est tiré de la graine et annoncé au briefing, avec l'objectif : le
 | Ligne (`4`) | une extrémité, l'autre | les cases le long du trait se retranchent pendant la journée ; 2 par jour |
 | Barrage (`5`) | la zone | pilonnée au lever du jour, même dans le brouillard ; 12 cases au plus de vos lignes |
 | Réserves (`6`) | un appui par renfort | 800 hommes montent en ligne autour du point ; `U` annule le dernier |
+| Pont (`G`) | la rivière, au bord de vos lignes | le génie jette un pont de bateaux la nuit ; 2 par bataille ; un barrage ou une frappe aérienne le coule |
 
   Quatre vecteurs par jour au plus (infanterie, blindés et replis confondus). Un vecteur draine les troupes
   autour de son départ : là où il prend, le front se dégarnit. Sans ordre, les troupes colmatent d'elles-mêmes

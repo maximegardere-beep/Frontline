@@ -10,6 +10,7 @@
 
 import { createRng } from './rng.js';
 import { GUN_RULES } from './frontguns.js';
+import { blowBridge } from './frontworks.js';
 import { pixelToHex } from './hex.js';
 
 // Case sous un point (unités de grille), ou −1.
@@ -23,6 +24,7 @@ export const AIR = {
   strikeTicks: [6, 7, 8], // ticks où les avions frappent (fin de matinée)
   rate: 0.06, // part de la densité ennemie détruite par tick de frappe, à pleine puissance
   tankRate: 0.07, // part des chars d'une formation prise dans la zone, par tick
+  bridge: 0.12, // solidité retirée à un pont en dur dans la zone, par tick de frappe (un pont de bateaux est coulé)
   hunt: 0.25, // puissance de feu retirée à un groupe (artillerie ou DCA) par une chasse réussie
   huntR: 2.5, // la cible doit encore être à cette distance du point visé
   aaRange: 6, // rayon d'action d'une DCA
@@ -157,6 +159,16 @@ export function airTick(front, events) {
           const l = front.dens[i] * AIR.rate * m.power;
           front.dens[i] -= l;
           front.stats.losses[1 - s] += l;
+        }
+        // Ponts ennemis dans la zone : un pont de bateaux est coulé, un pont en dur s'use (bridgeHp, frontworks.js).
+        if (front.map.bridge && front.bridgeHp) {
+          for (let i = 0; i < front.map.N; i++) {
+            if (front.map.bridge[i] !== 1 || front.owner[i] === s || Math.hypot(front.centers.x[i] - m.x, front.centers.y[i] - m.y) > R) continue;
+            front.bridgeHp[i] -= front.map.pontoon?.[i] ? 1 : AIR.bridge * m.power;
+            if (front.bridgeHp[i] > 0) continue;
+            const blown = blowBridge(front, i);
+            if (blown) { events.push({ ...blown, side: s, air: true }); front.terrainDirty = true; }
+          }
         }
         for (const a of front.armor ?? []) {
           if (a.side !== 1 - s || a.lost || Math.hypot(a.x - m.x, a.y - m.y) > R + 0.5) continue;

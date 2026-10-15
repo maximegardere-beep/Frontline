@@ -265,16 +265,16 @@ export function generateMap(seed, opts = {}) {
 // Relief : 0 bas-fond, 1 plaine, 2 collines, 3 hauteurs ; quelques massifs de montagne infranchissables font goulets.
 
 // Biomes de la micro-grille : mêmes noms que le mode tactique, réglages adaptés à la grande carte.
-// river : 'none' | 'meander' (rivière sinueuse, nord-sud ou est-ouest) | 'big' (fleuve nord-sud côté défenseur) ;
-// riverOdds : probabilité d'une rivière ; passes : cols percés dans les chaînes de montagnes ; roads : liaisons.
+// river : 'none' | 'meander' (rivière libre, d'un bord à un autre, avec coudes) | 'big' (fleuve nord-sud côté défenseur) ;
+// riverOdds : probabilité d'une rivière ; streams : nombre de ruisseaux [min, max] ; passes : cols percés dans les chaînes de montagnes ; roads : liaisons.
 export const FRONT_BIOMES = {
-  steppe: { label: 'Steppe ouverte', text: 'Peu de couvert, de longues vues : le terrain des chars.', forestQ: 0.93, marshQ: 0.9, marshElev: 0, mountains: 0.02, towns: [5, 7], river: 'meander', riverOdds: 0.5 },
-  bocage: { label: 'Forêts et bocages', text: 'Bois nombreux : les chars y perdent leur élan, l\'infanterie s\'y accroche.', forestQ: 0.62, marshQ: 0.86, marshElev: 0, mountains: 0.03, towns: [5, 7], river: 'meander', riverOdds: 0.5 },
-  polesie: { label: 'Marais de Polésie', text: 'Marais et rivières : les routes et les ponts décident de tout.', forestQ: 0.74, marshQ: 0.64, marshElev: 1, mountains: 0.008, towns: [4, 6], river: 'meander', riverOdds: 0.85 },
-  bourg: { label: 'Grande ville', text: 'Une grande ville au centre, nœud de routes : combats de rue.', forestQ: 0.8, marshQ: 0.86, marshElev: 0, mountains: 0.03, towns: [4, 6], city: true, river: 'meander', riverOdds: 0.5 },
-  montagne: { label: 'Montagnes (Carpates)', text: 'Chaînes infranchissables percées de quelques cols : les percées s\'y canalisent.', forestQ: 0.6, marshQ: 0.92, marshElev: 0, mountains: 0.13, passes: 4, towns: [4, 6], river: 'meander', riverOdds: 0.4 },
-  foret: { label: 'Grande forêt (Briansk)', text: 'Forêt profonde et rares routes : un combat d\'infanterie.', forestQ: 0.38, marshQ: 0.88, marshElev: 0, mountains: 0.01, towns: [4, 6], river: 'meander', riverOdds: 0.6 },
-  fleuve: { label: 'Grand fleuve (Dniepr)', text: 'Un fleuve barre le secteur, quelques ponts seulement : têtes de pont et défense de rive.', forestQ: 0.86, marshQ: 0.86, marshElev: 0, mountains: 0.01, towns: [5, 7], river: 'big', riverOdds: 1 },
+  steppe: { label: 'Steppe ouverte', text: 'Peu de couvert, de longues vues : le terrain des chars.', forestQ: 0.93, marshQ: 0.9, marshElev: 0, mountains: 0.02, towns: [5, 7], river: 'meander', riverOdds: 0.5, streams: [1, 2] },
+  bocage: { label: 'Forêts et bocages', text: 'Bois nombreux : les chars y perdent leur élan, l\'infanterie s\'y accroche.', forestQ: 0.62, marshQ: 0.86, marshElev: 0, mountains: 0.03, towns: [5, 7], river: 'meander', riverOdds: 0.5, streams: [1, 3] },
+  polesie: { label: 'Marais de Polésie', text: 'Marais et rivières : les routes et les ponts décident de tout.', forestQ: 0.74, marshQ: 0.64, marshElev: 1, mountains: 0.008, towns: [4, 6], river: 'meander', riverOdds: 0.85, streams: [2, 4] },
+  bourg: { label: 'Grande ville', text: 'Une grande ville au centre, nœud de routes : combats de rue.', forestQ: 0.8, marshQ: 0.86, marshElev: 0, mountains: 0.03, towns: [4, 6], city: true, river: 'meander', riverOdds: 0.5, streams: [0, 2] },
+  montagne: { label: 'Montagnes (Carpates)', text: 'Chaînes infranchissables percées de quelques cols : les percées s\'y canalisent.', forestQ: 0.6, marshQ: 0.92, marshElev: 0, mountains: 0.13, passes: 4, towns: [4, 6], river: 'meander', riverOdds: 0.4, streams: [1, 2] },
+  foret: { label: 'Grande forêt (Briansk)', text: 'Forêt profonde et rares routes : un combat d\'infanterie.', forestQ: 0.38, marshQ: 0.88, marshElev: 0, mountains: 0.01, towns: [4, 6], river: 'meander', riverOdds: 0.6, streams: [1, 3] },
+  fleuve: { label: 'Grand fleuve (Dniepr)', text: 'Un fleuve barre le secteur, quelques ponts seulement : têtes de pont et défense de rive.', forestQ: 0.86, marshQ: 0.86, marshElev: 0, mountains: 0.01, towns: [5, 7], river: 'big', riverOdds: 1, streams: [0, 2] },
 };
 
 // Rivière : chemin continu de case en case, d'un bord à l'opposé, guidé par le relief (elle cherche les creux) et un
@@ -312,6 +312,151 @@ function carveFrontRiver(map, hs, rng, { vertical = true, x0, width = 1, avoid, 
     if (!linked) { const j = nb[i * 6 + (vertical ? 5 : 0)]; if (j >= 0) set.add(j); }
   }
   return { cells: [...set], line };
+}
+
+// Rivière libre : elle entre par un bord et ressort par un autre (l'opposé ou un voisin, assez loin pour ne pas
+// couper qu'un coin), au plus court à travers les creux du relief ; un bruit lui donne ses coudes. Chemin de case
+// voisine en case voisine : sur une grille hexagonale, il coupe la carte sans fuite. null si les montagnes l'empêchent.
+function carveFreeRiver(map, hs, rng, avoid) {
+  const { W, H } = map;
+  const bend = makeNoise(rng);
+  const onEdge = (e, t) => {
+    if (e === 0) return { col: Math.round(t * (W - 1)), row: 0 };
+    if (e === 1) return { col: Math.round(t * (W - 1)), row: H - 1 };
+    if (e === 2) return { col: 0, row: Math.round(t * (H - 1)) };
+    return { col: W - 1, row: Math.round(t * (H - 1)) };
+  };
+  const cost = (i, j) => {
+    if (avoid(j)) return Infinity;
+    const x = (j % W) + 0.5 * (Math.floor(j / W) & 1), y = Math.floor(j / W) * 0.866;
+    return 1 + hs[j] * 7 + bend(x * 0.09 + 2.3, y * 0.09 + 8.1, 3) * 6;
+  };
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const e1 = rng.int(0, 3);
+    let e2 = rng.int(0, 2);
+    if (e2 >= e1) e2++;
+    const a = onEdge(e1, 0.15 + rng.next() * 0.7), b = onEdge(e2, 0.15 + rng.next() * 0.7);
+    if (Math.hypot(a.col - b.col, (a.row - b.row) * 0.866) < Math.min(W, H) * 0.8) continue;
+    const from = a.row * W + a.col, to = b.row * W + b.col;
+    if (avoid(from) || avoid(to)) continue;
+    const path = cheapestPath(map, from, (i) => i === to, cost);
+    if (!path || path.length < Math.min(W, H) * 0.8) continue;
+    return { cells: path, line: path.map((i) => [Math.floor(i / W), i % W]) };
+  }
+  return null;
+}
+
+// Ruisseau : il naît sur une hauteur à l'intérieur de la carte et descend jusqu'à la rivière, un autre ruisseau ou un
+// bord. Ses cases restent de la terre ferme (terrain.js, STREAM).
+function carveStream(map, hs, rng, avoid) {
+  const { W, H, N } = map;
+  const bend = makeNoise(rng);
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const src = rng.int(0, N - 1), col = src % W, row = Math.floor(src / W);
+    if (avoid(src) || map.river[src] || map.stream[src] || map.elev[src] < 1) continue;
+    if (col < 10 || col > W - 11 || row < 6 || row > H - 7) continue;
+    const goal = (i) => map.river[i] || map.stream[i] || i % W === 0 || i % W === W - 1 || i < W || i >= N - W;
+    const cost = (i, j) => {
+      if (avoid(j)) return Infinity;
+      const x = (j % W) + 0.5 * (Math.floor(j / W) & 1), y = Math.floor(j / W) * 0.866;
+      return 1 + hs[j] * 4 + Math.max(0, hs[j] - hs[i]) * 40 + bend(x * 0.12, y * 0.12, 2) * 3;
+    };
+    const path = cheapestPath(map, src, goal, cost);
+    if (!path || path.length < 12) continue;
+    const cells = path.filter((i) => !map.river[i] && !map.stream[i]);
+    if (cells.length < 10) continue;
+    const end = path[path.length - 1];
+    // Le tracé dessiné va jusqu'à la confluence (centre de la case de rivière ou de ruisseau rejointe).
+    const line = (map.river[end] || map.stream[end] ? [...cells, end] : cells).map((i) => [Math.floor(i / W), i % W]);
+    return { cells, line, mouth: map.river[end] ? 'river' : map.stream[end] ? 'stream' : 'edge' };
+  }
+  return null;
+}
+
+// Tabliers de pont d'une rivière (cases de pont voisines regroupées).
+function bridgeDecks(map, r) {
+  const seen = new Set(), decks = [];
+  for (const i of r.cells) {
+    if (map.bridge[i] !== 1 || seen.has(i)) continue;
+    const deck = [], stack = [i];
+    while (stack.length) {
+      const c = stack.pop();
+      if (seen.has(c) || map.bridge[c] !== 1) continue;
+      seen.add(c);
+      deck.push(c);
+      for (let d = 0; d < 6; d++) { const j = map.nb[c * 6 + d]; if (j >= 0) stack.push(j); }
+    }
+    decks.push(deck);
+  }
+  return decks;
+}
+
+// Au moins deux ponts par rivière (trois sur une longue rivière ou un fleuve) : une route de campagne franchit l'eau
+// là où les ponts existants sont le plus loin, puis rejoint le réseau (route ou ville) de chaque rive.
+function ensureBridges(map, r, rng, roadCost) {
+  const { W, N, nb, kind } = map;
+  const want = r.big || r.cells.length > 90 ? 3 : 2;
+  const at = (i) => ({ col: i % W, row: Math.floor(i / W) });
+  for (let tries = 0; tries < 6 && bridgeDecks(map, r).length < want; tries++) {
+    // Rives : régions de terre ferme séparées par l'eau.
+    const region = new Int32Array(N).fill(-1);
+    let nr = 0;
+    for (let i = 0; i < N; i++) {
+      if (region[i] >= 0 || map.river[i] || kind[i] === MOUNTAIN) continue;
+      const stack = [i];
+      region[i] = nr;
+      while (stack.length) {
+        const c = stack.pop();
+        for (let d = 0; d < 6; d++) {
+          const j = nb[c * 6 + d];
+          if (j < 0 || region[j] >= 0 || map.river[j] || kind[j] === MOUNTAIN) continue;
+          region[j] = nr;
+          stack.push(j);
+        }
+      }
+      nr++;
+    }
+    // Point de franchissement : la case d'eau la plus éloignée des ponts existants, loin des bords.
+    const decks = bridgeDecks(map, r).flat();
+    let c = -1, cd = -1;
+    for (const i of r.cells) {
+      if (map.bridge[i] || !map.river[i]) continue;
+      const p = at(i);
+      if (p.col < 6 || p.col > W - 7 || p.row < 5 || p.row > map.H - 6) continue;
+      const d = decks.length ? Math.min(...decks.map((j) => hexDistance(p, at(j)))) : 999;
+      const v = d + rng.next() * 3;
+      if (v > cd) { cd = v; c = i; }
+    }
+    if (c < 0) return;
+    // Deux rives voisines du point : la plus proche case de terre de chaque côté.
+    const banks = new Map();
+    for (let i = 0; i < N; i++) {
+      if (region[i] < 0) continue;
+      const d = hexDistance(at(c), at(i));
+      if (d > 4) continue;
+      if (!banks.has(region[i]) || d < banks.get(region[i]).d) banks.set(region[i], { i, d });
+    }
+    const two = [...banks.values()].sort((a, b) => a.d - b.d).slice(0, 2);
+    if (two.length < 2) { map.bridge[c] = 3; continue; } // pas de rive en face : on écarte ce point (marque temporaire)
+    const [A, B] = two;
+    // Traversée : l'eau n'est permise qu'au point choisi.
+    const cross = map.bridge.slice();
+    const path = cheapestPath(map, A.i, (i) => i === B.i, (i, j) => (map.river[j] && hexDistance(at(j), at(c)) > 2 ? Infinity : roadCost(i, j)));
+    if (!path) { map.bridge[c] = 3; continue; }
+    const route = [...path];
+    // Raccord de chaque rive au réseau : route ou ville la plus proche, sans retraverser l'eau.
+    const dry = (i, j) => (map.river[j] ? Infinity : roadCost(i, j));
+    for (const [end, rev] of [[A.i, true], [B.i, false]]) {
+      const reg = region[end];
+      const tail = cheapestPath(map, end, (i) => i !== end && region[i] === reg && (map.road[i] || kind[i] === TOWN), dry);
+      if (!tail) continue;
+      if (rev) route.unshift(...tail.slice(1).reverse());
+      else route.push(...tail.slice(1));
+    }
+    for (const i of route) { map.road[i] = 1; if (map.river[i] && cross[i] !== 1) map.bridge[i] = 1; }
+    map.roads.push(route);
+  }
+  for (let i = 0; i < N; i++) if (map.bridge[i] === 3) map.bridge[i] = 0;
 }
 
 // Chemin de coût minimal (Dijkstra simple sur la grille) : routes et cols.
@@ -425,6 +570,8 @@ export function generateFrontMap(seed, opts = {}) {
   map.road = new Uint8Array(N);
   map.rivers = [];
   map.roads = [];
+  map.stream = new Uint8Array(N);
+  map.streams = [];
   const wantRiver = opts.river ?? (B.river && B.river !== 'none' && rng.chance(B.riverOdds ?? 0.5) ? B.river : 'none');
   if (wantRiver === 'big') {
     // Fleuve nord-sud, côté du défenseur, à quelques colonnes de la ligne de départ (vers W/2).
@@ -433,11 +580,20 @@ export function generateFrontMap(seed, opts = {}) {
     for (const i of cells) if (kind[i] !== MOUNTAIN) { map.river[i] = 1; map.bigRiver[i] = 1; }
     map.rivers.push({ cells, line, big: true });
   } else if (wantRiver === 'meander') {
-    const vertical = rng.chance(0.55);
-    const x0 = vertical ? rng.int(Math.round(W * 0.2), Math.round(W * 0.8)) : rng.int(Math.round(H * 0.25), Math.round(H * 0.75));
-    const { cells, line } = carveFrontRiver(map, hs, rng, { vertical, x0, avoid: (i) => kind[i] === MOUNTAIN });
-    for (const i of cells) if (kind[i] !== MOUNTAIN) map.river[i] = 1;
-    map.rivers.push({ cells, line, big: false });
+    // Rivière libre : elle entre par un bord et sort par un autre (l'opposé ou le voisin), en suivant les creux.
+    const r = carveFreeRiver(map, hs, rng, (i) => kind[i] === MOUNTAIN);
+    if (r) {
+      for (const i of r.cells) map.river[i] = 1;
+      map.rivers.push({ cells: r.cells, line: r.line, big: false });
+    }
+  }
+  // Ruisseaux : ils naissent sur la carte et rejoignent la rivière, un autre ruisseau ou un bord.
+  const nStreams = opts.streams ?? rng.int(...(B.streams ?? [1, 2]));
+  for (let k = 0; k < nStreams; k++) {
+    const st = carveStream(map, hs, rng, (i) => kind[i] === MOUNTAIN);
+    if (!st) continue;
+    for (const i of st.cells) map.stream[i] = 1;
+    map.streams.push(st);
   }
   for (const i of map.river.keys()) if (map.river[i] && kind[i] === K('marsh')) kind[i] = 0;
 
@@ -511,17 +667,9 @@ export function generateFrontMap(seed, opts = {}) {
     link(T[0].i, (i) => i % W === 0);
     link(T[T.length - 1].i, (i) => i % W === W - 1);
   }
-  // Gués : un ou deux passages lents par rivière, loin des ponts.
-  for (const r of map.rivers) {
-    const cands = rng.shuffle(r.cells.filter((i) => map.river[i] && !map.bridge[i] && !map.bigRiver[i]));
-    let n = rng.int(1, 2);
-    for (const i of cands) {
-      if (!n) break;
-      if (r.cells.some((j) => map.bridge[j] && Math.abs((j % W) - (i % W)) + Math.abs(Math.floor(j / W) - Math.floor(i / W)) < 8)) continue;
-      map.river[i] = 2;
-      n--;
-    }
-  }
+  // Ponts : la rivière ne se franchit que sur un pont ; chaque rivière en a au moins deux (trois sur une longue
+  // rivière ou un fleuve), espacés. Il en manque : une route de campagne la traverse là où les ponts sont le plus loin.
+  for (const r of map.rivers) ensureBridges(map, r, rng, roadCost);
   computeTerrain(map);
   const mid = map.towns.reduce((b, t) => (Math.abs(t.col - W / 2) < Math.abs((b?.col ?? -1e9) - W / 2) ? t : b), null);
   map.name = mid ? `Front de ${mid.name}` : `Secteur ${100 + rng.int(10, 290)}`;

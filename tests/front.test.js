@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createFront, runDay, beginDay, stepTick, addVector, troops, FRONT_SETUP } from '../src/front.js';
+import { createFront, runDay, beginDay, stepTick, addVector, troops, FRONT_SETUP, applyWeather } from '../src/front.js';
 import { generateFrontMap } from '../src/mapgen.js';
 import { MOUNTAIN, computeTerrain } from '../src/terrain.js';
 const computeTerrainFor = (f) => computeTerrain(f.map, false);
@@ -250,9 +250,10 @@ test('ouvrages : barbelés et antichar freinent l\'assaut, un barrage les détru
   if (b !== undefined) {
     const before = g.map.flowA[b];
     blowBridge(g, b);
-    computeTerrainFor(g);
+    applyWeather(g);
     assert.equal(g.map.bridge[b], 2);
     assert.ok(g.map.flowA[b] < before * 0.3, 'plus de pont : les blindés ne passent plus');
+    assert.equal(g.owner[b], -1, 'plus de pont : la case d\'eau n\'appartient plus à personne');
   }
   void addBarrage;
 });
@@ -382,7 +383,7 @@ test('IA : ordres des deux rôles, sans tricher (le brouillard compte), bataille
   assert.ok(f.result.reason.length > 0);
 });
 
-test('terrain : rivières continues, ponts sur les routes, gués, cols ; blindés freinés hors route', async () => {
+test('terrain : fleuve continu, ponts sur les routes, cols ; blindés freinés hors route', async () => {
   const { generateFrontMap } = await import('../src/mapgen.js');
   const { computeTerrain } = await import('../src/terrain.js');
   const m = generateFrontMap('riv', { biome: 'fleuve', defender: 1 });
@@ -398,9 +399,10 @@ test('terrain : rivières continues, ponts sur les routes, gués, cols ; blindé
   let bridges = 0;
   for (let i = 0; i < m.N; i++) if (m.bridge[i]) { bridges++; assert.ok(m.road[i], 'un pont porte une route'); }
   assert.ok(bridges > 0, 'des ponts');
-  // Terrain selon le type : sur l'eau, les blindés passent bien plus mal que l'infanterie ; le gel ouvre le fleuve.
+  // Terrain selon le type : l'eau est infranchissable hors des ponts ; le gel ouvre le fleuve.
   const w = [...water].find((i) => !m.bridge[i]);
-  assert.ok(m.flowA[w] < m.flow[w] * 0.5, 'rivière : blindés presque bloqués');
+  assert.equal(m.flow[w], 0, 'rivière infranchissable');
+  assert.equal(m.flowA[w], 0, 'rivière infranchissable aux blindés');
   const forest = [...Array(m.N).keys()].find((i) => m.kind[i] === 1 && !m.river[i] && !m.road[i]);
   if (forest >= 0) assert.ok(m.flowA[forest] < m.flow[forest], 'forêt : blindés plus lents');
   const road = [...Array(m.N).keys()].find((i) => m.road[i] && m.kind[i] === 0 && !m.river[i]);
@@ -415,6 +417,83 @@ test('terrain : rivières continues, ponts sur les routes, gués, cols ; blindé
     assert.ok(mt.kind.filter((k) => k === 4).length > mt.N * 0.05, 'des montagnes');
   }
   assert.ok(carved > 0, 'des cols percent les chaînes');
+});
+
+test('rivières : tracé libre, ponts seuls passages, gel, pont de bateaux ; ruisseaux', async () => {
+  const { addPontoon, addBarrage, waterOpen } = await import('../src/front.js');
+  const { barrageWorks } = await import('../src/frontworks.js');
+  const { STREAM } = await import('../src/terrain.js');
+  const edgeOf = (m, i) => { const c = i % m.W, r = Math.floor(i / m.W); return r === 0 ? 'n' : r === m.H - 1 ? 's' : c === 0 ? 'o' : c === m.W - 1 ? 'e' : null; };
+  let rivers = 0, streams = 0;
+  for (const seed of ['r1', 'r2', 'r3', 'r4', 'r5', 'r6']) {
+    const f = createFront({ seed, biome: 'polesie' });
+    const m = f.map;
+    streams += m.streams.length;
+    for (const st of m.streams) assert.ok(st.cells.every((i) => m.stream[i] && !m.river[i]), 'un ruisseau est de la terre ferme');
+    if (!m.rivers.length) continue;
+    rivers++;
+    const r = m.rivers[0];
+    // Elle entre par un bord et sort par un autre.
+    const ends = new Set([edgeOf(m, r.cells[0]), edgeOf(m, r.cells[r.cells.length - 1])]);
+    assert.ok(ends.size === 2 && !ends.has(null), `d'un bord à un autre (${[...ends]})`);
+    // Au moins deux ponts, chacun sur une route ; ailleurs, l'eau n'appartient à personne.
+    let decks = 0;
+    for (const i of r.cells) {
+      if (m.bridge[i] === 1) { assert.ok(m.road[i], 'un pont porte une route'); assert.ok(f.owner[i] >= 0, 'un pont se tient'); if (![0, 1, 2, 3, 4, 5].some((d) => m.nb[i * 6 + d] >= 0 && m.bridge[m.nb[i * 6 + d]] === 1 && m.nb[i * 6 + d] < i)) decks++; }
+      else assert.equal(f.owner[i], -1, 'eau sans pont : à personne');
+    }
+    assert.ok(decks >= 2, `au moins deux ponts (${decks})`);
+    // Pas de poche au départ : la ligne épouse la rivière.
+    assert.equal(f.pockets[0].length + f.pockets[1].length, 0, 'aucune poche au premier jour');
+  }
+  assert.ok(rivers >= 3 && streams >= 6, `rivières ${rivers}, ruisseaux ${streams}`);
+
+  // Une journée d'assaut ne fait passer personne sur l'eau.
+  const f = createFront({ seed: 'r1', biome: 'polesie', attacker: 'DE' });
+  assert.ok(f.map.rivers.length);
+  const water = [...Array(f.map.N).keys()].filter((i) => f.map.river[i] && f.map.bridge[i] !== 1);
+  for (let d = 0; d < 2; d++) runDay(f);
+  assert.ok(water.every((i) => f.owner[i] === -1), 'l\'eau reste infranchissable');
+  // Le gel ouvre la rivière, le dégel la referme (ses occupants refluent).
+  f.weather = 'snow'; applyWeather(f);
+  assert.ok(water.some((i) => f.owner[i] >= 0), 'rivière gelée : on la tient');
+  const k = water.find((i) => f.owner[i] >= 0);
+  f.dens[k] = 5;
+  const holder = f.owner[k], before = troops(f, holder) + f.stats.losses[holder];
+  f.weather = 'clear'; applyWeather(f);
+  assert.equal(f.owner[k], -1, 'dégel : la case redevient de l\'eau');
+  assert.ok(Math.abs(troops(f, holder) + f.stats.losses[holder] - before) < 1e-3, 'ses occupants refluent (ou sont perdus)');
+
+  // Pont de bateaux : commandé le matin au bord de ses lignes, jeté la nuit, coulé par un barrage.
+  const g = createFront({ seed: 'r1', biome: 'polesie', attacker: 'DE' });
+  g.reserve = [0, 0];
+  let spot = -1, side = -1;
+  for (const i of [...Array(g.map.N).keys()]) {
+    if (!g.map.river[i] || waterOpen(g, i)) continue;
+    const near = [0, 1, 2, 3, 4, 5].map((d) => g.map.nb[i * 6 + d]).filter((j) => j >= 0 && !g.map.river[j]);
+    const sides = new Set(near.map((j) => g.owner[j]));
+    if (sides.has(0)) { spot = i; side = 0; break; }
+  }
+  assert.ok(spot >= 0);
+  const o = addPontoon(g, side, { x: g.centers.x[spot], y: g.centers.y[spot] });
+  assert.ok(!o.error, o.error);
+  assert.ok(addPontoon(g, side, { x: g.centers.x[spot], y: g.centers.y[spot] }).error, 'un par nuit');
+  runDay(g);
+  assert.ok(o.cells.every((c) => g.map.bridge[c] === 1 && g.map.pontoon[c] && g.owner[c] === side), 'pont de bateaux jeté');
+  assert.equal(g.pontoons[side], g.cfg.pontoons[side] - 1);
+  for (let t = 0; t < 5; t++) for (const c of o.cells) barrageWorks(g, c, 1, false);
+  applyWeather(g);
+  assert.ok(o.cells.every((c) => g.map.bridge[c] === 0 && !g.map.pontoon[c] && g.owner[c] === -1), 'coulé par un barrage');
+  void addBarrage;
+
+  // Ruisseau : progression ralentie, défense accrue.
+  const m = generateFrontMap('ruisseau', { biome: 'polesie' });
+  const st = [...Array(m.N).keys()].find((i) => m.stream[i] && !m.road[i] && m.kind[i] === 0 && m.elev[i] === 1);
+  if (st !== undefined) {
+    const plain = [...Array(m.N).keys()].find((i) => !m.stream[i] && !m.river[i] && !m.road[i] && m.kind[i] === 0 && m.elev[i] === 1);
+    assert.ok(Math.abs(m.flow[st] - m.flow[plain] * STREAM.flow) < 1e-6, 'ruisseau : progression ralentie');
+    assert.ok(Math.abs(m.def[st] - m.def[plain] * STREAM.def) < 1e-6, 'ruisseau : défense accrue');
+  }
 });
 
 test('formations blindées : en réserve sans ordre, elles percent vers leur objectif, perdent des chars, se ravitaillent', async () => {

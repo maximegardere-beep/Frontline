@@ -363,6 +363,7 @@ densités. Le moteur garde des points d'accroche pour cela.
 
 ### Terrain : rivières, ponts, routes, terrain selon le type de troupes, nouveaux biomes
 
+- (Remplacé plus bas : « Rivières infranchissables, ruisseaux, pont de bateaux ».)
 - Rivières (`mapgen.js`) : tracé continu d'un bord à l'autre qui suit les creux, nord-sud ou est-ouest ; fleuve de deux
   cases côté défenseur (biome « fleuve »). Cases d'eau : fluidité 0,25, défense 0,7 (mauvais endroit où tenir) ; gué
   0,55 ; pont 0,9. Gelées (neige), elles se franchissent presque partout. Dessin : ruban lissé (moyenne glissante du
@@ -589,3 +590,36 @@ densités. Le moteur garde des points d'accroche pour cela.
     avancent par bonds. Chez l'ennemi, les points reprennent son estimation, estompés hors de vue.
 - Essais écartés avant ce choix (maquettes) : groupes de fantassins sur toute la carte, hachures de carte, courbes
   d'isodensité, voile pâle et trous de combat.
+
+### Rivières infranchissables, ruisseaux, pont de bateaux
+
+- Constat : une rivière était une case qu'on possédait (fluidité 0,25, défense 0,7) ; le front passait dessus, et
+  près de la moitié des tracés couraient dans l'axe de l'attaque. Elle ne barrait rien.
+- Rivière (`mapgen.js`, carveFreeRiver) : elle entre par un bord et ressort par un autre, l'opposé ou un voisin (assez
+  loin pour ne pas couper qu'un coin), au plus court à travers les creux, avec des coudes tirés d'un bruit. Le chemin
+  va de case voisine en case voisine : sur une grille hexagonale, il coupe la carte sans fuite. Le fleuve (biome
+  « fleuve ») garde son tracé nord-sud de deux cases. Plus de gués.
+- Eau infranchissable (`front.js`, syncWater) : une case de rivière sans pont ni glace n'appartient à personne
+  (comme la montagne), le front s'arrête sur les rives et s'y interrompt au dessin. Pont détruit ou dégel : ses
+  occupants refluent sur leurs cases voisines (perdus s'ils n'en ont pas). Pont jeté ou gel : la case revient, vide,
+  au camp qui tient le plus de cases autour. Le ravitaillement ne passe que par les ponts.
+- Ponts : au moins deux par rivière, trois sur une longue rivière ou un fleuve (`ensureBridges`) ; il en manque, une
+  route de campagne traverse là où les ponts sont le plus loin et rejoint le réseau de chaque rive.
+- Ligne de départ : une case coupée de son bord de carte par l'eau passe au camp d'en face (le front épouse la
+  rivière) ; une enclave que ni l'un ni l'autre bord n'atteint devient neutre. Aucune poche au premier jour.
+- Ruisseaux (`carveStream`) : 0 à 4 selon le biome ; ils naissent sur une hauteur et descendent jusqu'à la rivière,
+  un autre ruisseau ou un bord. Terre ferme : fluidité × 0,6 (blindés × 0,5, sauf sur route), défense × 1,15.
+- Rive (`combat.js`, frontNeed) : l'ennemi d'en face compte comme un contact à 35 % de sa densité : la rive se garde,
+  plus légèrement qu'un front de terre.
+- Pont de bateaux (outil « Pont », touche G, visible seulement s'il y a une rivière) : le matin, une case d'eau au bord
+  de ses lignes ; le génie le jette la nuit jusqu'à l'autre rive (trois cases d'eau au plus), s'il tient encore sa rive.
+  Deux par bataille, un par nuit. Solidité 0,35 d'un pont en dur : un barrage le coule en un matin. L'appui aérien
+  coule les ponts de bateaux ennemis dans sa zone et use les ponts en dur (−0,12 par tick de frappe).
+- IA (`frontai.js`) : le contact se lit aussi par-dessus l'eau. Un secteur de rive compte double ou triple pour
+  attaquer (rapport `ratio`) et protège pour tenir (rapport `hold`). Une attaque dont l'axe bute sur l'eau au bord de
+  ses lignes passe par le pont le plus proche (14 unités) ; sinon le génie lance un pont de bateaux et l'assaut attend
+  le lendemain. L'attaquant bloqué sur toute sa rive prépare un franchissement sur son secteur le plus fort. Le
+  défenseur fait sauter (barrage) un pont que l'ennemi tient ou touche.
+- Mesure (70 batailles IA contre IA, avant le renforcement des défenses) : attaquant 31 % (40 % avant), fleuve 3/10
+  (6/10), encerclements 4,8 par bataille (3,3). Sur 10 batailles à rivière : 9 ponts de bateaux lancés, 2 coulés,
+  3 ponts sautés.

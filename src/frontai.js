@@ -11,7 +11,7 @@
 // Poches : tirage pondéré entre statu quo, Festung et percée d'évasion (troupes piégées, distance aux lignes amies).
 
 import { planAir } from './frontair.js';
-import { addVector, addLine, addBarrage, deployReserve, setPocketMode, edgeCol, cellAtPoint, FRONT_WEATHER, VECTOR_TYPES } from './front.js';
+import { addVector, addLine, addBarrage, addPontoon, deployReserve, setPocketMode, edgeCol, cellAtPoint, waterOpen, FRONT_WEATHER, VECTOR_TYPES } from './front.js';
 import { bfsDistance } from './path.js';
 import { GUN_KINDS, setGunOrder } from './frontguns.js';
 import { setArmorOrder } from './frontarmor.js';
@@ -40,15 +40,22 @@ function readFront(front, s) {
   const mem = front.memory[s];
   const o = 1 - s;
   const contact = [];
+  // Rive : l'ennemi n'est qu'en face, de l'autre côté de l'eau (il faut un pont pour l'atteindre).
+  const closed = (j) => map.river?.[j] && !waterOpen(front, j);
+  const wet = new Uint8Array(N);
   for (let i = 0; i < N; i++) {
     if (owner[i] !== s) continue;
+    let dry = false, across = false;
     for (let d = 0; d < 6; d++) {
       const j = nb[i * 6 + d];
-      if (j >= 0 && mem.owner[j] === o) { contact.push(i); break; }
+      if (j < 0) continue;
+      if (mem.owner[j] === o) { dry = true; break; }
+      if (closed(j)) for (let e = 0; e < 6 && !across; e++) { const k = nb[j * 6 + e]; if (k >= 0 && mem.owner[k] === o) across = true; }
     }
+    if (dry || across) { contact.push(i); if (!dry) wet[i] = 1; }
   }
   const mine = bfsDistance(nb, N, contact, (i) => owner[i] === s, REACH);
-  const theirs = bfsDistance(nb, N, contact, (i) => mem.owner[i] === o, REACH + 1);
+  const theirs = bfsDistance(nb, N, contact, (i) => mem.owner[i] === o || closed(i), REACH + 2);
   const sectors = [];
   for (let r0 = 0; r0 < H; r0 += SECTOR) {
     const cells = contact.filter((i) => {
@@ -64,9 +71,11 @@ function readFront(front, s) {
       const r = Math.floor(i / W);
       if (r < r0 - 1 || r > r0 + SECTOR) continue;
       if (owner[i] === s && mine[i] <= REACH) own += dens[i];
-      if (mem.owner[i] === o && theirs[i] <= REACH + 1) { foe += mem.est[i]; foeDef += map.def[i]; n++; }
+      if (mem.owner[i] === o && theirs[i] <= REACH + 2) { foe += mem.est[i]; foeDef += map.def[i]; n++; }
     }
-    sectors.push({ r0, head, own, foe: Math.max(foe, 1), foeDef: n ? foeDef / n : 1, cells });
+    // Secteur de rive : l'eau le protège (et protège l'ennemi d'en face) tant qu'on n'a pas de pont.
+    const wetShare = cells.filter((i) => wet[i]).length / cells.length;
+    sectors.push({ r0, head, own, foe: Math.max(foe, 1), foeDef: n ? foeDef / n : 1, water: 1 + 2 * wetShare, cells });
   }
   return { sectors, contact };
 }
@@ -95,18 +104,19 @@ export function planFront(front, s) {
   const { sectors } = readFront(front, s);
   if (!sectors.length) return;
   const dirX = s === 0 ? 1 : -1;
-  for (const sec of sectors) sec.ratio = sec.own / (sec.foe * sec.foeDef);
+  // ratio : rapport de forces pour attaquer (l'eau devant soi le dégrade) ; hold : pour tenir (l'eau protège).
+  for (const sec of sectors) { sec.ratio = sec.own / (sec.foe * sec.foeDef * sec.water); sec.hold = (sec.own * sec.water) / (sec.foe * sec.foeDef); }
   planGuns(front, s);
 
   // 1. Défense : secteurs menacés (l'ennemi y est nettement plus fort).
-  const threatened = [...sectors].filter((x) => x.ratio < (attacking ? 0.7 : 0.9)).sort((a, b) => a.ratio - b.ratio);
+  const threatened = [...sectors].filter((x) => x.hold < (attacking ? 0.7 : 0.9)).sort((a, b) => a.hold - b.hold);
   let lines = 0;
   for (const sec of threatened) {
     if (lines >= cfg.maxLines) break;
     // Ligne de défense parallèle au front, 2 à 3 cases en arrière.
     const h = point(front, sec.head);
     const back = -dirX * 3;
-    const r = addLine(front, s, { x: h.x + back, y: h.y - 6 }, { x: h.x + back, y: h.y + 6 }, sec.ratio < 0.5 ? 3 : 2);
+    const r = addLine(front, s, { x: h.x + back, y: h.y - 6 }, { x: h.x + back, y: h.y + 6 }, sec.hold < 0.5 ? 3 : 2);
     if (!r.error) lines++;
   }
   // Réserves : presque tout le pool monte en ligne chaque matin (en garder trop, c'est les laisser dormir pendant
@@ -125,7 +135,7 @@ export function planFront(front, s) {
   };
   const defendShare = attacking ? 0.5 : 1;
   const worst = threatened.slice(0, 4);
-  const deficit = worst.map((x) => Math.max(0.05, 1 - x.ratio));
+  const deficit = worst.map((x) => Math.max(0.05, 1 - x.hold));
   const totalDef = deficit.reduce((a, b) => a + b, 0);
   const defendBudget = budget * defendShare;
   worst.forEach((sec, k) => deploy(sec.head, (defendBudget * deficit[k]) / totalDef));
@@ -133,7 +143,7 @@ export function planFront(front, s) {
 
   // Repli : un saillant très menacé, loin de toute ville amie, est raccourci.
   for (const sec of threatened.slice(0, 1)) {
-    if (sec.ratio > 0.35) break;
+    if (sec.hold > 0.35) break;
     const nearTown = front.map.towns.some((t) => front.owner[t.i] === s && Math.hypot(front.centers.x[t.i] - front.centers.x[sec.head], front.centers.y[t.i] - front.centers.y[sec.head]) < 10);
     if (nearTown) continue;
     const h = point(front, sec.head);
@@ -161,6 +171,20 @@ export function planFront(front, s) {
     let to = town ? point(front, town.i) : { x: h.x + dirX * 25, y: h.y };
     // On ne vise pas en arrière : au moins vers l'avant.
     if ((to.x - h.x) * dirX < 4) to = { x: h.x + dirX * 20, y: to.y };
+    // Rivière sur l'axe, au bord de nos lignes : on passe par le pont le plus proche ; faute de pont, le génie lance un
+    // pont de bateaux cette nuit et l'assaut attend demain.
+    const cross = waterOnAxis(front, s, h, to);
+    if (cross) {
+      const br = nearestBridge(front, cross, 14);
+      if (br) {
+        const bx = front.centers.x[br], by = front.centers.y[br];
+        const L0 = Math.hypot(bx - h.x, by - h.y) || 1;
+        to = { x: bx + ((bx - h.x) / L0) * 8, y: by + ((by - h.y) / L0) * 8 };
+      } else {
+        if (front.pontoons[s] > 0 && !front.pontoonOrders[s].length) addPontoon(front, s, point(front, cross));
+        continue;
+      }
+    }
     // Les blindés ne s'engagent que sur un axe praticable pour eux (ni forêt profonde, ni marais, ni rivière sans pont).
     let goA = 0, n = 0;
     for (let k = 1; k <= 10; k++) {
@@ -184,13 +208,21 @@ export function planFront(front, s) {
     feed(sec.head, attackBudgetShare);
   }
 
+  // Front de rive sans attaque possible : l'attaquant prépare un franchissement sur son secteur le plus fort.
+  if (attacking && front.pontoons[s] > 0 && !front.pontoonOrders[s].length && !chosen.length) {
+    const wetSec = sectors.filter((x) => x.water > 2).sort((a, b) => b.own / b.foe - a.own / a.foe)[0];
+    if (wetSec && wetSec.own > wetSec.foe * 1.2) addPontoon(front, s, point(front, wetSec.head));
+  }
+  // Ponts : le défenseur fait sauter ceux que l'ennemi tient ou touche déjà.
+  if (!attacking) for (const i of threatenedBridges(front, s).slice(0, 1)) addBarrage(front, s, point(front, i));
+
   // Fixations : sur les secteurs voisins de ses attaques (à 6 à 14 lignes), l'ennemi est pressé pour qu'il n'y
   // prélève pas ses renforts.
   if (chosen.length) {
     let fixes = 0;
     for (const sec of sectors) {
       if (fixes >= (attacking ? 2 : 1)) break;
-      if (chosen.includes(sec) || threatened.includes(sec) || sec.ratio < 0.7) continue;
+      if (chosen.includes(sec) || threatened.includes(sec) || sec.hold < 0.7) continue;
       const gap = Math.min(...chosen.map((c) => Math.abs(c.r0 - sec.r0)));
       if (gap < 6 || gap > 14) continue;
       const h = point(front, sec.head);
@@ -204,7 +236,7 @@ export function planFront(front, s) {
     const sec = threatened.find((x) => dist(a, x.head) < 45) ?? null;
     if (!sec) continue;
     const h = point(front, sec.head);
-    if (armorOK && sec.ratio < 0.85 && a.tanks > a.max * 0.5) setArmorOrder(front, s, a.id, { x: h.x + dirX * 10, y: h.y });
+    if (armorOK && sec.hold < 0.85 && a.tanks > a.max * 0.5) setArmorOrder(front, s, a.id, { x: h.x + dirX * 10, y: h.y });
     else setArmorOrder(front, s, a.id, { x: h.x - dirX * 6, y: h.y });
   }
 
@@ -228,6 +260,44 @@ export function planFront(front, s) {
 
   // 5. Aviation.
   planAir(front, s);
+}
+
+// Première case d'eau infranchissable sur l'axe [h, to], si la terre juste avant elle est à nous (on est sur la rive).
+function waterOnAxis(front, s, h, to) {
+  const L = Math.hypot(to.x - h.x, to.y - h.y);
+  let prev = -1;
+  for (let t = 0; t <= L; t += 0.5) {
+    const i = cellAtPoint(front, { x: h.x + ((to.x - h.x) * t) / L, y: h.y + ((to.y - h.y) * t) / L });
+    if (i < 0 || i === prev) continue;
+    if (front.map.river?.[i] && !waterOpen(front, i)) return prev >= 0 && front.owner[prev] === s ? i : null;
+    prev = i;
+  }
+  return null;
+}
+
+// Case de pont intacte la plus proche de la case i, à moins de r.
+function nearestBridge(front, i, r) {
+  let best = null, bd = r;
+  for (let k = 0; k < front.map.N; k++) {
+    if (front.map.bridge?.[k] !== 1) continue;
+    const d = Math.hypot(front.centers.x[k] - front.centers.x[i], front.centers.y[k] - front.centers.y[i]);
+    if (d < bd) { bd = d; best = k; }
+  }
+  return best;
+}
+
+// Ponts intacts que l'ennemi tient ou touche : le défenseur les fait sauter avant qu'ils ne servent.
+function threatenedBridges(front, s) {
+  const out = [];
+  const { nb } = front.map;
+  const mem = front.memory[s];
+  for (let i = 0; i < front.map.N; i++) {
+    if (front.map.bridge?.[i] !== 1) continue;
+    let hot = mem.owner[i] === 1 - s;
+    for (let d = 0; d < 6 && !hot; d++) { const j = nb[i * 6 + d]; if (j >= 0 && mem.owner[j] === 1 - s) hot = true; }
+    if (hot) out.push(i);
+  }
+  return out;
 }
 
 // Artillerie : chaque groupe se tient à mi-portée derrière le front connu. Trop près (menacé d'être débordé), il

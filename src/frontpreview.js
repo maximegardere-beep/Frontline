@@ -32,7 +32,7 @@ function frame(now) {
     while (acc >= TICK_MS) { acc -= TICK_MS; tick(); }
   }
   const s = viewer === null ? 0 : viewer;
-  const orders = viewer === null ? null : { vectors: front.orders[s], lines: front.lines[s], barrages: front.barrages[s] };
+  const orders = viewer === null ? null : { vectors: front.orders[s], lines: front.lines[s], barrages: front.barrages[s], pontoons: front.pontoonOrders[s] };
   r.draw({ viewer, t: acc / TICK_MS, orders });
   $('status').textContent = `Jour ${Math.min(front.day, front.cfg.days)} · tick ${front.tick}/${front.cfg.ticks} · ${FRONT_WEATHER[front.weather].label} · villes ${townsHeld(front, 0)}–${townsHeld(front, 1)}${front.result ? ' · ' + front.result.reason : ''}`;
   $('log').textContent = front.log.slice(-3).map((l) => l.text).join('\n');

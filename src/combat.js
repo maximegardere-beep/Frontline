@@ -89,6 +89,8 @@ export function moraleCheck(map, unit, hpBefore, rng, { forced = false, isolated
 // 3. une case vidée au contact d'une densité ennemie suffisante est réoccupée sans ordre.
 // Tout est calculé sur l'état de début de tick puis appliqué : aucun camp ne joue « avant » l'autre.
 
+const RIVER_THREAT = 0.35; // part de la menace d'en face qui pèse sur une rive (frontNeed)
+
 export const FRONT_RULES = {
   SKIRMISH: 0.00036, // usure mutuelle au contact, par tick (front calme : ~1 % de pertes par jour)
   ASSAULT: 0.036, // pertes infligées par unité de pression (−40 % : batailles moins meurtrières)
@@ -135,6 +137,10 @@ export function frontNeed(front, s) {
     for (let d = 0; d < 6; d++) {
       const j = nb[i * 6 + d];
       if (j >= 0 && owner[j] === 1 - s) { contact = true; t += dens[j]; }
+      // Rive : l'ennemi de l'autre côté de l'eau menace moins (il lui faut un pont), mais la rive se garde.
+      else if (j >= 0 && owner[j] < 0 && map.river?.[j]) {
+        for (let e = 0; e < 6; e++) { const k = nb[j * 6 + e]; if (k >= 0 && owner[k] === 1 - s) { contact = true; t += dens[k] * RIVER_THREAT; } }
+      }
     }
     if (contact) { seeds.push(i); threat[i] = t; }
   }

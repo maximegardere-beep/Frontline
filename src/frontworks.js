@@ -91,22 +91,25 @@ export function barrageWorks(front, i, k, heavy) {
   return null;
 }
 
-// Pont détruit : la case redevient une rivière (terrain recalculé par l'appelant via applyWeather).
+// Pont détruit : la case redevient une rivière (terrain recalculé par l'appelant via applyWeather). Un pont de bateaux
+// coulé ne laisse rien : le génie pourra en lancer un autre au même endroit.
 export function blowBridge(front, i) {
   if (front.map.bridge[i] !== 1) return null;
+  const pontoon = !!front.map.pontoon?.[i];
   // Tout le tablier : les cases de pont voisines sur la même rivière.
   const stack = [i];
   const done = [];
   while (stack.length) {
     const c = stack.pop();
     if (front.map.bridge[c] !== 1) continue;
-    front.map.bridge[c] = 2;
+    front.map.bridge[c] = front.map.pontoon?.[c] ? 0 : 2;
+    if (front.map.pontoon) front.map.pontoon[c] = 0;
     front.bridgeHp[c] = 0;
     done.push(c);
     for (let d = 0; d < 6; d++) { const j = front.map.nb[c * 6 + d]; if (j >= 0 && front.map.bridge[j] === 1) stack.push(j); }
   }
   front.worksVersion++;
-  return { kind: 'bridge', i, cells: done };
+  return { kind: 'bridge', i, cells: done, pontoon };
 }
 
 // Prise d'une case : barbelés coupés, tranchées bouleversées.

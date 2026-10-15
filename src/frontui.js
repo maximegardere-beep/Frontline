@@ -8,7 +8,7 @@
 import {
   createFront, beginDay, stepTick, addVector, engagement, addLine, setLineLevel, addBarrage, removeOrder, deployReserve, undoDeployment,
   repeatOrders, setPocketMode, vectorCatchment, troops, territory, townsHeld, attackerTowns, pocketName,
-  cellAtPoint, FRONT_WEATHER, POCKET_MODES, VECTOR_TYPES, sideIndex, windLabel,
+  cellAtPoint, addPontoon, FRONT_WEATHER, POCKET_MODES, VECTOR_TYPES, sideIndex, windLabel,
 } from './front.js';
 import { addTransfer, NIGHT } from './frontnight.js';
 import { AIR, addAirMission, airBase, moveAA, sortiesToday } from './frontair.js';
@@ -47,6 +47,7 @@ const TOOLS = {
   barrage: { label: 'Barrage', short: 'Barrage', taps: 1, hint: 'Barrage de zone : touchez la zone à pilonner. Le groupe d\'artillerie disponible le plus puissant qui l\'a à portée tirera.' },
   air: { label: 'Aviation', short: 'Air', taps: 1, hint: 'Aviation : touchez la zone à frapper en fin de matinée (appui rapproché, redoutable contre les chars), ou une batterie ennemie repérée (chasse). Les avions partent de votre bord de carte : la DCA ennemie sur leur route les émousse et peut en abattre.' },
   reserve: { label: 'Réserves', short: 'Réserves', taps: 1, hint: 'Chaque appui fait monter 800 hommes en ligne autour du point touché.' },
+  pontoon: { label: 'Pont de bateaux', short: 'Pont', taps: 1, hint: 'Pont de bateaux : touchez la rivière au bord de vos lignes. Le génie le jette cette nuit jusqu\'à l\'autre rive ; fragile, un barrage ou une frappe aérienne le coule. Deux par bataille.' },
   transfer: { label: 'Transfert', short: 'Transf.', taps: 2, hint: 'Regroupement de nuit : touchez le secteur à dégarnir, puis où envoyer ses troupes, dans vos lignes. Par une route tenue, jusqu\'à 600 hommes et loin ; à travers champs, 150 hommes et tout près.' },
 };
 
@@ -128,7 +129,8 @@ function resnap() {
 
 function biomeText(f) {
   const b = FRONT_BIOMES[f.map.biome];
-  const water = f.map.rivers?.length ? (f.map.rivers[0].big ? ' Un fleuve traverse le secteur : ponts rares, à tenir ou à faire sauter.' : ' Une rivière coupe le secteur : ponts et gués sont les seuls passages rapides.') : '';
+  const water = (f.map.rivers?.length ? (f.map.rivers[0].big ? ' Un fleuve traverse le secteur : ponts rares, à tenir ou à faire sauter.' : ' Une rivière coupe le secteur : on ne la franchit que sur ses ponts, ou sur un pont de bateaux du génie.') : '')
+    + (f.map.streams?.length ? ' Des ruisseaux ralentissent la progression et offrent leurs berges au défenseur.' : '');
   return b ? `<p><b>${b.label}.</b> ${b.text}${water}</p>` : '';
 }
 
@@ -218,7 +220,7 @@ function frontRules() {
       <ol>
         <li><b>Masses.</b> Plus d'unités : chaque camp est une masse de troupes, plus sombre où elle est dense. Le trait noir est le front. Hors de vue, l'ennemi n'est qu'une estimation estompée.</li>
         <li><b>Le matin.</b> Le jeu est en pause. Donnez autant de vecteurs d'infanterie ou de repli que vous voulez : les troupes autour du départ s'y engagent et poussent vers la cible. Un vecteur draine son voisinage : là où il prend, le front se dégarnit, et deux vecteurs proches se partagent les mêmes hommes. La jauge « Troupes engagées » plafonne à ${Math.round((fui.front?.cfg.engageCap ?? 0.6) * 100)} % : au-delà, tous vos vecteurs sont réduits d'autant.</li>
-        <li><b>Outils.</b> Infanterie : large, lente, tenace. Blindés : vos formations (divisions de Panzer, corps blindés), visibles sur la carte ; touchez-en une puis son objectif. Elle rejoint le front par vos lignes (vite sur route, mal en forêt, jamais à travers une rivière sans pont), perce, dépose ses grenadiers dans les cases prises et exploite ; riposte, hérissons, villes et forêts lui coûtent des chars, elle consomme du carburant, se refait la nuit si elle est ravitaillée, et meurt encerclée. Repli ordonné : les troupes décrochent avec moins de pertes. Fixer : une bande large qui presse l'ennemi sans chercher à prendre, à pertes réduites de moitié ; toute case ennemie pressée (par une fixation ou une attaque) ne peut plus envoyer ses troupes ailleurs et appelle des renforts : fixez un secteur pour percer à côté. Ligne de défense (${c.maxLines} nouvelles par jour, 4 chantiers au plus) : un chantier de plusieurs jours, trois fois plus lent au contact de l'ennemi. Tranchées en un jour (défense de l'infanterie, à moitié pour qui les prend), barbelés en deux (l'assaut d'infanterie qui les traverse s'use), hérissons antichar en trois (les chars y perdent élan et vitesse). Barbelés et hérissons gênent quiconque les traverse, dans les deux sens. Un barrage les détruit (l'artillerie lourde vient seule à bout des hérissons) et fait sauter les ponts ; les ruines restent sur la carte. Barrage : une zone pilonnée au début de la journée, même dans le brouillard, par un groupe d'artillerie qui l'a à portée (une mission par groupe et par jour). Artillerie : touchez un groupe puis sa destination ; en batterie il tire à 100 %, en appui mobile à 40 %, en déplacement pas du tout. Sans mission, il frappe les assaillants à sa portée ; un groupe dont la position tombe est perdu. Réserves : chaque appui fait monter des renforts en ligne.</li>
+        <li><b>Outils.</b> Infanterie : large, lente, tenace. Blindés : vos formations (divisions de Panzer, corps blindés), visibles sur la carte ; touchez-en une puis son objectif. Elle rejoint le front par vos lignes (vite sur route, mal en forêt, jamais à travers une rivière sans pont), perce, dépose ses grenadiers dans les cases prises et exploite ; riposte, hérissons, villes et forêts lui coûtent des chars, elle consomme du carburant, se refait la nuit si elle est ravitaillée, et meurt encerclée. Repli ordonné : les troupes décrochent avec moins de pertes. Fixer : une bande large qui presse l'ennemi sans chercher à prendre, à pertes réduites de moitié ; toute case ennemie pressée (par une fixation ou une attaque) ne peut plus envoyer ses troupes ailleurs et appelle des renforts : fixez un secteur pour percer à côté. Ligne de défense (${c.maxLines} nouvelles par jour, 4 chantiers au plus) : un chantier de plusieurs jours, trois fois plus lent au contact de l'ennemi. Tranchées en un jour (défense de l'infanterie, à moitié pour qui les prend), barbelés en deux (l'assaut d'infanterie qui les traverse s'use), hérissons antichar en trois (les chars y perdent élan et vitesse). Barbelés et hérissons gênent quiconque les traverse, dans les deux sens. Un barrage les détruit (l'artillerie lourde vient seule à bout des hérissons) et fait sauter les ponts ; les ruines restent sur la carte. Rivières : infranchissables hors des ponts (sauf gelées) ; Pont (G) : le génie jette un pont de bateaux la nuit depuis votre rive, deux par bataille, qu'un barrage ou une frappe aérienne coule. Ruisseaux : ils ralentissent et donnent +15 % au défenseur. Barrage : une zone pilonnée au début de la journée, même dans le brouillard, par un groupe d'artillerie qui l'a à portée (une mission par groupe et par jour). Artillerie : touchez un groupe puis sa destination ; en batterie il tire à 100 %, en appui mobile à 40 %, en déplacement pas du tout. Sans mission, il frappe les assaillants à sa portée ; un groupe dont la position tombe est perdu. Réserves : chaque appui fait monter des renforts en ligne.</li>
         <li><b>Ravitaillement et fatigue.</b> Vos têtes de ligne (pointillé brun, caisses) suivent le front de deux cases par nuit, plus vite le long des routes. À plus de cinq cases en avant, vos attaques faiblissent et vos blindés brûlent plus de carburant : une percée s'essouffle d'elle-même. Des troupes qui attaquent s'usent ; la nuit en efface la moitié : alternez les secteurs. Une part des pertes du jour rejoint chaque nuit.</li>
         <li><b>La journée.</b> Une minute environ, sans intervention : le combat compare les pressions de part et d'autre du front, selon la densité, le terrain, le retranchement et la qualité des troupes. Le bouton discret « Passer » abrège la journée.</li>
         <li><b>Défense élastique.</b> Sans ordre, les troupes colmatent d'elles-mêmes les secteurs menacés.</li>
@@ -446,6 +448,11 @@ function onTap(p) {
   if (tool === 'barrage') {
     const r = addBarrage(f, s, { x: p.x, y: p.y });
     if (!fail(r)) { placed(`Barrage réglé : ${f.guns.find((g) => g.id === r.gun).name} pilonnera la zone au lever du jour.`); fui.tool = null; }
+    return refreshFront();
+  }
+  if (tool === 'pontoon') {
+    const r = addPontoon(f, s, { x: p.x, y: p.y });
+    if (!fail(r)) { placed(`Le génie jettera un pont de bateaux cette nuit (${r.cells.length} case${r.cells.length > 1 ? 's' : ''} d'eau). Il en restera ${f.pontoons[s] - 1}.`); fui.tool = null; }
     return refreshFront();
   }
   if (tool === 'air') {
@@ -779,7 +786,7 @@ function drawFront(t = 1) {
   const s = fui.side;
   const v = viewer();
   const planning = f.phase === 'plan';
-  const orders = { vectors: f.orders[s], lines: f.lines[s], barrages: f.barrages[s] };
+  const orders = { vectors: f.orders[s], lines: f.lines[s], barrages: f.barrages[s], pontoons: f.pontoonOrders[s] };
   let preview = null;
   if (planning && fui.hoverPoint) {
     const h = fui.hoverPoint;
@@ -906,6 +913,7 @@ function used(tool) {
   }
   if (tool === 'line') return [f.lines[s].filter((l) => l.day === f.day).length, f.cfg.maxLines, f.lines[s].length >= 4];
   if (tool === 'air') return [f.air[s].length, sortiesToday(f, s)];
+  if (tool === 'pontoon') return [f.pontoonOrders[s].length, Math.min(1, f.pontoons[s]), false, 'pontoon'];
   if (tool === 'transfer') return [f.transfers[s].filter((t) => !t.auto && t.day === f.day).length, NIGHT.perDay];
   if (tool === 'barrage') {
     const able = f.guns.filter((g) => g.side === s && gunPower(g) > 0).length;
@@ -925,7 +933,8 @@ function renderTools() {
     const [n, max, full, kind] = used(t);
     b.setAttribute('aria-pressed', String(fui.tool === t));
     b.disabled = (n >= max || full) && fui.tool !== t;
-    const left = kind === 'engaged' ? `${Math.round((f.engaged?.[fui.side] ?? 0) * 100)} %` : max === Infinity ? fmtMen(men(f.reserve[fui.side])).replace(' h', '') : `${max - n}`;
+    if (t === 'pontoon') b.hidden = !f.map.rivers?.length;
+    const left = kind === 'engaged' ? `${Math.round((f.engaged?.[fui.side] ?? 0) * 100)} %` : kind === 'pontoon' ? `${f.pontoons[fui.side] - n}` : max === Infinity ? fmtMen(men(f.reserve[fui.side])).replace(' h', '') : `${max - n}`;
     b.querySelector('.tool-n').textContent = left;
   }
 }
@@ -953,6 +962,7 @@ function renderOrders() {
     ...vecs.map((v) => orderLine(VECTOR_TYPES[v.type].label, `≈ ${fmtMen(men(vectorCatchment(f, v)))}`, planning ? v.id : null)),
     ...f.lines[s].map((l) => lineItem(f, l, planning)),
     ...f.barrages[s].map((b) => orderLine('Barrage', f.guns.find((g) => g.id === b.gun)?.name ?? '', planning ? b.id : null)),
+    ...f.pontoonOrders[s].map((o) => orderLine('Pont de bateaux', 'cette nuit', planning ? o.id : null)),
     ...f.air[s].map((m) => orderLine(m.kind === 'hunt' ? 'Chasse de batterie' : 'Appui aérien', m.kind === 'hunt' ? ((m.target.type === 'gun' ? f.guns : f.aa).find((x) => x.id === m.target.id)?.name ?? '') : 'fin de matinée', planning ? m.id : null)),
     ...f.transfers[s].map((t) => orderLine(t.auto ? 'Regroupement de l\'état-major' : 'Transfert', `${fmtMen(men(t.amount))} · ${t.road ? 'par la route' : 'à travers champs'}${t.auto ? ' · cette nuit' : ''}`, planning && !t.auto ? t.id : null)),
   ];
@@ -1131,7 +1141,7 @@ function bind() {
   }));
   window.addEventListener('keydown', (e) => {
     if (!frontActive() || !byId('overlay').hidden || e.target.tagName === 'INPUT') return;
-    const keys = { 1: 'infantry', 2: 'armor', 3: 'retreat', 4: 'line', 5: 'barrage', 6: 'reserve', 7: 'fix', 8: 'transfer', 9: 'air' };
+    const keys = { 1: 'infantry', 2: 'armor', 3: 'retreat', 4: 'line', 5: 'barrage', 6: 'reserve', 7: 'fix', 8: 'transfer', 9: 'air', g: 'pontoon', G: 'pontoon' };
     if (keys[e.key]) setTool(keys[e.key]);
     else if (e.key === 'Escape') cancelTool();
     else if (e.key === 'Enter') { if (fui.front.phase === 'resolve') fui.skip = true; else launchDay(); }

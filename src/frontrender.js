@@ -142,6 +142,21 @@ export class FrontRenderer extends Renderer {
   toWorld(p) { return { x: p.x * CELL, y: p.y * CELL }; }
   toGrid(p) { return { x: p.x / CELL, y: p.y / CELL }; }
 
+  // Segments de contour (x1, y1, x2, y2 en pixels monde) privés de ceux dont le milieu tombe sur une case d'eau sans
+  // propriétaire.
+  dryFront(segs) {
+    const { map } = this;
+    if (!map.river) return segs;
+    const out = [];
+    for (let k = 0; k < segs.length; k += 4) {
+      const h = pixelToHex((segs[k] + segs[k + 2]) / 2, (segs[k + 1] + segs[k + 3]) / 2, CELL);
+      const i = h.col >= 0 && h.row >= 0 && h.col < map.W && h.row < map.H ? h.row * map.W + h.col : -1;
+      if (i >= 0 && map.river[i] && this.front.owner[i] < 0) continue;
+      out.push(segs[k], segs[k + 1], segs[k + 2], segs[k + 3]);
+    }
+    return out;
+  }
+
   // Point de la carte sous le doigt, en unités de grille (celles des ordres), et la case correspondante.
   pointAt(clientX, clientY) {
     const l = this.local(clientX, clientY);
@@ -451,6 +466,28 @@ export class FrontRenderer extends Renderer {
         ctx.stroke();
       }
     }
+    // Ponts de bateaux : tablier de planches gris-vert posé sur une file de barques, de rive à rive.
+    for (let i = 0; i < N; i++) {
+      if (!map.pontoon?.[i]) continue;
+      const p = this.center(i);
+      const j = map.nb[i * 6 + map.pontoonDir[i]];
+      const q = j >= 0 ? this.center(j) : { x: p.x + 1, y: p.y };
+      const ang = Math.atan2(q.y - p.y, q.x - p.x);
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(ang);
+      const L = CELL * 1.9;
+      ctx.fillStyle = 'rgb(58, 62, 52)';
+      for (let k = -2; k <= 2; k++) { ctx.beginPath(); ctx.ellipse(k * L * 0.2, 0, L * 0.08, 4.2, 0, 0, Math.PI * 2); ctx.fill(); }
+      ctx.fillStyle = 'rgb(122, 128, 104)';
+      ctx.fillRect(-L / 2, -1.8, L, 3.6);
+      ctx.strokeStyle = 'rgb(54, 58, 46)';
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      for (let x = -L / 2 + 1.5; x < L / 2; x += 2.2) { ctx.moveTo(x, -1.8); ctx.lineTo(x, 1.8); }
+      ctx.stroke();
+      ctx.restore();
+    }
     // Ponts détruits : tablier rompu, débris dans l'eau.
     for (let i = 0; i < N; i++) {
       if (map.bridge[i] !== 2) continue;
@@ -471,6 +508,25 @@ export class FrontRenderer extends Renderer {
     const { N, nb } = map;
     // Rivières : ruban lissé le long du tracé (berge sombre, puis eau), un peu plus large que les cases d'eau du jeu.
     const pt = ([row, col]) => ({ x: CELL * SQRT3 * (col + 0.5 * (Math.round(row) & 1)) + (CELL * SQRT3) / 2, y: CELL * 1.5 * row + CELL });
+    // Ruisseaux : filet d'eau étroit et sinueux, berges en traits fins ; ils se jettent dans la rivière.
+    for (const [w, color] of [[0.62, 'rgba(46, 74, 92, 0.6)'], [0.36, 'rgb(112, 156, 178)']]) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = CELL * w;
+      for (const st of map.streams ?? []) {
+        if (!st.line?.length) continue;
+        const pts = st.line.map((_, k) => {
+          let x = 0, y = 0, n = 0;
+          for (let q = Math.max(0, k - 1); q <= Math.min(st.line.length - 1, k + 1); q++) { const p = pt(st.line[q]); x += p.x; y += p.y; n++; }
+          return { x: x / n, y: y / n };
+        });
+        // Les bouts gardent leur place : la source et la confluence.
+        pts[0] = pt(st.line[0]);
+        pts[pts.length - 1] = pt(st.line[st.line.length - 1]);
+        ctx.beginPath();
+        splineTo(ctx, pts);
+        ctx.stroke();
+      }
+    }
     for (const [w, color] of [[1.5, 'rgba(46, 74, 92, 0.75)'], [1.15, 'rgb(104, 148, 170)']]) {
       ctx.strokeStyle = color;
       for (const r of map.rivers ?? []) {
@@ -664,8 +720,9 @@ export class FrontRenderer extends Renderer {
     this.fx.drawGlow(ctx, now);
     this.drawFires(view.viewer ?? null, now);
 
-    // Ligne de front : partage des deux camps, épaisse et sombre.
-    const line = contourSegments(fields.o, 0.5);
+    // Ligne de front : partage des deux camps, épaisse et sombre. Elle s'interrompt sur l'eau infranchissable : là, c'est
+    // la rivière qui sépare les camps.
+    const line = this.dryFront(contourSegments(fields.o, 0.5));
     ctx.strokeStyle = 'rgba(250, 240, 210, 0.55)';
     ctx.lineWidth = 4.5;
     strokeSegments(ctx, line);
@@ -1592,7 +1649,7 @@ export class FrontRenderer extends Renderer {
     }
   }
 
-  // orders : { vectors, lines, barrages } d'un camp (ou un seul élément d'aperçu).
+  // orders : { vectors, lines, barrages, pontoons } d'un camp (ou un seul élément d'aperçu).
   // Encre jaune cernée de sombre : lisible sur la masse bleue comme sur la rouge, distincte du trait de front.
   drawFrontOrders(orders, viewer, alpha = 1) {
     const { ctx } = this;
@@ -1626,6 +1683,22 @@ export class FrontRenderer extends Renderer {
         ctx.moveTo(x - 2.5, y - 2.5); ctx.lineTo(x + 2.5, y + 2.5);
         ctx.moveTo(x + 2.5, y - 2.5); ctx.lineTo(x - 2.5, y + 2.5);
         ctx.stroke();
+      }
+    }
+    for (const o of orders.pontoons ?? []) {
+      // Pont de bateaux commandé : trait pointillé de rive à rive, barré de petites barques.
+      const a = this.center(o.bank), b = this.center(o.cells[o.cells.length - 1]);
+      const L = Math.hypot(b.x - a.x, b.y - a.y) || 1, ux = (b.x - a.x) / L, uy = (b.y - a.y) / L;
+      const e = { x: b.x + ux * CELL * 0.9, y: b.y + uy * CELL * 0.9 };
+      ctx.lineWidth = 2.4 + extra;
+      ctx.setLineDash(halo ? [] : [4, 3]);
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(e.x, e.y); ctx.stroke();
+      ctx.setLineDash([]);
+      for (const c of o.cells) {
+        const p = this.center(c);
+        ctx.beginPath();
+        ctx.ellipse(p.x, p.y, 5, 2.4, Math.atan2(uy, ux) + Math.PI / 2, 0, Math.PI * 2);
+        fill();
       }
     }
     for (const l of orders.lines ?? []) {
