@@ -629,8 +629,8 @@ densités. Le moteur garde des points d'accroche pour cela.
 - But : ralentir les percées ; pour percer, il faut faire coïncider barrages et frappes aériennes sur le point
   d'attaque, qui désorientent et affaiblissent les défenseurs.
 - Choc (`front.shock`, 0 à 1, par case) : un tick de barrage ajoute 0,15 × puissance × √(cadence / 0,04) aux
-  troupes ennemies de la zone ; un tick de frappe aérienne 0,35 × puissance. Il s'efface de 7 % par tick (×0,93) et
-  retombe à zéro quand la case change de mains. Un barrage seul (ticks 0 à 4) monte vers 0,6 ; l'aviation (ticks 6
+  troupes ennemies de la zone ; un tick de frappe aérienne 0,35 × puissance. Il s'efface de 4 % par tick (×0,96) et
+  retombe à zéro quand la case change de mains. Un barrage seul (ticks 0 à 6) monte vers 0,6 ; l'aviation (ticks 6
   à 8) sur la même zone le porte au plein. Effet (`combat.js`) : défense, riposte et seuil de brèche
   × (1 − 0,85 × choc) ; plafond de remplissage de la brèche ÷ (1 − 0,85 × choc)² ; pertes d'assaut du défenseur
   ÷ (1 − 0,85 × choc).
@@ -680,3 +680,17 @@ densités. Le moteur garde des points d'accroche pour cela.
   elle reste 6 ticks après le dernier signal en s'estompant.
 - Son (`audio.js`, ui('sos')) : souffle radio et · · · — — — · · · deux fois, placé dans l'espace stéréo comme les
   combats ; à l'apparition d'une alerte seulement, jamais en accéléré.
+
+### Rééquilibrage vers l'offensive (attaquant ≈ 40 %)
+
+- Constat : l'attaquant ne gagnait plus que 24 % des batailles IA contre IA (84 batailles, défenseur 57 %, nuls 19 %).
+  Cible retenue : environ 40 % à l'attaquant ; l'attaque reste difficile, mais une préparation réussie paie.
+- Réglages : barrage de 7 ticks (5), choc qui s'efface de 4 % par tick (×0,96 ; 7 %), renforts de l'attaquant ×1,9
+  (×1,6). Seuls, ils ne bougent presque pas l'issue (attaquant 26 %) : l'offensive gagne du terrain et des villes,
+  mais le score ne le récompensait pas. Seuils du score abaissés : victoire décisive 36 (42), victoire 16 (25),
+  indécis 11 (12).
+- `goalShare` (part des villes à tenir) supprimé : l'issue se lit au score depuis l'introduction de `frontscore.js`.
+- Mesure (84 batailles par jeu de graines, `tools/front-pool.sh 28`) : graines A/B/C, attaquant 39 % / défenseur
+  44 % / nuls 17 % ; graines D/E/F, 40 % / 55 % / 5 %. Écarté : réglages proposés pour freiner l'offensive (seuil de
+  percée 1,6, ténacité 0,8, effet du choc 0,75, réserves ×1,5…) : attaquant 14 %.
+- Outils : `tools/front-sim.mjs` lit aussi `SCORE` (seuils) ; `SCORES=1` affiche le score de chaque bataille.

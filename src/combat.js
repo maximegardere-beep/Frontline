@@ -115,7 +115,7 @@ export const FRONT_RULES = {
   // Choc (front.shock, 0 à 1) : barrages et frappes aériennes ébranlent les défenseurs (frontguns.js, frontair.js).
   // Une case ébranlée défend moins, riposte moins et cède plus vite ; le choc s'efface en quelques heures.
   SHOCK_EFFECT: 0.85, // défense, riposte et seuil de brèche × (1 − SHOCK_EFFECT × choc)
-  SHOCK_DECAY: 0.93, // part du choc qui subsiste d'un tick à l'autre
+  SHOCK_DECAY: 0.96, // part du choc qui subsiste d'un tick à l'autre
   SHOCK_CAP_EXP: 2, // une position ébranlée cède aussi plus vite : plafond de la brèche ÷ (1 − effet) ^ SHOCK_CAP_EXP
 };
 

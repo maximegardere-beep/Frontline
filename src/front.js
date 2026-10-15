@@ -41,7 +41,7 @@ export const FRONT_SETUP = {
   lineWidth: 1.8, // demi-largeur de la bande retranchée (unités de grille ; deux cases voisines sont à 1,73)
   // Groupes d'artillerie (frontguns.js) : une mission de barrage par groupe et par jour, dans sa portée.
   guns: [['div', 'div', 'heavy'], ['div', 'mortar', 'rocket']],
-  barrageTicks: 5, // le barrage martèle la zone pendant les premiers ticks de la journée
+  barrageTicks: 7, // le barrage martèle la zone pendant les premiers ticks de la journée
   retreatCover: 0.33, // usure subie par les troupes qui décrochent en bon ordre
   chunk: 80, // densité déposée par clic de déploiement
   vision: 5, // portée de reconnaissance, en cases, depuis toute case occupée
@@ -50,7 +50,7 @@ export const FRONT_SETUP = {
   men: 10, // hommes par unité de densité (affichage)
   // Rôles : l'attaquant a plus de réserves et de renforts ; le défenseur part retranché.
   attackReserve: 2, // multiplicateur du pool logistique initial de l'attaquant
-  attackReinforce: 1.6, // multiplicateur de ses renforts quotidiens
+  attackReinforce: 1.9, // multiplicateur de ses renforts quotidiens
   entrenchDepth: 6, // profondeur (en cases depuis le front) du retranchement initial du défenseur
   recover: 0.2, // part des pertes du jour qui rejoint la nuit (réserves)
   entrenchDef: 0.4, // bonus de défense d'une case pleinement retranchée (+40 %)

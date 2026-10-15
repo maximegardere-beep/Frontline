@@ -1,5 +1,6 @@
 // Batailles stratégiques IA contre IA : équilibre attaquant / défenseur et entre camps.
 // node tools/front-sim.mjs [batailles=40] [graine=sim]
+// Réglages par l'environnement : RULES, SETUP, AI, SCORE (JSON) ; SCORES=1 affiche le score de chaque bataille.
 import { createFront, runDay, FRONT_SETUP, townsHeld } from '../src/front.js';
 import { installAI, AI_TUNING } from '../src/frontai.js';
 import { FRONT_RULES } from '../src/combat.js';
@@ -50,6 +51,7 @@ for (let k = 0; k < N; k++) {
   if (w === f.attacker) perBiome[biome].att++;
 }
 if (process.env.JSON) { console.log(JSON.stringify({ n: N, ...tally, days, pockets, towns, early })); process.exit(0); }
+if (process.env.SCORES) console.log("scores", JSON.stringify(scores));
 const p = (x) => `${Math.round((100 * x) / N)} %`;
 console.log(`${N} batailles · attaquant ${p(tally.att)} · défenseur ${p(tally.def)} · nuls ${p(tally.nul)} · Wehrmacht ${p(tally.DE)} · Armée rouge ${p(tally.SU)}`);
 console.log(`durée moyenne ${(days / N).toFixed(1)} jours (${early} finies avant le terme) · villes prises par l'attaquant ${(towns / N).toFixed(1)} · encerclements ${(pockets / N).toFixed(1)} par bataille · ${(ms / N / 1000).toFixed(1)} s de calcul par bataille`);

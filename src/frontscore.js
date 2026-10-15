@@ -25,9 +25,9 @@ export const SCORE = {
   // Issues (le score attendu d'une offensive moyenne est positif : elle gagne toujours un peu de terrain et de
   // contrôle) : ≥ attDecisive, victoire décisive de l'attaquant ; ≥ attWin, victoire ; ≥ draw, indécis ;
   // ≥ defWin, victoire défensive ; en dessous, victoire défensive décisive.
-  attDecisive: 42,
-  attWin: 25,
-  draw: 12,
+  attDecisive: 36,
+  attWin: 16,
+  draw: 11,
   defWin: 2,
 };
 
