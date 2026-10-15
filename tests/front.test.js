@@ -110,7 +110,7 @@ test('poche : détectée par flood-fill, coupée du ravitaillement, elle fond ch
   assert.ok(f.log.some((l) => /Encerclement/.test(l.text)), 'encerclement annoncé');
 });
 
-test('rôles : réserves de l\'attaquant, retranchement inégal du défenseur, objectif en villes', () => {
+test('rôles : réserves de l\'attaquant, retranchement inégal du défenseur', () => {
   for (const attacker of ['DE', 'SU']) {
     const f = createFront({ seed: 'roles', attacker });
     const att = attacker === 'DE' ? 0 : 1, def = 1 - att;
@@ -124,7 +124,6 @@ test('rôles : réserves de l\'attaquant, retranchement inégal du défenseur, o
     assert.ok(dug > 100, 'le défenseur est retranché');
     assert.equal(attDug, 0, 'l\'attaquant ne l\'est pas');
     assert.ok(levels.size > 3, 'fortifications inégales (points faibles)');
-    assert.equal(f.goal, Math.max(1, Math.ceil(f.defTowns.length * FRONT_SETUP.goalShare - 1e-9)));
   }
 });
 

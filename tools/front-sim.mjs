@@ -3,7 +3,7 @@
 import { createFront, runDay, FRONT_SETUP, townsHeld } from '../src/front.js';
 import { installAI, AI_TUNING } from '../src/frontai.js';
 import { FRONT_RULES } from '../src/combat.js';
-import { scoreBreakdown, GRADES } from '../src/frontscore.js';
+import { scoreBreakdown, GRADES, SCORE } from '../src/frontscore.js';
 import { scenarioOf } from '../src/frontscenario.js';
 import { createRng } from '../src/rng.js';
 const YEAR = process.env.YEAR ? Number(process.env.YEAR) : null;
@@ -11,6 +11,7 @@ const YEAR = process.env.YEAR ? Number(process.env.YEAR) : null;
 Object.assign(FRONT_RULES, JSON.parse(process.env.RULES ?? '{}'));
 Object.assign(FRONT_SETUP, JSON.parse(process.env.SETUP ?? '{}'));
 Object.assign(AI_TUNING, JSON.parse(process.env.AI ?? '{}'));
+Object.assign(SCORE, JSON.parse(process.env.SCORE ?? '{}'));
 if (process.env.JSON) process.on('exit', () => {});
 const N = Number(process.argv[2] ?? 40), SEED = process.argv[3] ?? 'sim';
 const BIOMES = ['steppe', 'bocage', 'polesie', 'bourg', 'montagne', 'foret', 'fleuve'];

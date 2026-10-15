@@ -60,7 +60,6 @@ export const FRONT_SETUP = {
   aaBatteries: [2, 2], // batteries de DCA pour la bataille
   pontoons: [2, 2], // ponts de bateaux du génie pour la bataille (un par jour au plus, lancé de nuit)
   pontoonHp: 0.35, // solidité d'un pont de bateaux (1 : pont en dur) : un barrage ou une frappe aérienne le coule
-  goalShare: 0.75, // part des villes du défenseur que l'attaquant doit tenir au dernier jour (arrondie au-dessus)
 };
 
 // Types de vecteurs. sigma : demi-largeur du couloir ; catch : rayon de ramassage autour de l'origine
@@ -199,7 +198,6 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
   front.defTowns = map.towns.filter((t) => owner[t.i] === def).map((t) => t.i);
   front.townCells = [];
   for (let i = 0; i < N; i++) if (map.kind[i] === TOWN) front.townCells.push(i);
-  front.goal = Math.max(1, Math.ceil(front.defTowns.length * cfg.goalShare - 1e-9));
   front.initial = [troops(front, 0) + front.reserve[0], troops(front, 1) + front.reserve[1]];
   front.memory = [0, 1].map((s) => ({ owner: Int8Array.from(owner), est: new Float32Array(N), seen: new Int32Array(N).fill(-1) }));
   rollWeather(front);
@@ -1001,8 +999,7 @@ export function checkFrontVictory(front) {
   return null;
 }
 
-// Au terme des journées : l'attaquant gagne s'il tient au moins la moitié des villes que le défenseur avait au départ ;
-// sinon le défenseur a tenu.
+// Villes ★ du défenseur au départ que l'attaquant tient maintenant.
 export function attackerTowns(front) {
   return front.defTowns.filter((i) => front.owner[i] === front.attacker).length;
 }
