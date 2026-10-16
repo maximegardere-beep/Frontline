@@ -48,13 +48,19 @@ défenseur, est tiré de la graine et annoncé au briefing, avec l'objectif : le
 
 - **La carte** : chaque camp est une masse de troupes (bleue pour la Wehrmacht, rouge pour l'Armée rouge), plus
   sombre où elle est dense ; le trait noir est le front. Hors de vue, l'ennemi n'est qu'une estimation estompée.
+- **Atouts** : l'artillerie, les formations blindées, la DCA et les sorties aériennes en plus ne sont pas fixées
+  d'avance. Avant la bataille, chaque camp tire 5 cartes selon son rôle et l'année, et en garde 3 ; au matin du
+  7e jour, il en tire 4 (5 s'il est mené aux points) et en garde 2. Chaque carte a une rareté (commun, rare, élite :
+  les chars lourds, Tiger, KV ou IS-2, sont des cartes d'élite). L'attaquant tire divisions blindées, artillerie
+  lourde, soutien aérien et DCA ; le défenseur, artillerie divisionnaire et DCA. Pour l'instant, le choix et le
+  placement sont automatiques ; le briefing liste vos cartes.
 - **Alerte « SOS »** : pendant la journée, quand l'un de vos secteurs craque (au moins quatre cases perdues en six
   heures), un officier au combiné apparaît au-dessus, son appel défile en morse (· · · — — — · · ·) et on l'entend
   à la radio. L'alerte s'estompe quelques heures après que le secteur s'est stabilisé.
 - **Préparer ses attaques** : sans feux, un assaut piétine et se paie cher. Barrages (au lever du jour) et
   frappes aériennes (fin de matinée) ébranlent les défenseurs : défense, riposte et tenue fondent, d'autant plus
   que les deux tombent au même endroit, puis l'effet s'efface en quelques heures. Visez le point de départ de vos
-  poussées. L'attaquant dispose d'une artillerie de rupture (deux groupes de plus) et d'une sortie aérienne de plus.
+  poussées.
 - **Les cours d'eau** : une rivière ne se franchit que sur ses ponts (ou gelée) ; ses cases n'appartiennent à
   personne et le front s'arrête sur les rives. Un barrage fait sauter un pont. Les ruisseaux ralentissent la
   progression et donnent +15 % de défense à qui tient leurs berges.
@@ -99,7 +105,7 @@ défenseur, est tiré de la graine et annoncé au briefing, avec l'objectif : le
 - **Le soir**, un bilan en quelques chiffres : vos pertes, celles de l'ennemi (fourchette estimée), le terrain, les
   villes ★, le score ; puis l'issue en vue, les événements, les objectifs secondaires, la météo et les renforts du
   lendemain.
-- **Victoire** au soir du 10e jour : l'attaquant gagne s'il tient assez de villes ★, sinon le défenseur a tenu.
+- **Victoire** au soir du 15e jour : l'attaquant gagne s'il tient assez de villes ★, sinon le défenseur a tenu.
   Un camp qui tombe sous 12 % de ses effectifs ou de son terrain, ou qui perd toutes les villes, a perdu sur-le-champ.
 
 ## Rendu : terrain continu sur grille

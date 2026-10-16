@@ -5,6 +5,7 @@
 // pertinente autour du doigt (la plus garnie au contact pour un vecteur, la plus proche pour une ligne) : nul besoin
 // de viser une case précise. Sans outil, toucher la carte donne une estimation des forces dans la zone.
 
+import { ATOUTS, RARITY_LABEL, ATOUT_RULES, cardText } from './frontatout.js';
 import {
   createFront, beginDay, stepTick, addVector, engagement, addLine, setLineLevel, addBarrage, removeOrder, deployReserve, undoDeployment,
   repeatOrders, setPocketMode, vectorCatchment, troops, territory, townsHeld, attackerTowns, pocketName,
@@ -191,7 +192,7 @@ function showFrontBriefing() {
       <section>
         <h2>${escHtml(scenarioOf(f.year).label)}</h2>
         <p>${escHtml(scenarioOf(f.year).text)}${f.bias ? ` L'offensive part favorite : ${f.bias} points sont retranchés de son score.` : ''}</p>
-        <p class="muted small">Atouts : la Wehrmacht voit une case plus loin et ses Panzer se ravitaillent plus vite ; l'Armée rouge a plus de réserves et de renforts, tient mieux les villes et ne craint pas la neige.</p>
+        <p class="muted small">Traits : la Wehrmacht voit une case plus loin et ses Panzer se ravitaillent plus vite ; l'Armée rouge a plus de réserves et de renforts, tient mieux les villes et ne craint pas la neige.</p>
         <h2>Objectif</h2>
         <p>${goalText(f)}</p>
         <h2>Objectifs secondaires (+${SCORE.secondary} points chacun)</h2>
@@ -201,6 +202,7 @@ function showFrontBriefing() {
         <h2>Forces</h2>
         <p>En ligne : ${fmtMen(men(troops(f, s)))}. Réserves : ${fmtMen(men(f.reserve[s]))}, renforcées chaque soir selon le ravitaillement et les villes tenues.</p>
         <p>Renseignement : en face, ${menRange(enemyEstimate(f), 0.8, 1.4)} repérés ; le reste est dans le brouillard.</p>
+        ${atoutsHtml(f, s)}
       </section>
       <section>
         <h2>Conditions</h2>
@@ -211,6 +213,14 @@ function showFrontBriefing() {
     </div>
     <div class="row-end"><button class="btn btn-primary" id="f-start">Prendre le commandement</button></div>
   `, () => byId('f-start').addEventListener('click', () => { fui.hooks.hideDossier(); setHint(TOOLS_HELP()); refreshFront(); }));
+}
+
+// Cartes gardées du joueur (atouts tirés avant la bataille).
+function atoutsHtml(f, s) {
+  if (!f.atouts) return '';
+  return `<h2>Vos atouts</h2>
+    <ul class="atouts">${f.atouts.kept[s].map((c) => `<li><b>${escHtml(ATOUTS[c.key].label)}</b> <span class="muted">${RARITY_LABEL[c.rarity].toLowerCase()}</span> : ${escHtml(cardText(f, s, c))}</li>`).join('')}</ul>
+    <p class="muted small">Tirés au sort selon votre rôle et l'année, déjà en place. Nouveau tirage au matin du ${ATOUT_RULES.day}e jour.</p>`;
 }
 
 // Barre d'aide muette par défaut : elle ne parle que pour une consigne courte, une erreur ou une estimation.

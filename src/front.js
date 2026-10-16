@@ -18,6 +18,7 @@ import { createArmor, armorAfter, armorNight, updateArmorSightings, ARMOR_SETUP 
 import { WORKS, initWorks, defenderBelt, barrageWorks, captureWorks, buildTick, trenchFor } from './frontworks.js';
 import { initScore, eveningScore, noteCapture, scoreBreakdown, GRADES } from './frontscore.js';
 import { createAA, airTick, updateAASightings, airNight } from './frontair.js';
+import { dealAtouts, reinforceAtouts, ATOUT_RULES } from './frontatout.js';
 import { GUN_KINDS, GUN_RULES, createGuns, gunFor, gunPower, moveGuns, supportFire, gunsNight, updateGunSightings } from './frontguns.js';
 
 export const FRONT_SIDES = ['DE', 'SU'];
@@ -60,6 +61,10 @@ export const FRONT_SETUP = {
   aaBatteries: [2, 2], // batteries de DCA pour la bataille
   pontoons: [2, 2], // ponts de bateaux du génie pour la bataille (un par jour au plus, lancé de nuit)
   pontoonHp: 0.35, // solidité d'un pont de bateaux (1 : pont en dur) : un barrage ou une frappe aérienne le coule
+  // Atouts (frontatout.js) : l'artillerie, les formations blindées, la DCA et les sorties en plus sont tirées au sort
+  // et remplacent guns, attackGuns, armor, aaBatteries et attackSorties. false : moyens placés d'office (banc de
+  // calibrage, tests de physique).
+  atouts: true,
 };
 
 // Types de vecteurs. sigma : demi-largeur du couloir ; catch : rayon de ramassage autour de l'origine
@@ -170,11 +175,20 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
     for (let i = 0; i < N; i++) if (owner[i] === s) total += need[i] * map.flow[i] ** 0.5;
     for (let i = 0; i < N; i++) if (owner[i] === s) dens[i] = (cfg.troops[s] * need[i] * map.flow[i] ** 0.5) / total;
   }
-  // Moyens de rupture de l'attaquant : groupes d'artillerie et sorties aériennes en plus (la défense, renforcée, ne cède
-  // qu'à des feux concentrés ; combat.js, choc).
-  const attSide = sideIndex(attacker);
-  cfg.guns = cfg.guns.map((l, s) => (s === attSide ? [...l, ...cfg.attackGuns] : l));
-  cfg.sorties = cfg.sorties.map((n, s) => (s === attSide ? n + cfg.attackSorties : n));
+  if (cfg.atouts) {
+    // Atouts tirés au sort : ils remplacent l'artillerie, les blindés et la DCA placés d'office.
+    const deal = dealAtouts(front);
+    cfg.guns = deal.guns;
+    cfg.armor = deal.armor;
+    cfg.aaBatteries = deal.aa;
+    cfg.sorties = cfg.sorties.map((n, s) => n + deal.sorties[s]);
+  } else {
+    // Moyens de rupture de l'attaquant : groupes d'artillerie et sorties aériennes en plus (la défense, renforcée, ne
+    // cède qu'à des feux concentrés ; combat.js, choc).
+    const attSide = sideIndex(attacker);
+    cfg.guns = cfg.guns.map((l, s) => (s === attSide ? [...l, ...cfg.attackGuns] : l));
+    cfg.sorties = cfg.sorties.map((n, s) => (s === attSide ? n + cfg.attackSorties : n));
+  }
   front.guns = createGuns(front, cfg.guns);
   front.aa = createAA(front, cfg.aaBatteries);
   // Rôles : l'attaquant reçoit plus de réserves ; le défenseur est retranché sur quelques cases derrière le front.
@@ -970,6 +984,12 @@ function endDay(front) {
   front.tick = 0;
   rollWeather(front);
   flog(front, 'day', `— Jour ${front.day} : ${FRONT_WEATHER[front.weather].label} —`);
+  if (c.atouts && front.day === ATOUT_RULES.day) {
+    reinforceAtouts(front);
+    updateGunSightings(front);
+    updateAASightings(front);
+    updateArmorSightings(front);
+  }
 }
 
 // ---------- Conditions de victoire ----------

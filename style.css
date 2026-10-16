@@ -363,6 +363,8 @@ kbd {
 .dossier p { max-width: 65ch; }
 .brief-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0 28px; }
 .brief-grid section { min-width: 0; }
+.atouts { margin: 4px 0 6px; padding-left: 18px; }
+.atouts li { margin: 3px 0; }
 .ticks, .roster { margin: 0; padding-left: 18px; }
 .roster { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 5px; }
 .roster em { color: var(--ink-muted); font-size: 13px; }

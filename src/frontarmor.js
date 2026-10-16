@@ -37,7 +37,10 @@ export const ARMOR_RULES = {
   drop: 3, // grenadiers déposés dans une case prise
   expPerCell: 0.02,
   levels: [[0.5, 'Bleue'], [1.5, 'Aguerrie'], [2.5, 'Vétéran'], [Infinity, 'Élite']],
+  // Chars lourds (atout d'élite : Tiger, KV, IS-2) : choc par char, pertes à la riposte, vitesse de marche.
+  heavy: { shock: 1.5, loss: 0.6, speed: 0.75 },
 };
+const heavyK = (a, k) => (a.heavy ? ARMOR_RULES.heavy[k] : 1);
 
 export const expLabel = (e) => ARMOR_RULES.levels.find(([lim]) => e < lim)[1];
 export const expFactor = (e) => 1 + 0.15 * e;
@@ -82,7 +85,7 @@ export function createArmor(front, setup = ARMOR_SETUP) {
         const d = Math.hypot(cx[i] - want.x, cy[i] - want.y);
         if (d < bd) { bd = d; best = i; }
       }
-      out.push({ id: id++, side: s, name: u.name, tanks: u.tanks, max: u.tanks, exp: u.exp, gren: u.gren, fuel: 1, cell: best, x: cx[best], y: cy[best], target: null, cool: 0, lost: false, fought: false, dir: s === 0 ? 0 : Math.PI, seen: [null, null], trail: [] });
+      out.push({ id: id++, side: s, name: u.name, tier: u.tier ?? null, heavy: !!u.heavy, tanks: u.tanks, max: u.tanks, exp: u.exp, gren: u.gren, fuel: 1, cell: best, x: cx[best], y: cy[best], target: null, cool: 0, lost: false, fought: false, dir: s === 0 ? 0 : Math.PI, seen: [null, null], trail: [] });
     });
   }
   return out;
@@ -136,7 +139,7 @@ export function armorPressure(front, push) {
     }
     // Ravitaillement (dépôts loin derrière) et fatigue réduisent le choc.
     const sup = front.supplyK?.[a.side][a.cell] ?? 1;
-    const base = a.tanks * R.shock * front.quality[a.side] * expFactor(a.exp) * sup * (1 - 0.4 * (a.fatigue ?? 0));
+    const base = a.tanks * R.shock * heavyK(a, 'shock') * front.quality[a.side] * expFactor(a.exp) * sup * (1 - 0.4 * (a.fatigue ?? 0));
     const hit = (k, share) => {
       const v = base * share * front.map.atkA[k] * (1 - 0.6 * (front.at?.[k] ?? 0));
       if (v <= 0) return;
@@ -164,7 +167,7 @@ export function armorRiposte(front, hits, j, riposte, F) {
     if (hits[k + 1] !== j) continue;
     const a = front.armor.find((x) => x.id === hits[k]);
     const harsh = (1 + 1.5 * (front.at?.[j] ?? 0)) * (2 - front.map.atkA[j]);
-    a.tanks = Math.max(0, a.tanks - riposte * (hits[k + 2] / F) * ARMOR_RULES.tankLoss * harsh / expFactor(a.exp));
+    a.tanks = Math.max(0, a.tanks - riposte * (hits[k + 2] / F) * ARMOR_RULES.tankLoss * harsh * heavyK(a, 'loss') / expFactor(a.exp));
     a.fought = true;
   }
 }
@@ -213,7 +216,7 @@ export function armorAfter(front, lossBefore, densBefore, events) {
     if (a.target && !a.attacking && a.fuel > 0) {
       const dx = a.target.x - a.x, dy = a.target.y - a.y;
       if (Math.hypot(dx, dy) < 1.2) { a.target = null; continue; }
-      a.progress = (a.progress ?? 0) + R.speed * Math.max(0.1, front.map.flowA[c]);
+      a.progress = (a.progress ?? 0) + R.speed * heavyK(a, 'speed') * Math.max(0.1, front.map.flowA[c]);
       if (a.progress >= 1.7) {
         // Route recalculée quand la formation la quitte, que l'objectif change, ou toutes les 4 heures (le front bouge).
         const r = a.route;

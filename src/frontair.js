@@ -174,7 +174,7 @@ export function airTick(front, events) {
         }
         for (const a of front.armor ?? []) {
           if (a.side !== 1 - s || a.lost || Math.hypot(a.x - m.x, a.y - m.y) > R + 0.5) continue;
-          a.tanks *= 1 - AIR.tankRate * m.power;
+          a.tanks *= 1 - AIR.tankRate * m.power * (front.atouts?.assault[s] ?? 1);
         }
       } else if (t === first) {
         // Chasse : une seule passe ; la cible doit être encore là.

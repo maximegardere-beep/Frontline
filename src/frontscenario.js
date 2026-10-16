@@ -6,6 +6,8 @@
 // Chaque année règle ensuite le rapport des forces (qualité, effectifs, blindés, artillerie), le camp qui attaque le
 // plus souvent, et l'exigence du score (bias) : points retranchés à l'offensive quand elle part favorite, pour que
 // la victoire se mérite.
+// armor et guns : formations et groupes historiques ; avec les atouts (frontatout.js), armor ne sert plus qu'aux noms
+// et aux chiffres de référence des formations tirées, guns qu'au mode sans atouts.
 
 export const FRONT_TRAITS = {
   visionBonus: [1, 0], // cases de reconnaissance en plus
@@ -28,6 +30,9 @@ export const SCENARIOS = {
       [PZ('6e corps mécanisé', 220, 0), PZ('8e corps mécanisé', 200, 0.1), PZ('15e corps mécanisé', 180, 0)],
     ],
     guns: [['div', 'div', 'heavy'], ['div', 'div', 'mortar']],
+    // Atouts (frontatout.js) : poids des raretés par camp ; bataillon de chars lourds de l'élite (null : division d'élite).
+    rarity: [{ commun: 45, rare: 37, elite: 18 }, { commun: 70, rare: 25, elite: 5 }],
+    heavy: [null, 'Brigade de chars lourds KV'],
     bias: 4,
   },
   1942: {
@@ -41,6 +46,9 @@ export const SCENARIOS = {
       [PZ('4e corps blindé', 160, 0.4), PZ('13e corps blindé', 150, 0.5), PZ('24e corps blindé', 130, 0.3)],
     ],
     guns: [['div', 'nebel', 'heavy'], ['div', 'mortar', 'rocket']],
+    // Atouts (frontatout.js) : poids des raretés par camp ; bataillon de chars lourds de l'élite (null : division d'élite).
+    rarity: [{ commun: 50, rare: 35, elite: 15 }, { commun: 62, rare: 30, elite: 8 }],
+    heavy: ['s.Pz.Abt. 502 (Tiger)', 'Brigade de chars lourds KV'],
     bias: 0,
   },
   1943: {
@@ -54,6 +62,9 @@ export const SCENARIOS = {
       [PZ('1er corps blindé', 150, 0.4), PZ('5e corps blindé de la Garde', 170, 0.9), PZ('18e corps blindé', 120, 0.2)],
     ],
     guns: [['div', 'nebel', 'heavy'], ['div', 'mortar', 'rocket']],
+    // Atouts (frontatout.js) : poids des raretés par camp ; bataillon de chars lourds de l'élite (null : division d'élite).
+    rarity: [{ commun: 55, rare: 32, elite: 13 }, { commun: 55, rare: 32, elite: 13 }],
+    heavy: ['s.Pz.Abt. 503 (Tiger)', 'Rég. de chars lourds de la Garde (KV-85)'],
     bias: 0,
   },
   1944: {
@@ -67,6 +78,9 @@ export const SCENARIOS = {
       [PZ('3e corps blindé de la Garde', 190, 1.4), PZ('29e corps blindé', 180, 1.2), PZ('1er corps mécanisé', 170, 1.0)],
     ],
     guns: [['div', 'heavy'], ['div', 'div', 'mortar', 'rocket']],
+    // Atouts (frontatout.js) : poids des raretés par camp ; bataillon de chars lourds de l'élite (null : division d'élite).
+    rarity: [{ commun: 60, rare: 30, elite: 10 }, { commun: 48, rare: 36, elite: 16 }],
+    heavy: ['s.Pz.Abt. 505 (Tigre royal)', 'Rég. de chars lourds de la Garde (IS-2)'],
     bias: 26,
   },
 };

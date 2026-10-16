@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { createFront, runDay, beginDay, stepTick, addVector, troops, FRONT_SETUP, applyWeather } from '../src/front.js';
 import { generateFrontMap } from '../src/mapgen.js';
 import { MOUNTAIN, computeTerrain } from '../src/terrain.js';
+// Moyens placés d'office (sans tirage des atouts) : tests de physique sur des formations et des groupes connus.
+const LEGACY = { atouts: false };
 const computeTerrainFor = (f) => computeTerrain(f.map, false);
 const cellAtPointOf = (f, p) => { let best = -1, bd = Infinity; for (let i = 0; i < f.map.N; i++) { const d = Math.hypot(f.centers.x[i] - p.x, f.centers.y[i] - p.y); if (d < bd) { bd = d; best = i; } } return best; };
 const applyWeatherOf = (f) => computeTerrain(f.map, false, f.ruin);
@@ -52,7 +54,7 @@ test('percée : sans feux elle piétine ; barrage et aviation sur le même point
   const { addAirMission } = await import('../src/frontair.js');
   // Deux journées de percée blindée au même endroit, avec ou sans préparation (barrage puis appui aérien sur le départ).
   const run = (setup, prep) => {
-    const f = createFront({ seed: 'bench1' });
+    const f = createFront({ seed: 'bench1', setup: LEGACY });
     f.weather = 'clear'; applyWeather(f); f.rng.chance = () => true;
     const row = Math.floor(f.map.H / 2), W = f.map.W;
     setup(f, row, W);
@@ -207,7 +209,7 @@ test('barrage de zone : densité et fortifications ennemies entamées, portée l
 test('artillerie : groupes à portée, posture contre puissance, camouflage, perte du groupe débordé', async () => {
   const { addBarrage } = await import('../src/front.js');
   const { setGunOrder, gunPower, visibleGuns, GUN_KINDS } = await import('../src/frontguns.js');
-  const f = createFront({ seed: 'ord' });
+  const f = createFront({ seed: 'ord', setup: LEGACY });
   const mine = f.guns.filter((g) => g.side === 0);
   assert.equal(mine.length, FRONT_SETUP.guns[0].length + FRONT_SETUP.attackGuns.length, 'groupes de départ, plus l\'artillerie de rupture de l\'attaquant');
   assert.equal(f.guns.filter((x) => x.side === 1).length, FRONT_SETUP.guns[1].length, 'le défenseur n\'en a pas');
@@ -581,11 +583,11 @@ test('alerte SOS : un secteur qui perd plusieurs cases en quelques heures appell
 
 test('formations blindées : en réserve sans ordre, elles percent vers leur objectif, perdent des chars, se ravitaillent', async () => {
   const { setArmorOrder } = await import('../src/frontarmor.js');
-  const f = createFront({ seed: 'panzer', attacker: 'DE', biome: 'steppe' });
+  const f = createFront({ seed: 'panzer', attacker: 'DE', biome: 'steppe', setup: LEGACY });
   f.reserve = [0, 0];
   const a = f.armor.find((x) => x.side === 0);
   assert.ok(a && f.owner[a.cell] === 0, 'formation dans ses lignes');
-  const quiet = createFront({ seed: 'panzer', attacker: 'DE', biome: 'steppe' });
+  const quiet = createFront({ seed: 'panzer', attacker: 'DE', biome: 'steppe', setup: LEGACY });
   runDay(quiet);
   assert.equal(quiet.armor.find((x) => x.side === 0).cell, quiet.armor.find((x) => x.side === 0).cell);
   const start = { x: a.x, y: a.y }, tanks0 = a.tanks;
