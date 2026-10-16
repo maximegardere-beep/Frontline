@@ -22,7 +22,7 @@ import { GUN_KINDS, visibleGuns, gunPower } from './frontguns.js';
 import { visibleArmor, armorRoute } from './frontarmor.js';
 import { AIR, airBase, visibleAA } from './frontair.js';
 import { railPoint } from './frontsupply.js';
-import { SPRITE_PAL, WRECK_PAL, piece, tank, wreck, howitzer, towed, mortar, rocket, pit, dust } from './frontsprites.js';
+import { SPRITE_PAL, WRECK_PAL, piece, tank, wreck, howitzer, towed, mortar, rocket, nebelwerfer, pit, dust } from './frontsprites.js';
 
 export const CELL = 9; // rayon d'une case de la micro-grille, en pixels monde
 
@@ -51,7 +51,7 @@ const TRANSFER_INK = 'rgba(150, 186, 236, 0.95)'; // regroupements de nuit
 // Colonnes sur les routes : vitesse (pixels monde par ms), camions par colonne, écart entre deux camions.
 const CONVOY = { speed: 0.012, trucks: 4, gap: 6 };
 // Cratères par tick de barrage à pleine puissance, et leur rayon (pixels monde ; une case fait 9 de rayon).
-const SCAR = { div: { n: 6, r: 1.1 }, heavy: { n: 5, r: 1.6 }, mortar: { n: 7, r: 0.9 }, rocket: { n: 9, r: 0.9 } };
+const SCAR = { div: { n: 6, r: 1.1 }, heavy: { n: 5, r: 1.6 }, mortar: { n: 7, r: 0.9 }, rocket: { n: 9, r: 0.9 }, nebel: { n: 8, r: 0.9 } };
 // Usure du terrain par les combats (pertes cumulées par case sur la bataille, plus chaque cratère de barrage) :
 // au-delà de trample, la steppe se piétine et brunit ; chaque unité au-delà de crater0 ajoute des trous d'obus
 // (per, au plus max par case) ; vers moon, la case devient un champ lunaire gris, criblé de cratères qui se recoupent.
@@ -1320,6 +1320,16 @@ export class FrontRenderer extends Renderer {
     this.fx.plumeSources(sources, 'fire');
   }
 
+  // Le plus gros incendie de ville que voit le camp viewer : { x, y (unités de grille), heat 0..1 }, ou null (son).
+  hottestFire(viewer) {
+    const f = this.front;
+    let best = -1;
+    for (let c = 0; c < f.map.N; c++) {
+      if (this.fire[c] >= FIRE.min * 2 && (best < 0 || this.fire[c] > this.fire[best]) && (f.owner[c] === viewer || f.vision[viewer][c])) best = c;
+    }
+    return best < 0 ? null : { x: f.centers.x[best], y: f.centers.y[best], heat: this.fire[best] };
+  }
+
   drawTowns(viewer) {
     const { ctx } = this;
     const f = this.front;
@@ -1856,8 +1866,8 @@ export class FrontRenderer extends Renderer {
     let n = g.kind === 'mortar' ? 4 : 3;
     n = Math.max(1, Math.ceil(n * g.str - 0.05));
     if (cam.s < 1.1) n = Math.min(n, 2);
-    const gap = (g.kind === 'mortar' ? 6 : g.kind === 'rocket' ? 7.5 : 8.5) * k;
-    const sprite = g.kind === 'mortar' ? mortar : g.kind === 'rocket' ? rocket : (G, Pl, sh) => howitzer(G, Pl, sh, g.kind === 'heavy' ? 1.3 : 1);
+    const gap = (g.kind === 'mortar' || g.kind === 'nebel' ? 6 : g.kind === 'rocket' ? 7.5 : 8.5) * k;
+    const sprite = g.kind === 'mortar' ? mortar : g.kind === 'rocket' ? rocket : g.kind === 'nebel' ? nebelwerfer : (G, Pl, sh) => howitzer(G, Pl, sh, g.kind === 'heavy' ? 1.3 : 1);
     if (sel) {
       ctx.beginPath();
       ctx.arc(c.x, c.y, (n * gap) / 2 + 8 * k, 0, Math.PI * 2);
@@ -1871,7 +1881,7 @@ export class FrontRenderer extends Renderer {
         // Ligne de pièces de front, perpendiculaire à la direction de tir.
         const off = (q - (n - 1) / 2) * gap;
         const x = c.x - Math.sin(face) * off, y = c.y + Math.cos(face) * off;
-        if (g.kind !== 'rocket') pit(ctx, x, y, face, (g.kind === 'mortar' ? 3.4 : g.kind === 'heavy' ? 6 : 5) * k);
+        if (g.kind !== 'rocket') pit(ctx, x, y, face, (g.kind === 'mortar' || g.kind === 'nebel' ? 3.4 : g.kind === 'heavy' ? 6 : 5) * k);
         piece(ctx, x, y, face, k, sprite, P);
       } else {
         // Colonne attelée, dans la direction de marche.

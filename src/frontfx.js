@@ -19,6 +19,7 @@ const ARC = {
   heavy: { n: 8, life: 1200, perPx: 10, maxLife: 3800, h: 0.42, r: 9 },
   mortar: { n: 14, life: 1000, perPx: 12, maxLife: 3000, h: 0.7, r: 5 },
   rocket: { n: 14, life: 700, perPx: 5, maxLife: 2000, h: 0.18, r: 6.5, rocket: true },
+  nebel: { n: 12, life: 800, perPx: 6, maxLife: 2200, h: 0.24, r: 6, rocket: true },
 };
 const MAX_PARTS = 2400;
 // Panaches de fumée : bouffées émises en continu par les foyers (incendies, combats intenses), poussées par le vent.

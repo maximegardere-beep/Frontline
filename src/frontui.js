@@ -762,15 +762,19 @@ function tickSounds(events, tick, T) {
         items.push({ k: 'raid', kind: m.kind, from: frontLocate(o.x, o.y), to: frontLocate(m.x, m.y), flak, downed: m.downed ?? 0 });
       }
       if (AIR.strikeTicks.includes(tick) && (m.kind === 'strike' || tick === first) && !m.missed) {
-        items.push({ k: 'bombs', kind: m.kind, first: tick === first, ...frontLocate(m.x, m.y) });
+        items.push({ k: 'bombs', kind: m.kind, side, first: tick === first, ...frontLocate(m.x, m.y) });
       }
     }
   }
   for (const e of events) {
     if (e.kind === 'capture' && f.map.towns.some((t) => t.i === e.i)) items.push({ k: 'town', ...frontLocate(f.centers.x[e.i], f.centers.y[e.i]) });
     else if (e.kind === 'pocket' && (e.side === s || f.pockets[e.side].some((p) => p.id === e.id && p.troops >= 20))) items.push({ k: 'pocket', pan: 0, gain: 0.8 });
+    else if (e.kind === 'bridge' && (e.side === s || f.vision[s][e.i])) items.push({ k: 'bridge', ...frontLocate(f.centers.x[e.i], f.centers.y[e.i]) });
   }
   sound.front(items, T / 1000);
+  // Ville en flammes : le plus gros incendie visible gronde tant qu'il brûle.
+  const fire = fui.r.hottestFire(s);
+  sound.setFire(fire && { heat: fire.heat, ...frontLocate(fire.x, fire.y) });
 }
 
 function stopLoop() {
@@ -899,7 +903,7 @@ function refreshFront() {
   byId('f-goal').innerHTML = `<span class="star">★</span> ${obj}/${f.defTowns.length}${compact ? '' : f.attacker === s ? ' prises' : ' perdues'} · ${signed(sc.total)}`;
   byId('f-goal').title = `Villes ★ ${f.attacker === s ? 'prises' : 'perdues'} : ${obj} sur ${f.defTowns.length}. Score de l'offensive : ≈ ${signed(sc.total)} (${GRADES[sc.grade].label.toLowerCase()}).`;
   fui.weather.set(f.weather, 'day');
-  sound.setWeather(f.weather);
+  sound.setWeather(f.weather, f.season <= 1); // juillet, août : la steppe en été
   const go = byId('f-go');
   byId('f-go-label').textContent = f.phase === 'plan' ? `Lancer le jour ${f.day}` : 'Rapport final';
   go.title = f.phase === 'plan' ? `Lancer le jour ${f.day} (Entrée)` : 'Rapport final';

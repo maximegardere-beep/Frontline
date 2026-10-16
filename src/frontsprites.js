@@ -144,6 +144,22 @@ export function rocket(g, P, sh) {
   for (let k = -1.6; k <= 1.65; k += 0.53) { g.beginPath(); g.moveTo(-6.4, k); g.lineTo(2.6, k); g.stroke(); }
 }
 
+// Nebelwerfer : six tubes en barillet sur un affût à deux roues, flèche vers l'arrière, deux servants.
+export function nebelwerfer(g, P, sh) {
+  stroke(g, P.body, sh);
+  g.lineWidth = 0.8;
+  g.beginPath(); g.moveTo(-1.5, 0); g.lineTo(-6, 0); g.stroke();
+  fill(g, P.track, sh);
+  g.fillRect(-1.2, -3, 2, 0.9); g.fillRect(-1.2, 2.1, 2, 0.9);
+  fill(g, P.dark, sh);
+  g.beginPath(); g.arc(0.6, 0, 2.3, 0, Math.PI * 2); g.fill();
+  if (sh) return;
+  g.fillStyle = P.light;
+  for (let q = 0; q < 6; q++) { const a = (q / 6) * Math.PI * 2; g.beginPath(); g.arc(0.6 + Math.cos(a) * 1.35, Math.sin(a) * 1.35, 0.45, 0, Math.PI * 2); g.fill(); }
+  g.fillStyle = CREW;
+  for (const [x, y] of [[-3.4, -2.6], [-3.8, 2.4]]) { g.beginPath(); g.arc(x, y, 0.75, 0, Math.PI * 2); g.fill(); }
+}
+
 // Épaulement : rempart de terre en fer à cheval, ouvert vers l'arrière (pièce en batterie).
 export function pit(g, x, y, ang, r) {
   g.save();

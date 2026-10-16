@@ -12,6 +12,7 @@ export const GUN_KINDS = {
   heavy: { label: 'Artillerie lourde', short: 'Art. lourde', range: 26, r: 2.6, rate: 0.05, works: 0.2, speed: 0.4 },
   mortar: { label: 'Mortiers lourds 120 mm', short: 'Mortiers', range: 12, r: 2.6, rate: 0.045, works: 0.1, speed: 0.7 },
   rocket: { label: 'Lance-roquettes (Katioucha)', short: 'Katioucha', range: 13, r: 3.5, rate: 0.07, works: 0.06, speed: 0.8 },
+  nebel: { label: 'Lance-roquettes (Nebelwerfer)', short: 'Nebelwerfer', range: 12, r: 3, rate: 0.065, works: 0.06, speed: 0.7 },
 };
 
 // fire : part de la puissance ; move : part de la vitesse du groupe.
@@ -78,7 +79,7 @@ export function createGuns(front, kinds) {
       }
       const n = list.slice(0, k + 1).filter((x) => x === kind).length;
       const name = s === 0
-        ? (kind === 'heavy' ? `Art.Abt. ${600 + k * 7}` : `Art.Rgt. ${100 + k * 33}`)
+        ? (kind === 'heavy' ? `Art.Abt. ${600 + k * 7}` : kind === 'nebel' ? `Werfer-Rgt. ${51 + k}` : `Art.Rgt. ${100 + k * 33}`)
         : (kind === 'rocket' ? `${ORDINAL(n)} rég. de mortiers de la Garde` : kind === 'mortar' ? `${ORDINAL(n)} rég. de mortiers` : `${ORDINAL(n)} rég. d'artillerie`);
       guns.push({ id: id++, side: s, kind, name, x: cx[best], y: cy[best], str: 1, posture: 'battery', dest: null, lost: false, fired: -99, seen: [null, null] });
     });

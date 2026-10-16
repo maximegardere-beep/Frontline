@@ -40,7 +40,7 @@ export const SCENARIOS = {
       [PZ('3. Panzer-Division', 160, 1.6), PZ('24. Panzer-Division', 150, 1.2)],
       [PZ('4e corps blindé', 160, 0.4), PZ('13e corps blindé', 150, 0.5), PZ('24e corps blindé', 130, 0.3)],
     ],
-    guns: [['div', 'div', 'heavy'], ['div', 'mortar', 'rocket']],
+    guns: [['div', 'nebel', 'heavy'], ['div', 'mortar', 'rocket']],
     bias: 0,
   },
   1943: {
@@ -53,7 +53,7 @@ export const SCENARIOS = {
       [PZ('3. Panzer-Division', 160, 1.4), PZ('11. Panzer-Division', 140, 1.8)],
       [PZ('1er corps blindé', 150, 0.4), PZ('5e corps blindé de la Garde', 170, 0.9), PZ('18e corps blindé', 120, 0.2)],
     ],
-    guns: [['div', 'div', 'heavy'], ['div', 'mortar', 'rocket']],
+    guns: [['div', 'nebel', 'heavy'], ['div', 'mortar', 'rocket']],
     bias: 0,
   },
   1944: {
