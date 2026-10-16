@@ -948,3 +948,25 @@ Chaque étape laisse le jeu jouable : jusqu'à l'étape 7, le joueur reçoit ses
 - Mesure IA contre IA, après l'étape 2 → après l'étape 3 : sans année fixe (72 batailles) attaquant 36 → 38 %,
   défenseur 58 → 54 %, nuls 6 → 8 % ; 1943 (48 batailles) attaquant 33 → 33 %, défenseur 67 → 52 %, nuls 0 → 15 %.
   La fin des lignes de défense tracées chaque jour par les deux camps compense les nouveaux atouts du défenseur.
+
+### Étape 4 faite : génie d'assaut, lance-roquettes, parachutistes, point d'appui
+
+- Génie d'assaut (`frontbattalion.js`, `kind: 'sapper'`) : posé 3,5 unités derrière le contact ; rayon 5,2 / 7 / 8,7 ;
+  barbelés et obstacles antichar ennemis dans le rayon détruits à 1,2 par jour (2,4 à l'élite) ; vitesse de nos
+  vecteurs ×1,25 dans le rayon. Rare : un pont de bateaux de plus. IA : derrière le départ de l'attaque du jour.
+- Salves (`frontspecial.js`) : 1 / 1 / 2 par bataille, rayon 3 / 4 / 4, sur 3 ticks : 13 % des troupes par tick, choc
+  ×2,2 d'un barrage, ouvrages abîmés ; à 30 unités de nos lignes au plus. Effets et sons des Nebelwerfer et Katioucha.
+  IA : dès le 2e jour, au départ de l'attaque principale (une salve gardée pour la seconde moitié si elle en a deux).
+- Parachutistes : 300 / 400 / 700 hommes (le commun, absent du plan, a été ajouté) ; au lever du jour, les cases
+  ennemies à 1,9 unité du point (7 environ) sont prises, 35 % de leurs occupants tués, le reste reflue. L'îlot est
+  une poche ordinaire (fonte, choix du mode). Prises : événements « capture » (villes, PC). IA : à partir du 3e jour,
+  sur le PC ennemi repéré, sinon 6 unités au-delà de l'objectif de l'attaque principale.
+- Point d'appui : la ville ★ du défenseur la plus exposée ; cases à 2,6 unités : défense ×1,4 / ×1,7 / ×2,
+  ouvrages posés d'avance (tranchées ; + barbelés ; + obstacles antichar) ; garnison de 300 hommes à l'élite.
+- Interface : outils Salve (`R`) et Paras (`L`), masqués sans carte ; ordres listés et dessinés (double cercle et
+  fusées, parachute) ; cercle crénelé « Point d'appui » ; génie d'assaut (charge et mèche, rayon en pointillé).
+- Mesure IA contre IA, après l'étape 3 → après l'étape 4 : sans année fixe (72 batailles) attaquant 38 → 29 %,
+  défenseur 54 → 67 %, nuls 8 → 4 % ; 1943 (48 batailles) attaquant 33 → 38 %, défenseur 52 → 63 %, nuls 15 → 0 %.
+  L'attaquant perd nettement sans année fixe : ses nouvelles cartes remplacent souvent de l'artillerie (moins de
+  barrages) et l'IA s'en sert sommairement ; le point d'appui renforce le défenseur. À corriger à l'étape 8 (valeur
+  des cartes pour le choix, chiffres des cartes, IA de l'étape 6).
