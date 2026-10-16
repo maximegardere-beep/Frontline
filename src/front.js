@@ -71,7 +71,7 @@ export const FRONT_SETUP = {
   atouts: true,
   // Poste de commandement (fronthq.js) : coordination autour de lui ; false : aucun PC (banc, tests de physique).
   hq: true,
-  airInitiative: 1, // force en plus pour l'attaquant à chaque bataille des airs (frontairwar.js)
+  airInitiative: 2, // force en plus pour l'attaquant à chaque bataille des airs (frontairwar.js)
 };
 
 // Types de vecteurs. sigma : demi-largeur du couloir ; catch : rayon de ramassage autour de l'origine

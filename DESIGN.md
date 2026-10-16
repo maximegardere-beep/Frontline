@@ -970,3 +970,20 @@ Chaque étape laisse le jeu jouable : jusqu'à l'étape 7, le joueur reçoit ses
   L'attaquant perd nettement sans année fixe : ses nouvelles cartes remplacent souvent de l'artillerie (moins de
   barrages) et l'IA s'en sert sommairement ; le point d'appui renforce le défenseur. À corriger à l'étape 8 (valeur
   des cartes pour le choix, chiffres des cartes, IA de l'étape 6).
+
+### Étape 5 faite : bataille des airs
+
+- `src/frontairwar.js` : force de chaque camp = sorties de l'année (`cfg.airBase`) + cartes (« Chasseurs » du
+  défenseur : +1 / +2 / +3, et +1 sortie s'il gagne à l'élite ; « Soutien aérien » de l'attaquant : +1 / +2 / +3) +
+  initiative de l'attaquant (`airInitiative`). Trois manches : autant de d6 que de force (8 au plus), touche sur 5+ ;
+  plus de touches gagne la manche, le perdant y perd 1 de force. Plus de manches gagnées : suprématie (toutes ses
+  sorties ; l'adversaire 0) ; égalité : ciel disputé (moitié des sorties, arrondie au-dessus). Rejouée au 7e jour avec
+  la force restante + les nouvelles cartes + l'initiative. Seul branchement : `sortiesToday` (× `airShare`). La DCA
+  n'en dépend pas. Journal : une ligne par bataille des airs ; briefing : issue et touches des manches.
+- Sans atouts, ou `setup.airWar: false` : pas de bataille des airs, toutes les sorties.
+- Mesure IA contre IA (72 batailles sans année fixe / 48 en 1943), attaquant vainqueur : bataille des airs coupée
+  28 % / 31 % ; active sans initiative 17 % / 13 % ; initiative +1 22 % / 25 % ; +2 24 % / 27 % (retenu).
+  L'attaquant dépend bien plus de son aviation (feux de préparation) que le défenseur : perdre le ciel lui coûte
+  beaucoup plus que le gagner ne lui rapporte. Sur 40 batailles (sans initiative), ciel à l'attaquant 25 fois (24 %
+  de victoires), au défenseur 12 fois (aucune), disputé 3 fois (aucune). Le recul d'ensemble de l'attaquant (cible
+  40 %) est pour l'étape 8.
