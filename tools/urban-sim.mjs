@@ -1,6 +1,6 @@
 // Batailles de rue IA contre IA (ville tactique) : node tools/urban-sim.mjs [batailles=40] [graine=ville]
-// Armées d'essai : l'attaquant (infanterie, chars, reconnaissance) entre dans une ville tenue par de l'infanterie et
-// un antichar ; feux hors carte des deux camps. Affiche la part de victoires de l'attaquant et la ville prise.
+// Armées d'essai, à 1,5 contre 1 : l'attaquant (9 sections, 3 chars, une reconnaissance) entre dans une ville tenue par
+// 6 sections et un antichar ; feux hors carte des deux camps. ATT=n : sections de l'attaquant. Affiche la part de victoires de l'attaquant et la ville prise.
 import { createBattle, executeTurn, cityShare } from '../src/game.js';
 import { generateUrbanMap } from '../src/urbangen.js';
 import { planSide } from '../src/ai.js';
@@ -13,8 +13,8 @@ export function testArmies(rng, attacker) {
   const def = attacker === 'DE' ? 'SU' : 'DE';
   const mk = (side, list) => list.map((type) => makeUnit(side, type, rng.int(1, 2), rng));
   return {
-    [attacker]: mk(attacker, ['infantry', 'infantry', 'infantry', 'infantry', 'infantry', 'infantry', 'tank', 'tank', 'tank', 'recon']),
-    [def]: mk(def, ['infantry', 'infantry', 'infantry', 'infantry', 'infantry', 'infantry', 'at', 'infantry']),
+    [attacker]: mk(attacker, [...Array(Number(process.env.ATT ?? 9)).fill('infantry'), 'tank', 'tank', 'tank', 'recon']),
+    [def]: mk(def, [...Array(6).fill('infantry'), 'at']),
   };
 }
 

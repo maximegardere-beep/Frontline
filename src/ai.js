@@ -73,6 +73,7 @@ export function planSide(state, side, { directives = null, fixed = null, rng = s
     garrison = inf[0] ?? null;
   }
 
+  const claimed = new Map(); // bataille de rue : îlot visé → nombre d'unités qui y vont
   const order = ['recon', 'tank', 'infantry', 'at', 'artillery'];
   for (const u of [...mine].sort((a, b) => order.indexOf(a.type) - order.indexOf(b.type))) {
     const s = unitStats(u);
@@ -156,6 +157,16 @@ export function planSide(state, side, { directives = null, fixed = null, rng = s
       } else if (obj && stance !== 'defend') goal = obj;
       else if (tgt) goal = tgt.pred;
       else goal = { col: stance === 'defend' ? Math.round((ownEdge * 2 + enemyEdge) / 3) : enemyEdge, row: u.row };
+      // Bataille de rue : ce qui compte, ce sont les îlots. L'attaquant prend les plus proches en se répartissant ;
+      // le défenseur reprend ceux qu'on lui a pris s'ils sont vides et proches. Un ennemi au contact passe d'abord.
+      const block = state.kind === 'ville' && u.type !== 'at' && u.type !== 'artillery' ? urbanGoal(state, side, u, known, claimed) : null;
+      if (block && !known.some((k) => k.status !== 'routed' && hexDistance(u, k.pred) <= 1)) {
+        goal = block.tile;
+        aggressive = true;
+        wGoal = 1.2;
+        dangerW = 0.1;
+        holdBonus = block.here ? 3 : 0;
+      }
     }
 
     const blocked = new Set([...enemyKeys, ...reserved]);
@@ -197,6 +208,27 @@ export function planSide(state, side, { directives = null, fixed = null, rng = s
   }
   if (side !== state.playerSide) planFire(state, side);
   return { assignment };
+}
+
+// Îlot à prendre pour l'unité u : { tile (case visée), here (déjà dessus : rester pour le prendre) } ou null.
+function urbanGoal(state, side, u, known, claimed) {
+  const W = state.map.W;
+  const attacking = side === state.attacker;
+  let best = null, bs = Infinity;
+  for (const b of state.blocks) {
+    if (b.owner === side && !b.contested) continue;
+    const tiles = b.tiles.map((i) => ({ col: i % W, row: Math.floor(i / W) }));
+    const held = known.filter((k) => tiles.some((t) => sameHex(t, k.pred))).length;
+    const d = Math.min(...tiles.map((t) => hexDistance(u, t)));
+    if (!attacking && (held || d > 4)) continue; // le défenseur ne reprend que des îlots vides et proches
+    const here = tiles.some((t) => sameHex(t, u));
+    const score = d + (claimed.get(b.id) ?? 0) * 3 + held * 1.5 - (here ? 4 : 0) - b.weight;
+    if (score < bs) { bs = score; best = { b, tiles, here }; }
+  }
+  if (!best) return null;
+  claimed.set(best.b.id, (claimed.get(best.b.id) ?? 0) + 1);
+  const tile = best.here ? { col: u.col, row: u.row } : best.tiles.reduce((a, t) => (hexDistance(u, t) < hexDistance(u, a) ? t : a));
+  return { tile, here: best.here };
 }
 
 // Bataille de rue : feux hors carte de l'IA. Tir d'appui sur l'ennemi vu qui vaut le plus ; barrage focalisé sur la

@@ -100,3 +100,19 @@ test('ville tactique : îlots pris par l\'infanterie seule, victoire à la part 
   assert.ok(/ville/.test(s.result.reason));
   assert.equal(s.result.winner, cityShare(s) >= 0.5 ? 'DE' : 'SU');
 });
+
+test('ville tactique : l\'IA attaquante prend des îlots, la défenseure reprend les siens', async () => {
+  const { planSide } = await import('../src/ai.js');
+  let share = 0;
+  for (let k = 0; k < 3; k++) {
+    resetIds();
+    const rng = createRng(`ia${k}`);
+    const mk = (side, list) => list.map((t) => makeUnit(side, t, 2, rng));
+    const map = generateUrbanMap(`ia${k}`, { size: 'town' });
+    const s = createBattle({ seed: `ia${k}`, playerSide: null, armies: { DE: mk('DE', [...Array(9).fill('infantry'), 'tank', 'tank']), SU: mk('SU', [...Array(6).fill('infantry'), 'at']) }, kind: 'ville', maxTurns: 10, map, attacker: 'DE', fire: { DE: { barrage: 2, support: 3 } } });
+    s.phase = 'plan';
+    while (!s.result) { planSide(s, 'DE'); planSide(s, 'SU'); executeTurn(s); }
+    share += cityShare(s);
+  }
+  assert.ok(share / 3 > 0.2, `part moyenne de la ville prise : ${(share / 3).toFixed(2)}`);
+});

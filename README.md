@@ -20,6 +20,7 @@ node tools/balance.mjs 600        # équilibre des camps sur 600 batailles IA co
 node tools/campaign-sim.mjs 200   # difficulté de la campagne, l'IA jouant le joueur
 node tools/front-sim.mjs 120      # front stratégique : 120 batailles IA contre IA (attaquant, camps)
 node tools/front-bench.mjs        # front stratégique : banc de calibrage (percée, attaque frontale, poches)
+node tools/urban-sim.mjs 48       # batailles de rue IA contre IA (ATT=6 : à forces égales)
 node tools/bundle.mjs   # génère dist/frontline.html, un fichier unique jouable hors ligne
 ```
 
@@ -130,6 +131,35 @@ défenseur, est tiré de la graine et annoncé au briefing, avec l'objectif : le
   lendemain.
 - **Victoire** au soir du 15e jour : l'attaquant gagne s'il tient assez de villes ★, sinon le défenseur a tenu.
   Un camp qui tombe sous 12 % de ses effectifs ou de son terrain, ou qui perd toutes les villes, a perdu sur-le-champ.
+
+### Batailles de rue
+
+Quand on lance la journée, une ville que vise une poussée (la vôtre, ou celle de l'ennemi sur l'une des vôtres) peut
+se jouer en tactique. Un anneau marque la ville et une fenêtre s'ouvre au-dessus : rapport de force estimé, terrain,
+défenses, appui d'artillerie, barrages utilisables. « Commander la bataille » ouvre la ville en hexagones d'environ
+50 m ; « Résolution auto » la laisse au front comme d'habitude (et passe à la ville suivante). Une bataille commandée
+par jour ; son résultat est décisif : chaque case de la ville prend le camp qui tient l'îlot correspondant, les
+pertes et les chars perdus sont reportés sur le front, les barrages dépensés sortent du stock, et la ville ne change
+plus de mains jusqu'au soir.
+
+- **La ville** reprend la ville du front : sa taille (village, ville, grande ville avec son usine), la rivière et son
+  pont, les routes d'accès, les ruines déjà là. Grand-rue d'ouest en est, rues transversales, place et église ; au
+  centre des maisons en pierre, autour des isbas en bois et leurs jardins.
+- **Les troupes** : une section pour 150 hommes engagés (de 3 à 12, au même rapport de force), une compagnie de chars
+  pour 20 chars des formations qui visent la ville (4 au plus), les canons antichar du défenseur à portée ; les
+  défenseurs partent retranchés selon les ouvrages de la ville.
+- **Les règles** : l'infanterie dans les maisons est très couverte et invisible tant qu'elle ne tire pas ; les chars
+  roulent dans les rues (un pâté de maisons ne se traverse pas) et tirent loin dans leur enfilade, mais une infanterie
+  qui les prend à partie depuis une maison n'a plus de malus contre le blindage, et gagne un bonus d'embuscade. Les
+  isbas brûlent.
+- **Les feux** (barre « Feux » en bas de la carte, un de chaque par tour) : barrage focalisé sur un hexagone et ses six
+  voisins, amis compris, les maisons s'effondrent (ruines immédiates, défenseurs décimés et cloués) et leurs gravats
+  ferment les rues voisines aux chars ; tir d'appui sur une case que l'on voit. Leur nombre vient de l'artillerie qui
+  couvre la ville sur le front et du stock de barrages de la bataille.
+- **Les îlots** passent à qui y a seul de l'infanterie ou des chars ; disputés, ils ne changent pas de mains. Au bout
+  de 10 tours, l'attaquant gagne s'il tient au moins la moitié de la ville (l'église compte double, la pierre une fois
+  et demie).
+- Un essai sans le front : au menu, « bataille de rue côté Wehrmacht / Armée rouge ».
 
 ## Rendu : terrain continu sur grille
 
@@ -333,7 +363,9 @@ dernier mouvement observé : c'est la base pour anticiper et placer ses barrages
 | `src/frontscenario.js` | Scénarios 1941 à 1944 (forces, blindés, artillerie, exigence du score) et atouts propres à chaque camp |
 | `src/frontsprites.js` | Pièces vues de dessus dessinées en code : chars, obusiers, mortiers, Katioucha, camions, épaulements |
 | `src/frontrender.js` | Rendu du front : masses fondues, ligne de front, ordres, poches |
-| `src/frontui.js` | Interface du front : briefing, outils, journée animée, bilans, sons |
+| `src/frontui.js` | Interface du front : briefing, outils, journée animée, bilans, sons, fenêtre des batailles de rue |
+| `src/urbangen.js` | Ville tactique : rues, pâtés de maisons, isbas, place et église, usine, rivière et pont ; îlots |
+| `src/frontstreet.js` | Batailles de rue : villes disputées, conversion du front en bataille tactique, résultat réinjecté |
 
 Les moteurs (`rng` → `campaign`, `front`, `frontai`, `frontinput`) ne dépendent pas du navigateur : il est testé sous Node et peut servir
 de base à un portage (Godot, Unity…) ou à un mode multijoueur. Voir `DESIGN.md` pour les pistes.

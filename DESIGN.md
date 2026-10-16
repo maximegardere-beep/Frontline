@@ -1173,3 +1173,17 @@ et l'artillerie passe d'un barrage par groupe et par jour à un appui permanent 
 - Une bataille commandée par jour (`front.streetDay`). Au bilan, « Retour au front » réinjecte le résultat
   (`applyStreetBattle`, une ligne au journal), rend le cadre du front et lance la journée ; la ville reste figée
   jusqu'au soir.
+
+### Étape 7 faite : IA urbaine, mesures, publication
+
+- IA tactique en ville (`urbanGoal`, `ai.js`) : ce qui compte, ce sont les îlots. L'attaquant (infanterie, chars,
+  reconnaissance) vise l'îlot qu'il ne tient pas le plus proche, en se répartissant (un îlot déjà visé coûte 3 de
+  distance de plus) et en préférant les îlots lourds ; posé sur un îlot à prendre, il y reste le tour. Le défenseur
+  reprend les îlots perdus vides à 4 hexagones au plus. Un ennemi au contact passe avant l'îlot.
+- Mesure (`tools/urban-sim.mjs`, 48 batailles par mesure), avant → après : à 1,5 contre 1, attaquant 0 → 42 %, part
+  de ville prise 10 → 42 % ; à forces égales (chars en plus), 29 %, 32 % de la ville. La ville avantage le défenseur,
+  comme voulu : il faut l'artillerie (barrages) et la supériorité numérique.
+- Règles en jeu, README (section « Batailles de rue », outils, structure du code), fichier unique régénéré.
+- Reste à surveiller en jeu : la fréquence des fenêtres (environ une ville disputée tous les dix jours de bataille
+  par camp en IA contre IA ; davantage quand le joueur pousse sur les villes), et l'équilibre du résultat décisif face
+  à la résolution automatique.
