@@ -52,8 +52,18 @@ défenseur, est tiré de la graine et annoncé au briefing, avec l'objectif : le
   d'avance. Avant la bataille, chaque camp tire 5 cartes selon son rôle et l'année, et en garde 3 ; au matin du
   7e jour, il en tire 4 (5 s'il est mené aux points) et en garde 2. Chaque carte a une rareté (commun, rare, élite :
   les chars lourds, Tiger, KV ou IS-2, sont des cartes d'élite). L'attaquant tire divisions blindées, artillerie
-  lourde, soutien aérien et DCA ; le défenseur, artillerie divisionnaire, canons antichar, bataillons de soutien et
-  DCA.
+  lourde, soutien aérien, génie d'assaut, lance-roquettes, parachutistes et DCA ; le défenseur, artillerie
+  divisionnaire, canons antichar, bataillons de soutien, point d'appui et DCA.
+- **Génie d'assaut** (attaquant) : posé juste derrière le contact, il rase les barbelés et obstacles antichar ennemis
+  dans son rayon (cercle en pointillé le matin), et vos troupes y avancent plus vite. Il se déplace de nuit.
+- **Lance-roquettes** (attaquant) : outil Salve (`R`), une zone large écrasée au lever du jour (pertes, choc), une ou
+  deux fois par bataille selon la carte.
+- **Parachutistes** (attaquant) : outil Paras (`L`), un largage au lever du jour jusqu'à 15 cases derrière les lignes
+  ennemies. L'îlot pris est coupé de ses arrières : il fond comme une poche tant que vous ne l'avez pas rejoint. Posé
+  sur un pont, il le tient ; sur le PC ennemi, il le prend.
+- **Point d'appui** (défenseur) : la ville ★ la plus exposée, retranchée d'avance (tranchées, barbelés, obstacles
+  selon la rareté), à la défense multipliée (×1,4 à ×2), avec une garnison à l'élite ; contournée, elle risque
+  l'encerclement.
 - **Canons antichar** (défenseur) : ils tirent dans un cône face au contact, sur les seuls blindés, qu'ils déciment et
   freinent (les chars lourds encaissent mieux) ; pas de barrage. Deux ou trois barrages ou chasses aériennes en
   viennent à bout ; débordés, ils sont perdus.

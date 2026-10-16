@@ -2,8 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createFront, beginDay, stepTick, addBarrage } from '../src/front.js';
 import { createGuns, inCone, atFire, GUN_KINDS } from '../src/frontguns.js';
-import { createSupport, supportDawn, supportTick, supportNight, moveSupport, SUPPORT } from '../src/frontbattalion.js';
+import { createSupport, supportDawn, supportTick, supportNight, moveSupport, applySappers, SUPPORT, SAPPER } from '../src/frontbattalion.js';
 import { drawHand } from '../src/frontatout.js';
+import { addSpecial, addSalvo, addDrop, SPECIAL } from '../src/frontspecial.js';
+import { rebuildFields } from '../src/front.js';
 
 const base = (seed) => createFront({ seed, playerSide: 'DE', attacker: 'SU', year: 1943, setup: { atouts: false, hq: false } });
 
@@ -88,7 +90,8 @@ test('atouts du défenseur : canons antichar et bataillons dans le paquet, garan
     assert.ok(hand.some((c) => c.key === 'antitank' || c.key === 'support'));
     at += f.guns.filter((g) => g.side === 1 && GUN_KINDS[g.kind].at).length;
     sup += f.support.filter((b) => b.side === 1).length;
-    assert.equal(f.support.filter((b) => b.side === 0).length, 0, 'l\'attaquant n\'en tire pas');
+    assert.equal(f.support.filter((b) => b.side === 0 && b.kind !== 'sapper').length, 0, 'l\'attaquant n\'en tire pas');
+    assert.equal(f.support.filter((b) => b.side === 1 && b.kind === 'sapper').length, 0, 'ni le défenseur de génie d\'assaut');
   }
   assert.ok(at > 0 && sup > 0, `${at} canons antichar, ${sup} bataillons`);
 });
@@ -98,4 +101,102 @@ test('journée complète avec les nouveaux atouts', () => {
   beginDay(f);
   while (f.phase === 'resolve') stepTick(f);
   assert.equal(f.day, 2);
+});
+
+// Case ennemie à distance d (unités de grille) de nos lignes, sur la ligne du milieu.
+function enemyBehind(f, s, d) {
+  const row = Math.floor(f.map.H / 2), W = f.map.W;
+  let edge = -1;
+  for (let c = 0; c < W; c++) { const i = row * W + (s === 0 ? c : W - 1 - c); if (f.owner[i] === s) edge = i; else if (f.owner[i] === 1 - s) break; }
+  let best = -1, bd = Infinity;
+  for (let i = 0; i < f.map.N; i++) {
+    if (f.owner[i] !== 1 - s) continue;
+    const e = Math.abs(Math.hypot(f.centers.x[i] - f.centers.x[edge], f.centers.y[i] - f.centers.y[edge]) - d) + Math.abs(f.centers.y[i] - f.centers.y[edge]);
+    if (e < bd) { bd = e; best = i; }
+  }
+  return best;
+}
+
+test('salve de lance-roquettes : une fois par carte, pertes et choc au lever du jour', () => {
+  const f = createFront({ seed: 'salve', playerSide: 'DE', attacker: 'DE', year: 1943, setup: { atouts: false, hq: false } });
+  addSpecial(f, [{ salvos: { n: 1, r: 4 } }, null]);
+  const t = enemyBehind(f, 0, 3);
+  const at = { x: f.centers.x[t], y: f.centers.y[t] };
+  assert.ok(addSalvo(f, 0, { x: at.x + 200, y: at.y }).error, 'hors de portée');
+  assert.ok(!addSalvo(f, 0, at).error);
+  assert.ok(addSalvo(f, 0, at).error, 'une seule salve');
+  const before = f.dens[t];
+  beginDay(f);
+  stepTick(f);
+  assert.ok(f.dens[t] < before * 0.95, 'pertes');
+  assert.ok(f.shock[t] > 0.3, 'choc');
+  assert.equal(f.rockets[0].left, 0);
+  while (f.phase === 'resolve') stepTick(f);
+  assert.equal(f.salvos[0].length, 0);
+  assert.ok(addSalvo(f, 0, at).error, 'carte épuisée');
+});
+
+test('parachutistes : îlot pris derrière les lignes, poche tant qu\'on ne l\'a pas rejoint, PC ennemi capturé', () => {
+  const f = createFront({ seed: 'paras', playerSide: 'DE', attacker: 'DE', year: 1943, setup: { atouts: false } });
+  addSpecial(f, [{ paras: [60] }, null]);
+  const hq = f.hq[1];
+  assert.ok(addDrop(f, 0, { x: f.centers.x[0] + 1, y: f.centers.y[0] + 1 }).error, 'pas dans nos lignes');
+  // PC ennemi rapproché du front (à portée de largage).
+  const near = enemyBehind(f, 0, 12);
+  Object.assign(hq, { cell: near, x: f.centers.x[near], y: f.centers.y[near] });
+  const r = addDrop(f, 0, { x: hq.x, y: hq.y });
+  assert.ok(!r.error, r.error);
+  {
+    beginDay(f);
+    stepTick(f);
+    assert.equal(f.owner[hq.cell], 0, 'case du PC prise');
+    assert.equal(hq.captured, true);
+    assert.ok(f.pockets[0].some((p) => p.cells.includes(hq.cell)), 'les parachutistes forment une poche');
+    assert.ok(f.log.some((l) => l.kind === 'drop'));
+  }
+  // Largage à portée : toujours possible un peu derrière le front.
+  const g = createFront({ seed: 'paras2', playerSide: 'DE', attacker: 'DE', year: 1943, setup: { atouts: false, hq: false } });
+  addSpecial(g, [{ paras: [40] }, null]);
+  const t = enemyBehind(g, 0, 15);
+  assert.ok(!addDrop(g, 0, { x: g.centers.x[t], y: g.centers.y[t] }).error);
+  assert.ok(addDrop(g, 0, { x: g.centers.x[t], y: g.centers.y[t] }).error, 'un seul largage');
+  beginDay(g);
+  stepTick(g);
+  assert.equal(g.owner[t], 0);
+  assert.ok(g.dens[t] > 0);
+  assert.ok(g.paras[0].length === 0, 'carte consommée');
+});
+
+test('point d\'appui : ville exposée retranchée, défense multipliée', () => {
+  const f = createFront({ seed: 'igel', playerSide: 'DE', attacker: 'SU', year: 1943, setup: { atouts: false, hq: false } });
+  rebuildFields(f, 0);
+  const town = f.map.towns.find((t) => f.owner[t.i] === 0);
+  addSpecial(f, [{ strong: [{ mul: 2, level: 3, garrison: 30 }] }, null]);
+  const p = f.strong[0][0];
+  assert.ok(p && f.owner[p.i] === 0);
+  for (const i of p.cells) { assert.equal(f.entrench[i], 1); assert.equal(f.wire[i], 1); assert.equal(f.at[i], 1); }
+  const fort1 = f.field[0].fort[p.i];
+  rebuildFields(f, 0);
+  assert.ok(f.field[0].fort[p.i] >= fort1 * 1.9, 'défense doublée (et retranchée)');
+  void town;
+});
+
+test('génie d\'assaut : barbelés et obstacles ennemis rasés à portée, avance plus rapide', () => {
+  const f = createFront({ seed: 'sape', playerSide: 'DE', attacker: 'DE', year: 1943, setup: { atouts: false, hq: false } });
+  f.support = createSupport(f, [[{ kind: 'sapper', r: 7, rate: 2.4 }], []]);
+  const [b] = f.support;
+  supportDawn(f);
+  assert.ok(b.cells.length > 0 && b.cells.every((i) => f.owner[i] === 1));
+  for (const i of b.cells) { f.wire[i] = 1; f.at[i] = 1; }
+  f.phase = 'resolve';
+  for (let t = 0; t < f.cfg.ticks; t++) supportTick(f, []);
+  assert.ok(b.cells.every((i) => f.wire[i] < 0.01 && f.at[i] < 0.01), 'ouvrages rasés en une journée (élite)');
+  const near = [...Array(f.map.N).keys()].find((i) => f.owner[i] === 0 && Math.hypot(f.centers.x[i] - b.x, f.centers.y[i] - b.y) < 2);
+  const F = { speed: new Float32Array(f.map.N).fill(1) };
+  applySappers(f, 0, F);
+  assert.equal(F.speed[near], SAPPER.speed, 'avance plus rapide près du génie');
+  b.lost = true;
+  F.speed.fill(1);
+  applySappers(f, 0, F);
+  assert.equal(F.speed[near], 1);
 });

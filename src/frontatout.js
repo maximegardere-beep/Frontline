@@ -13,6 +13,7 @@ import { createArmor, ARMOR_SETUP } from './frontarmor.js';
 import { createAA } from './frontair.js';
 import { createGuns, GUN_KINDS, nextName } from './frontguns.js';
 import { createSupport, refreshZones, SUPPORT_LEVELS } from './frontbattalion.js';
+import { addSpecial } from './frontspecial.js';
 import { scoreBreakdown, SCORE } from './frontscore.js';
 
 export const ATOUT_RULES = {
@@ -41,6 +42,22 @@ export const ATOUTS = {
   air: {
     role: 'att', weight: 2, value: 6, label: 'Soutien aérien',
     tiers: { commun: { sorties: 1 }, rare: { sorties: 2 }, elite: { sorties: 2, assault: 1.5 } },
+  },
+  sappers: {
+    role: 'att', weight: 2, value: 6, label: 'Génie d\'assaut',
+    tiers: { commun: { sappers: [{ r: 5.2, rate: 1.2 }] }, rare: { sappers: [{ r: 7, rate: 1.2 }], pontoons: 1 }, elite: { sappers: [{ r: 8.7, rate: 2.4 }] } },
+  },
+  rockets: {
+    role: 'att', weight: 2, value: 7, fire: true, label: 'Lance-roquettes',
+    tiers: { commun: { salvos: { n: 1, r: 3 } }, rare: { salvos: { n: 1, r: 4 } }, elite: { salvos: { n: 2, r: 4 } } },
+  },
+  paras: {
+    role: 'att', weight: 1.5, value: 7, label: 'Parachutistes',
+    tiers: { commun: { paras: [30] }, rare: { paras: [40] }, elite: { paras: [70] } },
+  },
+  strongpoint: {
+    role: 'def', weight: 2, value: 7, label: 'Point d\'appui',
+    tiers: { commun: { strong: [{ mul: 1.4, level: 1 }] }, rare: { strong: [{ mul: 1.7, level: 2 }] }, elite: { strong: [{ mul: 2, level: 3, garrison: 30 }] } },
   },
   divArt: {
     role: 'def', weight: 3, value: 8, fire: true, label: 'Artillerie divisionnaire',
@@ -76,7 +93,11 @@ const roleOf = (front, s) => (s === front.attacker ? 'att' : 'def');
 // Contenu concret d'une carte pour un camp : liste de groupes d'artillerie, formations, DCA, sorties.
 function cardContent(front, s, card) {
   const t = ATOUTS[card.key].tiers[card.rarity];
-  const out = { guns: [], armor: [], support: (t.support ?? []).map((max) => ({ max })), aa: t.aa ?? 0, sorties: t.sorties ?? 0, assault: t.assault ?? 1 };
+  const out = {
+    guns: [], armor: [], support: [...(t.support ?? []).map((max) => ({ max })), ...(t.sappers ?? []).map((sp) => ({ kind: 'sapper', ...sp }))],
+    aa: t.aa ?? 0, sorties: t.sorties ?? 0, assault: t.assault ?? 1, pontoons: t.pontoons ?? 0,
+    special: { salvos: t.salvos ?? null, paras: t.paras ?? [], strong: t.strong ?? [] },
+  };
   if (t.guns) out.guns = t.guns.map((k) => (k === '%rocket' ? ROCKET[s] : k));
   if (t.armor) out.armor.push(armorSpec(front, s, t.armor));
   return out;
@@ -107,7 +128,14 @@ export function cardText(front, s, card) {
   const at = c.guns.filter((k) => GUN_KINDS[k].at).length;
   if (at) parts.push(`${at} groupes antichar`);
   if (c.guns.length - at) parts.push(`${c.guns.length - at} groupes d'artillerie`);
-  if (c.support.length) parts.push(`${c.support.length > 1 ? `${c.support.length} bataillons` : '1 bataillon'}, jusqu'aux ${SUPPORT_LEVELS[c.support[0].max]}`);
+  const bat = c.support.filter((b) => b.kind !== 'sapper');
+  if (bat.length) parts.push(`${bat.length > 1 ? `${bat.length} bataillons` : '1 bataillon'}, jusqu'aux ${SUPPORT_LEVELS[bat[0].max]}`);
+  for (const sp of c.support.filter((b) => b.kind === 'sapper')) parts.push(`rayon de ${Math.round(sp.r / 1.73)} cases${sp.rate > 1.5 ? ', ouvrages rasés deux fois plus vite' : ''}`);
+  if (c.pontoons) parts.push(`+${c.pontoons} pont de bateaux`);
+  const S = c.special;
+  if (S.salvos) parts.push(`${S.salvos.n} salve${S.salvos.n > 1 ? 's' : ''}, zone de ${Math.round((S.salvos.r * 2) / 1.73)} cases de large`);
+  for (const d of S.paras) parts.push(`largage de ${d * front.cfg.men} hommes`);
+  for (const st of S.strong) parts.push(`ville ★ : défense ×${String(st.mul).replace('.', ',')}${st.garrison ? `, garnison de ${st.garrison * front.cfg.men} hommes` : ''}`);
   if (c.aa) parts.push(`${c.aa} batteries`);
   if (c.sorties) parts.push(`+${c.sorties} sortie${c.sorties > 1 ? 's' : ''} par jour${c.assault > 1 ? ', avions d\'assaut' : ''}`);
   return parts.join(' · ');
@@ -158,11 +186,15 @@ export function chooseCards(front, s, hand, keep) {
 // Somme du contenu des cartes gardées, par camp.
 function forcesOf(front, kept) {
   return [0, 1].map((s) => {
-    const f = { guns: [], armor: [], support: [], aa: 0, sorties: 0, assault: 1 };
+    const f = { guns: [], armor: [], support: [], aa: 0, sorties: 0, assault: 1, pontoons: 0, special: { salvos: { n: 0, r: 0 }, paras: [], strong: [] } };
     for (const card of kept[s]) {
       const c = cardContent(front, s, card);
       f.guns.push(...c.guns);
       f.support.push(...c.support);
+      f.pontoons += c.pontoons;
+      if (c.special.salvos) { f.special.salvos.n += c.special.salvos.n; f.special.salvos.r = Math.max(f.special.salvos.r, c.special.salvos.r); }
+      f.special.paras.push(...c.special.paras);
+      f.special.strong.push(...c.special.strong);
       f.armor.push(...c.armor);
       f.aa += c.aa;
       f.sorties += c.sorties;
@@ -218,7 +250,8 @@ export function dealAtouts(front) {
   const forces = forcesOf(front, kept);
   front.atouts.assault = forces.map((f) => f.assault);
   logDeal(front, kept, 0);
-  return { guns: forces.map((f) => f.guns), armor: armorLists(front, forces), support: forces.map((f) => f.support), aa: forces.map((f) => f.aa), sorties: forces.map((f) => f.sorties) };
+  for (const s of [0, 1]) front.pontoons[s] += forces[s].pontoons;
+  return { guns: forces.map((f) => f.guns), armor: armorLists(front, forces), support: forces.map((f) => f.support), special: forces.map((f) => f.special), aa: forces.map((f) => f.aa), sorties: forces.map((f) => f.sorties) };
 }
 
 // Camp mené aux points au soir du 6e jour : l'attaquant en dessous d'une issue indécise, le défenseur quand
@@ -259,6 +292,8 @@ export function reinforceAtouts(front) {
   front.aa.push(...renumber(createAA(front, forces.map((f) => f.aa)), front.aa));
   front.support.push(...renumber(createSupport(front, forces.map((f) => f.support)), front.support));
   refreshZones(front);
+  addSpecial(front, forces.map((f) => f.special));
+  for (const s of [0, 1]) front.pontoons[s] += forces[s].pontoons;
   front.cfg.sorties = front.cfg.sorties.map((n, s) => n + forces[s].sorties);
   A.assault = A.assault.map((v, s) => Math.max(v, forces[s].assault));
   logDeal(front, kept, 1);

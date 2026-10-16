@@ -19,7 +19,8 @@ import { WORKS, initWorks, defenderBelt, barrageWorks, captureWorks, buildTick, 
 import { initScore, eveningScore, noteCapture, scoreBreakdown, GRADES } from './frontscore.js';
 import { createAA, airTick, updateAASightings, airNight } from './frontair.js';
 import { dealAtouts, reinforceAtouts, ATOUT_RULES } from './frontatout.js';
-import { createSupport, refreshZones, supportDawn, supportTick, supportNight, updateSupportSightings } from './frontbattalion.js';
+import { createSupport, refreshZones, supportDawn, supportTick, supportNight, updateSupportSightings, applySappers } from './frontbattalion.js';
+import { initSpecial, addSpecial, salvoTick, dropTick, applyStrong, removeSpecial, specialNight } from './frontspecial.js';
 import { createHQ, applyHQ, engageCapOf, ordersWait, hqDawn, hqTick, hqAfter, hqSightings, hqNight } from './fronthq.js';
 import { GUN_KINDS, GUN_RULES, createGuns, gunFor, gunPower, moveGuns, supportFire, gunsNight, updateGunSightings, atFire } from './frontguns.js';
 
@@ -186,6 +187,7 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
     cfg.armor = deal.armor;
     cfg.aaBatteries = deal.aa;
     cfg.support = deal.support;
+    cfg.special = deal.special;
     cfg.sorties = cfg.sorties.map((n, s) => n + deal.sorties[s]);
   } else {
     // Moyens de rupture de l'attaquant : groupes d'artillerie et sorties aériennes en plus (la défense, renforcée, ne
@@ -224,8 +226,10 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
   updateMemory(front);
   front.armor = createArmor(front, cfg.armor ?? ARMOR_SETUP);
   front.hq = cfg.hq ? createHQ(front) : null;
-  front.support = createSupport(front, cfg.support ?? [[], []]); // bataillons de soutien (frontbattalion.js)
+  front.support = createSupport(front, cfg.support ?? [[], []]); // bataillons de soutien, génie d'assaut (frontbattalion.js)
   refreshZones(front);
+  initSpecial(front);
+  if (cfg.special) addSpecial(front, cfg.special); // salves, parachutistes, points d'appui (frontspecial.js)
   front.docs = [-1, -1]; // documents saisis sur un PC ennemi : lisibles jusqu'à ce tick (fronthq.js)
   updateGunSightings(front);
   updateAASightings(front);
@@ -534,6 +538,7 @@ export function removeOrder(front, s, id) {
   undoTransfer(front, s, id);
   front.air[s] = front.air[s].filter((m) => m.id !== id);
   front.pontoonOrders[s] = front.pontoonOrders[s].filter((o) => o.id !== id);
+  removeSpecial(front, s, id);
 }
 
 // Comportement d'une poche, choisi le matin (par le joueur pour les siennes, par l'IA pour les autres).
@@ -717,6 +722,8 @@ export function rebuildFields(front, s) {
       F.skirm[i] = 2.5;
     }
   }
+  applyStrong(front, s, F); // points d'appui
+  applySappers(front, s, F); // génie d'assaut : avance plus rapide
   applyHQ(front, s, F); // coordination du poste de commandement
 }
 
@@ -828,6 +835,8 @@ export function stepTick(front) {
   const early = [];
   updateSupplyK(front);
   applyWorks(front, early);
+  salvoTick(front, early, FRONT_WEATHER[front.weather].barrage); // lance-roquettes
+  dropTick(front, early); // parachutistes
   airTick(front, early);
   hqTick(front, early);
   if (front.terrainDirty) { front.terrainDirty = false; applyWeather(front); } // pont coulé par l'aviation
@@ -983,6 +992,7 @@ function endDay(front) {
   staffNight(front); // regroupement de nuit (pas sans PC en état)
   hqNight(front);
   supportNight(front);
+  specialNight(front);
   buildPontoons(front);
   // Nuit : une part des pertes du jour rejoint (blessés légers, isolés), hors troupes perdues dans les poches.
   if (front.dayStart) {

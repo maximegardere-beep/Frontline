@@ -8,6 +8,11 @@ import { pixelToHex } from './hex.js';
 import { bfsDistance } from './path.js';
 import { buildSite } from './frontworks.js';
 
+// Génie d'assaut (atout de l'attaquant) : même unité, kind 'sapper'. Posé juste derrière le contact, il ronge les
+// barbelés et les obstacles antichar ennemis dans son rayon (rate : part détruite par jour), et ses troupes y avancent
+// plus vite (sapperSpeed).
+export const SAPPER = { back: 3.5, speed: 1.25 };
+
 export const SUPPORT = {
   half: 9, // demi-hauteur de la zone (≈ 6 lignes de cases)
   reach: 16, // portée de la zone vers le front, depuis le bataillon
@@ -50,7 +55,7 @@ export function createSupport(front, specs, first = 1) {
       let fx = NaN;
       for (const i of contact) if (Math.abs(cy[i] - y) < 1) fx = Number.isNaN(fx) ? cx[i] : s === 0 ? Math.max(fx, cx[i]) : Math.min(fx, cx[i]);
       if (Number.isNaN(fx)) fx = cx[W - 1] / 2;
-      const want = { x: fx - (s === 0 ? 1 : -1) * SUPPORT.back, y };
+      const want = { x: fx - (s === 0 ? 1 : -1) * (spec.kind === 'sapper' ? SAPPER.back : SUPPORT.back), y };
       let best = -1, bd = Infinity;
       for (let i = 0; i < N; i++) {
         if (front.owner[i] !== s || front.map.flow[i] <= 0) continue;
@@ -58,9 +63,11 @@ export function createSupport(front, specs, first = 1) {
         if (d < bd) { bd = d; best = i; }
       }
       if (best < 0) return;
-      const n = (front.support?.filter((b) => b.side === s).length ?? 0) + out.filter((b) => b.side === s).length + 1;
+      const kind = spec.kind ?? 'support';
+      const n = (front.support?.filter((b) => b.side === s && b.kind === kind).length ?? 0) + out.filter((b) => b.side === s && b.kind === kind).length + 1;
+      const name = kind === 'sapper' ? (s === 0 ? `Sturm-Pi.Btl. ${600 + n * 27}` : `${ORDINAL(n)} bataillon de sapeurs d'assaut`) : s === 0 ? `Bau-Btl. ${100 + n * 17}` : `${ORDINAL(n)} bataillon du génie`;
       out.push({
-        id: id++, side: s, name: s === 0 ? `Bau-Btl. ${100 + n * 17}` : `${ORDINAL(n)} bataillon du génie`,
+        id: id++, side: s, kind, name, r: spec.r ?? 0, rate: spec.rate ?? 0,
         max: spec.max ?? 2, level: 1, cell: best, x: cx[best], y: cy[best], dest: null, lost: false, seen: [null, null], cells: [], core: new Set(),
       });
     });
@@ -72,6 +79,12 @@ export function createSupport(front, specs, first = 1) {
 export function supportZone(front, b, dist = null) {
   const s = b.side;
   const cx = front.centers.x, cy = front.centers.y;
+  if (b.kind === 'sapper') {
+    // Génie d'assaut : les cases ennemies dans son rayon.
+    const cells = [];
+    for (let i = 0; i < front.map.N; i++) if (front.owner[i] === 1 - s && Math.hypot(cx[i] - b.x, cy[i] - b.y) <= b.r) cells.push(i);
+    return { cells, core: new Set() };
+  }
   dist ??= bfsDistance(front.map.nb, front.map.N, contactCells(front, s), (i) => front.owner[i] === s, SUPPORT.depth);
   const cells = [], core = new Set();
   const dir = s === 0 ? 1 : -1;
@@ -99,7 +112,33 @@ export function refreshZones(front) {
 // Au matin : les zones attirent les troupes voisines comme une ligne de défense.
 export function supportDawn(front) {
   refreshZones(front);
-  for (const b of front.support ?? []) if (!b.lost) for (const i of b.cells) front.lineMask[i] = 1;
+  for (const b of front.support ?? []) if (!b.lost && b.kind !== 'sapper') for (const i of b.cells) front.lineMask[i] = 1;
+}
+
+// Génie d'assaut : un tick de destruction des barbelés et obstacles antichar ennemis dans son rayon.
+function sapperTick(front, b) {
+  const r = b.rate / front.cfg.ticks;
+  const cx = front.centers.x, cy = front.centers.y;
+  for (let i = 0; i < front.map.N; i++) {
+    if (front.owner[i] !== 1 - b.side || (front.wire[i] <= 0 && front.at[i] <= 0)) continue;
+    if (Math.abs(cx[i] - b.x) > b.r || Math.hypot(cx[i] - b.x, cy[i] - b.y) > b.r) continue;
+    const before = [front.wire[i], front.at[i]];
+    front.wire[i] = Math.max(0, front.wire[i] - r);
+    front.at[i] = Math.max(0, front.at[i] - r);
+    if (Math.floor(before[0] * 5) !== Math.floor(front.wire[i] * 5) || Math.floor(before[1] * 5) !== Math.floor(front.at[i] * 5)) front.worksVersion++;
+  }
+}
+
+// Dans rebuildFields : les troupes du camp avancent plus vite dans le rayon de leur génie d'assaut.
+export function applySappers(front, s, F) {
+  for (const b of front.support ?? []) {
+    if (b.side !== s || b.lost || b.kind !== 'sapper') continue;
+    const cx = front.centers.x, cy = front.centers.y;
+    for (let i = 0; i < front.map.N; i++) {
+      if (front.owner[i] !== s || Math.abs(cx[i] - b.x) > b.r) continue;
+      if (Math.hypot(cx[i] - b.x, cy[i] - b.y) <= b.r) F.speed[i] *= SAPPER.speed;
+    }
+  }
 }
 
 // Chaque tick : les zones se retranchent ; un bataillon dont la case tombe est perdu.
@@ -112,7 +151,8 @@ export function supportTick(front, events) {
       front.log.push({ day: front.day, tick: front.tick, kind: 'gun', side: b.side, text: `${b.name} (${b.side === 0 ? 'Wehrmacht' : 'Armée rouge'}) débordé et perdu.` });
       continue;
     }
-    buildSite(front, b.side, b);
+    if (b.kind === 'sapper') sapperTick(front, b);
+    else buildSite(front, b.side, b);
   }
 }
 
@@ -123,7 +163,7 @@ export function supportNight(front) {
     if (b.dest && front.owner[b.dest.cell] === b.side) {
       b.cell = b.dest.cell; b.x = b.dest.x; b.y = b.dest.y;
       b.level = 1;
-    } else b.level = Math.min(b.max, b.level + 1);
+    } else if (b.kind !== 'sapper') b.level = Math.min(b.max, b.level + 1);
     b.dest = null;
   }
   refreshZones(front);
@@ -170,7 +210,7 @@ export function visibleSupport(front, viewer) {
 // IA : un bataillon reste sur un secteur menacé (il s'y retranche) ; sinon il rejoint, de nuit, le secteur menacé le
 // moins couvert. sectors : ceux de frontai.js (head : case de tête ; hold : rapport pour tenir).
 export function planSupport(front, s, sectors) {
-  const own = (front.support ?? []).filter((b) => b.side === s && !b.lost);
+  const own = (front.support ?? []).filter((b) => b.side === s && !b.lost && b.kind !== 'sapper');
   if (!own.length || !sectors.length) return;
   const cx = front.centers.x, cy = front.centers.y;
   const sectorAt = (y) => sectors.reduce((a, sec) => (Math.abs(cy[sec.head] - y) < Math.abs(cy[a.head] - y) ? sec : a));
@@ -192,4 +232,29 @@ export function planSupport(front, s, sectors) {
     }
     if (best >= 0 && best !== b.cell) moveSupport(front, s, b.id, { x: cx[best], y: cy[best] });
   }
+}
+
+// IA : le génie d'assaut se porte, de nuit, derrière le départ de l'attaque principale du jour (premier vecteur
+// d'infanterie ou de blindés, ou objectif d'une formation blindée).
+export function planSappers(front, s) {
+  const own = (front.support ?? []).filter((b) => b.side === s && !b.lost && b.kind === 'sapper');
+  if (!own.length) return;
+  const dir = s === 0 ? 1 : -1;
+  const cx = front.centers.x, cy = front.centers.y;
+  const points = front.orders[s].filter((v) => !v.pocket && (v.type === 'infantry' || v.type === 'armor')).map((v) => v.from);
+  for (const a of front.armor ?? []) if (a.side === s && !a.lost && a.target) points.push({ x: a.x, y: a.y });
+  own.forEach((b, k) => {
+    const p = points[k % Math.max(1, points.length)];
+    if (!p || Math.hypot(p.x - b.x, p.y - b.y) < 5) return;
+    let to = { x: p.x - dir * SAPPER.back, y: p.y };
+    const d = Math.hypot(to.x - b.x, to.y - b.y);
+    if (d > SUPPORT.move * 0.95) to = { x: b.x + ((to.x - b.x) * SUPPORT.move * 0.95) / d, y: b.y + ((to.y - b.y) * SUPPORT.move * 0.95) / d };
+    let best = -1, bd = Infinity;
+    for (let i = 0; i < front.map.N; i++) {
+      if (front.owner[i] !== s || front.map.flow[i] <= 0) continue;
+      const e = Math.hypot(cx[i] - to.x, cy[i] - to.y);
+      if (e < bd && Math.hypot(cx[i] - b.x, cy[i] - b.y) <= SUPPORT.move) { bd = e; best = i; }
+    }
+    if (best >= 0 && best !== b.cell) moveSupport(front, s, b.id, { x: cx[best], y: cy[best] });
+  });
 }

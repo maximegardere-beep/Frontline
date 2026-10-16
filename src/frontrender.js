@@ -20,6 +20,7 @@ import { MIN_POCKET, ARMOR_ATK } from './frontinput.js';
 import { FrontFx } from './frontfx.js';
 import { GUN_KINDS, AT_RULES, visibleGuns, gunPower } from './frontguns.js';
 import { visibleSupport, SUPPORT, SUPPORT_LEVELS } from './frontbattalion.js';
+import { SPECIAL } from './frontspecial.js';
 import { visibleArmor, armorRoute } from './frontarmor.js';
 import { AIR, airBase, visibleAA } from './frontair.js';
 import { railPoint } from './frontsupply.js';
@@ -775,6 +776,7 @@ export class FrontRenderer extends Renderer {
     this.drawDaylight(Math.max(0, Math.min(1, view.t ?? 1)));
 
     this.drawTowns(view.viewer ?? null);
+    this.drawStrongpoints(view.viewer ?? null);
     this.drawObjectiveMarks();
     this.drawPockets(view.viewer ?? null);
     this.drawGuns(view);
@@ -1636,6 +1638,45 @@ export class FrontRenderer extends Renderer {
     }
   }
 
+  // Points d'appui : la ville fortifiée cerclée d'un trait épais crénelé (les siens, et ceux de l'ennemi en vue).
+  drawStrongpoints(viewer) {
+    const f = this.front;
+    const { ctx, cam } = this;
+    const px = 1 / cam.s;
+    for (const s of [0, 1]) {
+      for (const p of f.strong?.[s] ?? []) {
+        if (viewer !== null && s !== viewer && !f.vision[viewer]?.[p.i]) continue;
+        if (f.owner[p.i] !== s) continue;
+        const c = this.center(p.i);
+        const R = SPECIAL.strong.r * CELL * 0.8;
+        ctx.save();
+        ctx.strokeStyle = SIDE_LINE[s];
+        ctx.lineWidth = 2.4 * px;
+        ctx.setLineDash([6 * px, 3 * px]);
+        ctx.beginPath(); ctx.arc(c.x, c.y, R, 0, Math.PI * 2); ctx.stroke();
+        ctx.setLineDash([]);
+        for (let k = 0; k < 10; k++) {
+          const a = (k / 10) * Math.PI * 2;
+          ctx.beginPath();
+          ctx.moveTo(c.x + Math.cos(a) * R, c.y + Math.sin(a) * R);
+          ctx.lineTo(c.x + Math.cos(a) * (R + 4 * px), c.y + Math.sin(a) * (R + 4 * px));
+          ctx.stroke();
+        }
+        if (cam.s > 0.9) {
+          ctx.font = `700 ${9 * px}px "IBM Plex Sans Condensed", "Arial Narrow", sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.lineWidth = 3 * px;
+          ctx.strokeStyle = 'rgba(250, 240, 210, 0.85)';
+          ctx.strokeText('Point d\'appui', c.x, c.y - R - 7 * px);
+          ctx.fillStyle = SIDE_LINE[s];
+          ctx.fillText('Point d\'appui', c.x, c.y - R - 7 * px);
+        }
+        ctx.restore();
+      }
+    }
+  }
+
   // Bataillons de soutien : pelle et pioche croisées sur un fanion ; le matin, la zone qu'ils retranchent (les siens),
   // et leur déplacement prévu.
   drawSupport(view) {
@@ -1658,6 +1699,10 @@ export class FrontRenderer extends Renderer {
           ctx.setLineDash([4 * px, 4 * px]); ctx.strokeStyle = ORDER_INK; ctx.lineWidth = 2 * px; ctx.stroke(); ctx.setLineDash([]);
           ctx.beginPath(); ctx.arc(d.x, d.y, 4 * k, 0, Math.PI * 2); ctx.stroke();
         }
+        if (b.kind === 'sapper') {
+          ctx.beginPath(); ctx.arc(c.x, c.y, b.r * CELL, 0, Math.PI * 2);
+          ctx.setLineDash([3 * px, 3 * px]); ctx.strokeStyle = sel ? ORDER_INK : 'rgba(92, 74, 40, 0.6)'; ctx.lineWidth = 1.4 * px; ctx.stroke(); ctx.setLineDash([]);
+        }
         if (sel) {
           ctx.beginPath(); ctx.arc(c.x, c.y, SUPPORT.move * CELL, 0, Math.PI * 2);
           ctx.strokeStyle = 'rgba(38, 48, 61, 0.35)'; ctx.lineWidth = 1 * px; ctx.stroke();
@@ -1670,7 +1715,13 @@ export class FrontRenderer extends Renderer {
       ctx.fillStyle = P.body; ctx.strokeStyle = P.dark; ctx.lineWidth = 0.7 * k;
       ctx.fillRect(-5 * k, -4 * k, 9.4 * k, 7.4 * k); ctx.strokeRect(-5 * k, -4 * k, 9.4 * k, 7.4 * k);
       ctx.lineWidth = 1 * k; ctx.lineCap = 'round';
-      ctx.beginPath(); ctx.moveTo(-3 * k, 2 * k); ctx.lineTo(2.4 * k, -2.4 * k); ctx.moveTo(-3 * k, -2.4 * k); ctx.lineTo(2.4 * k, 2 * k); ctx.stroke();
+      if (b.kind === 'sapper') {
+        // Génie d'assaut : charge explosive (losange) et mèche.
+        ctx.beginPath(); ctx.moveTo(-0.3 * k, -3 * k); ctx.lineTo(2.5 * k, -0.3 * k); ctx.lineTo(-0.3 * k, 2.4 * k); ctx.lineTo(-3.1 * k, -0.3 * k); ctx.closePath(); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(2.5 * k, -0.3 * k); ctx.lineTo(4 * k, -3 * k); ctx.stroke();
+      } else {
+        ctx.beginPath(); ctx.moveTo(-3 * k, 2 * k); ctx.lineTo(2.4 * k, -2.4 * k); ctx.moveTo(-3 * k, -2.4 * k); ctx.lineTo(2.4 * k, 2 * k); ctx.stroke();
+      }
       ctx.lineCap = 'butt';
       ctx.restore();
       if (sel || cam.s > 1.3 || (own && planning)) {
@@ -1679,7 +1730,7 @@ export class FrontRenderer extends Renderer {
         ctx.textBaseline = 'middle';
         ctx.lineWidth = 3 * px;
         ctx.strokeStyle = 'rgba(250, 240, 210, 0.85)';
-        const label = own ? `Génie · ${SUPPORT_LEVELS[b.level]}` : 'Génie ennemi';
+        const label = own ? (b.kind === 'sapper' ? 'Génie d\'assaut' : `Génie · ${SUPPORT_LEVELS[b.level]}`) : 'Génie ennemi';
         ctx.strokeText(label, c.x, c.y - 9 * k);
         ctx.fillStyle = SIDE_LINE[b.side];
         ctx.fillText(label, c.x, c.y - 9 * k);
@@ -2174,6 +2225,34 @@ export class FrontRenderer extends Renderer {
         ctx.moveTo(x + 2.5, y - 2.5); ctx.lineTo(x - 2.5, y + 2.5);
         ctx.stroke();
       }
+    }
+    for (const o of orders.salvos ?? []) {
+      // Salve de lance-roquettes : double cercle et traits de fusées convergents.
+      const c = this.toWorld(o);
+      const r = o.r * CELL;
+      ctx.lineWidth = 2.4 + extra;
+      ctx.setLineDash(halo ? [] : [7, 3]);
+      for (const k of [1, 0.6]) { ctx.beginPath(); ctx.arc(c.x, c.y, r * k, 0, Math.PI * 2); ctx.stroke(); }
+      ctx.setLineDash([]);
+      for (let k = 0; k < 8; k++) {
+        const a = (k / 8) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.moveTo(c.x + Math.cos(a) * r * 1.15, c.y + Math.sin(a) * r * 1.15);
+        ctx.lineTo(c.x + Math.cos(a) * r * 0.75, c.y + Math.sin(a) * r * 0.75);
+        ctx.stroke();
+      }
+    }
+    for (const o of orders.drops ?? []) {
+      // Largage : parachute (voilure et suspentes) au-dessus du point.
+      const c = this.toWorld(o);
+      ctx.lineWidth = 2 + extra;
+      ctx.beginPath(); ctx.arc(c.x, c.y - 9, 10, Math.PI, 0); ctx.closePath(); ctx.stroke();
+      ctx.beginPath();
+      for (const dx of [-10, 0, 10]) { ctx.moveTo(c.x + dx, c.y - 9); ctx.lineTo(c.x, c.y + 6); }
+      ctx.stroke();
+      ctx.beginPath(); ctx.arc(c.x, c.y + 7, 2.5, 0, Math.PI * 2); fill();
+      ctx.beginPath(); ctx.arc(c.x, c.y, SPECIAL.drop.r * CELL, 0, Math.PI * 2);
+      ctx.setLineDash(halo ? [] : [3, 4]); ctx.lineWidth = 1.4 + extra; ctx.stroke(); ctx.setLineDash([]);
     }
     for (const o of orders.pontoons ?? []) {
       // Pont de bateaux commandé : trait pointillé de rive à rive, barré de petites barques.

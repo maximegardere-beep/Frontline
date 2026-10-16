@@ -13,7 +13,8 @@
 // L'attaquant engage plus volontiers que le défenseur, qui contre-attaque surtout ce qui est faible.
 // Poches : tirage pondéré entre statu quo, Festung et percée d'évasion (troupes piégées, distance aux lignes amies).
 
-import { planSupport } from './frontbattalion.js';
+import { planSupport, planSappers } from './frontbattalion.js';
+import { addSalvo, addDrop } from './frontspecial.js';
 import { planHQ } from './fronthq.js';
 import { planAir, addAirMission } from './frontair.js';
 import { addVector, addLine, addBarrage, addPontoon, deployReserve, setPocketMode, edgeCol, cellAtPoint, waterOpen, FRONT_WEATHER, VECTOR_TYPES } from './front.js';
@@ -310,6 +311,8 @@ export function planFront(front, s) {
     if (best >= 0) hot.push(best);
   }
   for (const i of hot) addBarrage(front, s, point(front, i));
+  planSpecial(front, s, attacking, hot);
+  planSappers(front, s);
 
   // 4. Poches : réexamen chaque matin d'une poche restée au statu quo.
   for (const p of front.pockets[s]) if (p.info.mode === 'hold') choosePocket(front, p, true);
@@ -446,6 +449,30 @@ function threatenedBridges(front, s) {
 
 // Artillerie : chaque groupe se tient à mi-portée derrière le front connu. Trop près (menacé d'être débordé), il
 // recule ; trop loin pour tirer au-delà du front, il avance, en appui mobile si l'étape tient dans la journée.
+// Atouts ponctuels de l'attaquant. Salve : sur la plus forte concentration ennemie au départ de l'attaque principale,
+// dès le deuxième jour (une salve gardée pour les renforts si l'on en a deux). Parachutistes : à partir du 3e jour,
+// derrière le front ennemi dans l'axe de l'attaque principale, sur le PC ennemi s'il est repéré et à portée.
+function planSpecial(front, s, attacking, hot) {
+  if (!attacking || !front.rockets) return;
+  const attacks = front.orders[s].filter((v) => !v.pocket && (v.type === 'infantry' || v.type === 'armor'));
+  const main = attacks.find((v) => v.type === 'armor') ?? attacks[0];
+  if (front.day >= 2 && front.rockets[s].left > (front.day < 7 && front.rockets[s].left > 1 ? 1 : 0) && (main || hot.length)) {
+    const i = main ? cellAtPoint(front, { x: main.from.x + (main.to.x - main.from.x) * 0.15, y: main.from.y + (main.to.y - main.from.y) * 0.15 }) : hot[0];
+    const at = i >= 0 && front.owner[i] === 1 - s ? point(front, i) : hot.length ? point(front, hot[0]) : null;
+    if (at) addSalvo(front, s, at);
+  }
+  if (front.day >= 3 && front.paras[s].some((p) => !p.used)) {
+    const hq = front.hq?.[1 - s];
+    const seen = hq?.seen[s] && front.clock - hq.seen[s].clock <= front.cfg.ticks ? hq.seen[s] : null;
+    let target = seen;
+    if (!target && main) {
+      const L = Math.hypot(main.to.x - main.from.x, main.to.y - main.from.y) || 1;
+      target = { x: main.to.x + ((main.to.x - main.from.x) / L) * 6, y: main.to.y + ((main.to.y - main.from.y) / L) * 6 };
+    }
+    if (target && addDrop(front, s, target).error && seen && main) addDrop(front, s, main.to);
+  }
+}
+
 // Canons antichar : chaque groupe se porte (de jour, en déplacement) derrière le secteur où l'ennemi a le plus de chars
 // connus, ou à défaut le plus menacé ; un seul groupe par secteur, et il reste s'il y est déjà.
 function planAT(front, s, sectors) {

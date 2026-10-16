@@ -207,12 +207,14 @@ export class FrontFx {
     // explosion à l'arrivée. Une batterie ennemie qu'on ne voit pas : l'obus n'apparaît qu'en fin de course.
     if (front.tick <= front.cfg.barrageTicks) {
       for (const s of [0, 1]) {
-        for (const b of front.barrages[s]) {
+        // Salves de lance-roquettes (frontspecial.js) : pendant leurs premiers ticks, sans batterie visible.
+        const salvos = front.tick <= 3 ? (front.salvos?.[s] ?? []).map((o) => ({ ...o, kind: s === 0 ? 'nebel' : 'rocket' })) : [];
+        for (const b of [...front.barrages[s], ...salvos, ...salvos]) {
           const bx = b.x * C, by = b.y * C, R = b.r * C;
           if (bx < rect.x0 - R || bx > rect.x1 + R || by < rect.y0 - R || by > rect.y1 + R) continue;
           if (viewer !== null && s !== viewer && !this.barrageSeen(front, viewer, b)) continue;
           const g = (front.guns ?? []).find((x) => x.id === b.gun);
-          const A = ARC[g?.kind] ?? ARC.div;
+          const A = ARC[g?.kind ?? b.kind] ?? ARC.div;
           const gunSeen = g && (viewer === null || g.side === viewer || g.seen?.[viewer]?.clock === front.clock);
           for (let q = 0; q < A.n; q++) {
             const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * R;
