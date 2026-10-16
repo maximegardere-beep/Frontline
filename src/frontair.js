@@ -8,6 +8,7 @@
 // reste cachée, comme l'artillerie : on ne la repère qu'à courte distance de ses troupes.
 // Brouillard : l'aviation reste au sol ; pluie et neige l'émoussent.
 
+import { airShare } from './frontairwar.js';
 import { createRng } from './rng.js';
 import { GUN_RULES } from './frontguns.js';
 import { blowBridge } from './frontworks.js';
@@ -72,7 +73,9 @@ export function createAA(front, counts) {
   return out;
 }
 
-export const sortiesToday = (front, s) => Math.round((front.cfg.sorties?.[s] ?? 0) * (AIR.weather[front.weather] > 0 ? 1 : 0));
+// Sorties du jour : celles de l'année et des cartes, selon le ciel (bataille des airs, frontairwar.js) ; au sol par
+// brouillard. Ciel disputé : la moitié, arrondie au-dessus.
+export const sortiesToday = (front, s) => Math.ceil((front.cfg.sorties?.[s] ?? 0) * airShare(front, s) * (AIR.weather[front.weather] > 0 ? 1 : 0));
 
 // Ce que le camp s sait d'une batterie ennemie b (artillerie ou DCA) : sa dernière position vue, de moins d'un jour.
 const known = (front, s, b) => {

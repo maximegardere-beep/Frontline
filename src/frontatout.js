@@ -14,6 +14,7 @@ import { createAA } from './frontair.js';
 import { createGuns, GUN_KINDS, nextName } from './frontguns.js';
 import { createSupport, refreshZones, SUPPORT_LEVELS } from './frontbattalion.js';
 import { addSpecial } from './frontspecial.js';
+import { fightAirWar } from './frontairwar.js';
 import { scoreBreakdown, SCORE } from './frontscore.js';
 
 export const ATOUT_RULES = {
@@ -41,7 +42,11 @@ export const ATOUTS = {
   },
   air: {
     role: 'att', weight: 2, value: 6, label: 'Soutien aérien',
-    tiers: { commun: { sorties: 1 }, rare: { sorties: 2 }, elite: { sorties: 2, assault: 1.5 } },
+    tiers: { commun: { sorties: 1, air: 1 }, rare: { sorties: 2, air: 2 }, elite: { sorties: 2, air: 3, assault: 1.5 } },
+  },
+  fighters: {
+    role: 'def', weight: 2, value: 5, label: 'Chasseurs',
+    tiers: { commun: { air: 1 }, rare: { air: 2 }, elite: { air: 3, sorties: 1 } },
   },
   sappers: {
     role: 'att', weight: 2, value: 6, label: 'Génie d\'assaut',
@@ -95,7 +100,7 @@ function cardContent(front, s, card) {
   const t = ATOUTS[card.key].tiers[card.rarity];
   const out = {
     guns: [], armor: [], support: [...(t.support ?? []).map((max) => ({ max })), ...(t.sappers ?? []).map((sp) => ({ kind: 'sapper', ...sp }))],
-    aa: t.aa ?? 0, sorties: t.sorties ?? 0, assault: t.assault ?? 1, pontoons: t.pontoons ?? 0,
+    aa: t.aa ?? 0, sorties: t.sorties ?? 0, air: t.air ?? 0, assault: t.assault ?? 1, pontoons: t.pontoons ?? 0,
     special: { salvos: t.salvos ?? null, paras: t.paras ?? [], strong: t.strong ?? [] },
   };
   if (t.guns) out.guns = t.guns.map((k) => (k === '%rocket' ? ROCKET[s] : k));
@@ -137,7 +142,8 @@ export function cardText(front, s, card) {
   for (const d of S.paras) parts.push(`largage de ${d * front.cfg.men} hommes`);
   for (const st of S.strong) parts.push(`ville ★ : défense ×${String(st.mul).replace('.', ',')}${st.garrison ? `, garnison de ${st.garrison * front.cfg.men} hommes` : ''}`);
   if (c.aa) parts.push(`${c.aa} batteries`);
-  if (c.sorties) parts.push(`+${c.sorties} sortie${c.sorties > 1 ? 's' : ''} par jour${c.assault > 1 ? ', avions d\'assaut' : ''}`);
+  if (c.air) parts.push(`+${c.air} en bataille des airs`);
+  if (c.sorties) parts.push(`+${c.sorties} sortie${c.sorties > 1 ? 's' : ''} par jour${c.assault > 1 ? ', avions d\'assaut' : ''}${c.air && !ATOUTS[card.key].tiers.commun.sorties ? ' en cas de victoire' : ''}`);
   return parts.join(' · ');
 }
 
@@ -186,7 +192,7 @@ export function chooseCards(front, s, hand, keep) {
 // Somme du contenu des cartes gardées, par camp.
 function forcesOf(front, kept) {
   return [0, 1].map((s) => {
-    const f = { guns: [], armor: [], support: [], aa: 0, sorties: 0, assault: 1, pontoons: 0, special: { salvos: { n: 0, r: 0 }, paras: [], strong: [] } };
+    const f = { guns: [], armor: [], support: [], aa: 0, sorties: 0, air: 0, assault: 1, pontoons: 0, special: { salvos: { n: 0, r: 0 }, paras: [], strong: [] } };
     for (const card of kept[s]) {
       const c = cardContent(front, s, card);
       f.guns.push(...c.guns);
@@ -198,6 +204,7 @@ function forcesOf(front, kept) {
       f.armor.push(...c.armor);
       f.aa += c.aa;
       f.sorties += c.sorties;
+      f.air += c.air;
       f.assault = Math.max(f.assault, c.assault);
     }
     return f;
@@ -251,7 +258,7 @@ export function dealAtouts(front) {
   front.atouts.assault = forces.map((f) => f.assault);
   logDeal(front, kept, 0);
   for (const s of [0, 1]) front.pontoons[s] += forces[s].pontoons;
-  return { guns: forces.map((f) => f.guns), armor: armorLists(front, forces), support: forces.map((f) => f.support), special: forces.map((f) => f.special), aa: forces.map((f) => f.aa), sorties: forces.map((f) => f.sorties) };
+  return { guns: forces.map((f) => f.guns), armor: armorLists(front, forces), support: forces.map((f) => f.support), special: forces.map((f) => f.special), aa: forces.map((f) => f.aa), sorties: forces.map((f) => f.sorties), air: forces.map((f) => f.air) };
 }
 
 // Camp mené aux points au soir du 6e jour : l'attaquant en dessous d'une issue indécise, le défenseur quand
@@ -295,6 +302,7 @@ export function reinforceAtouts(front) {
   addSpecial(front, forces.map((f) => f.special));
   for (const s of [0, 1]) front.pontoons[s] += forces[s].pontoons;
   front.cfg.sorties = front.cfg.sorties.map((n, s) => n + forces[s].sorties);
+  if (front.airWar) fightAirWar(front, forces.map((f) => f.air), 1); // la bataille des airs reprend
   A.assault = A.assault.map((v, s) => Math.max(v, forces[s].assault));
   logDeal(front, kept, 1);
 }

@@ -53,7 +53,12 @@ défenseur, est tiré de la graine et annoncé au briefing, avec l'objectif : le
   7e jour, il en tire 4 (5 s'il est mené aux points) et en garde 2. Chaque carte a une rareté (commun, rare, élite :
   les chars lourds, Tiger, KV ou IS-2, sont des cartes d'élite). L'attaquant tire divisions blindées, artillerie
   lourde, soutien aérien, génie d'assaut, lance-roquettes, parachutistes et DCA ; le défenseur, artillerie
-  divisionnaire, canons antichar, bataillons de soutien, point d'appui et DCA.
+  divisionnaire, canons antichar, bataillons de soutien, point d'appui, chasseurs et DCA.
+- **Bataille des airs** : avant le premier jour, et de nouveau au matin du 7e, trois manches de dés entre les
+  chasseurs des deux camps (force : sorties de l'année, cartes de chasseurs du défenseur et de soutien aérien de
+  l'attaquant ; touche sur 5+, le perdant d'une manche perd un avion). Le vainqueur a la suprématie aérienne et toutes
+  ses sorties ; le vaincu n'en a plus. À égalité, ciel disputé : la moitié des sorties de chacun. La DCA tire toujours.
+  Le briefing donne l'issue et les manches.
 - **Génie d'assaut** (attaquant) : posé juste derrière le contact, il rase les barbelés et obstacles antichar ennemis
   dans son rayon (cercle en pointillé le matin), et vos troupes y avancent plus vite. Il se déplace de nuit.
 - **Lance-roquettes** (attaquant) : outil Salve (`R`), une zone large écrasée au lever du jour (pertes, choc), une ou

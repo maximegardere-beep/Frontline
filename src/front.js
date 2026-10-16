@@ -20,6 +20,7 @@ import { initScore, eveningScore, noteCapture, scoreBreakdown, GRADES } from './
 import { createAA, airTick, updateAASightings, airNight } from './frontair.js';
 import { dealAtouts, reinforceAtouts, ATOUT_RULES } from './frontatout.js';
 import { createSupport, refreshZones, supportDawn, supportTick, supportNight, updateSupportSightings, applySappers } from './frontbattalion.js';
+import { fightAirWar } from './frontairwar.js';
 import { initSpecial, addSpecial, salvoTick, dropTick, applyStrong, removeSpecial, specialNight } from './frontspecial.js';
 import { createHQ, applyHQ, engageCapOf, ordersWait, hqDawn, hqTick, hqAfter, hqSightings, hqNight } from './fronthq.js';
 import { GUN_KINDS, GUN_RULES, createGuns, gunFor, gunPower, moveGuns, supportFire, gunsNight, updateGunSightings, atFire } from './frontguns.js';
@@ -188,7 +189,9 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
     cfg.aaBatteries = deal.aa;
     cfg.support = deal.support;
     cfg.special = deal.special;
+    cfg.airBase = cfg.sorties.slice(); // sorties de l'année : force aérienne de base
     cfg.sorties = cfg.sorties.map((n, s) => n + deal.sorties[s]);
+    if (cfg.airWar !== false) fightAirWar(front, deal.air, 0); // bataille des airs (frontairwar.js)
   } else {
     // Moyens de rupture de l'attaquant : groupes d'artillerie et sorties aériennes en plus (la défense, renforcée, ne
     // cède qu'à des feux concentrés ; combat.js, choc).
