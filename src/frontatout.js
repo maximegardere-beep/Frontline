@@ -173,15 +173,36 @@ export function drawHand(front, s, round, extra = 0) {
   return hand.map((c, k) => ({ id: `${round}-${k}`, ...c }));
 }
 
-// Choix automatique : les cartes de plus grande valeur, une seconde carte du même genre valant moins.
+// Intérêt d'une carte selon la situation (choix automatique : IA, et joueur tant que l'interface n'existe pas).
+// - les feux d'abord : sans artillerie ni salve, un assaut piétine ; l'attaquant garde aussi une division blindée ;
+// - le ciel : celui qui part moins fort dans la bataille des airs y met des cartes d'aviation ;
+// - le terrain : génie d'assaut (pont de bateaux) sur une carte à rivière, point d'appui s'il y a des villes ★ à tenir ;
+// - au 7e jour, on remplace ce qu'on a perdu (artillerie, blindés, canons antichar, le ciel).
+export function cardValue(front, s, card, chosen) {
+  const key = card.key, A = ATOUTS[key];
+  let v = A.value * RARITY_VALUE[card.rarity] * 0.55 ** chosen.filter((o) => o.key === key).length;
+  const att = s === front.attacker;
+  const have = (k) => chosen.some((o) => o.key === k);
+  const fireNow = chosen.some((o) => ATOUTS[o.key].fire) || (front.guns ?? []).some((g) => g.side === s && !g.lost && !GUN_KINDS[g.kind].at);
+  if (A.fire && !fireNow) v *= 1.6;
+  if (att && key === 'armor' && !have('armor') && !(front.armor ?? []).some((a) => a.side === s && !a.lost && a.tanks > a.max * 0.4)) v *= 1.3;
+  const base = front.airWar ? front.airWar.force : front.cfg.airBase ?? front.cfg.sorties;
+  if ((key === 'air' || key === 'fighters') && base[s] + (att ? front.cfg.airInitiative ?? 0 : 0) <= base[1 - s]) v *= 1.4;
+  if (front.airWar && front.airWar.sup !== s && (key === 'air' || key === 'fighters')) v *= 1.3;
+  if (key === 'sappers' && front.map.rivers?.length && card.rarity === 'rare') v *= 1.2;
+  if (key === 'strongpoint') v *= (front.defTowns?.length ?? 0) >= 3 ? 1.2 : 0.85;
+  if (key === 'antitank' && (front.guns ?? []).some((g) => g.side === s && g.lost && GUN_KINDS[g.kind].at)) v *= 1.3;
+  return v;
+}
+
+// Choix automatique : les cartes de plus grand intérêt, une à une (une seconde carte du même genre vaut moins).
 export function chooseCards(front, s, hand, keep) {
   const left = hand.slice();
   const out = [];
   while (out.length < keep && left.length) {
     let best = 0, bv = -Infinity;
     left.forEach((c, k) => {
-      const same = out.filter((o) => o.key === c.key).length;
-      const v = ATOUTS[c.key].value * RARITY_VALUE[c.rarity] * 0.55 ** same;
+      const v = cardValue(front, s, c, out);
       if (v > bv) { bv = v; best = k; }
     });
     out.push(left.splice(best, 1)[0]);

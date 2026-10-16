@@ -225,7 +225,9 @@ export function planFront(front, s) {
     const at = { x: h.x + ((to.x - h.x) / L) * 3, y: h.y + ((to.y - h.y) / L) * 3 };
     const fired = !addBarrage(front, s, at).error;
     const flown = !addAirMission(front, s, at).error;
-    if (!fired && !flown && sec.ratio < engage * 2) continue;
+    // Sans artillerie ni aviation disponibles : une salve de lance-roquettes, s'il en reste, prépare l'assaut.
+    const salvo = !fired && !flown && front.rockets?.[s].left > front.salvos[s].length && !addSalvo(front, s, at).error;
+    if (!fired && !flown && !salvo && sec.ratio < engage * 2) continue;
     // Fer de lance : la formation la plus proche mène l'attaque vers l'objectif ; l'infanterie pousse sur le même axe.
     if (armorOK && armorGround > 0.6 && free.length && sec.ratio > engage * 1.1) {
       const a = free.reduce((b, x) => (dist(x, sec.head) < dist(b, sec.head) ? x : b));
@@ -310,6 +312,10 @@ export function planFront(front, s) {
     }
     if (best >= 0) hot.push(best);
   }
+  // PC ennemi repéré : deux barrages s'il le faut pour le désorganiser (chacun coupe 40 % de ses liaisons).
+  const hq = front.hq?.[1 - s];
+  const seenHQ = hq && !hq.captured && hq.seen[s] && front.clock - hq.seen[s].clock <= front.cfg.ticks ? hq.seen[s] : null;
+  if (seenHQ) for (let k = 0; k < 2; k++) if (addBarrage(front, s, { x: seenHQ.x, y: seenHQ.y }).error) break;
   for (const i of hot) addBarrage(front, s, point(front, i));
   planSpecial(front, s, attacking, hot);
   planSappers(front, s);

@@ -236,9 +236,12 @@ export function planAir(front, s) {
   const n = sortiesToday(front, s);
   if (!n) return;
   const mem = front.memory[s];
+  // PC ennemi repéré : une frappe sur lui (elle coupe ses liaisons), avant tout le reste.
+  const hq = front.hq?.[1 - s];
+  if (hq && !hq.captured && hq.seen[s] && front.clock - hq.seen[s].clock <= front.cfg.ticks) addAirMission(front, s, { x: hq.seen[s].x, y: hq.seen[s].y });
   // Une chasse par jour au plus, sur la batterie connue la plus fraîchement repérée (la DCA d'abord), en gardant
   // au moins une sortie pour l'appui.
-  if (n > 1) {
+  if (n > 1 && front.air[s].length < n - 1) {
     let pick = null;
     for (const b of [...front.aa, ...front.guns]) {
       if (b.side === s || b.lost) continue;

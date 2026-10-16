@@ -19,7 +19,10 @@ test('atouts : main reproductible, garanties, choix des cartes', () => {
         const kept = chooseCards(f, s, hand, 3);
         assert.equal(kept.length, 3);
         for (const c of kept) assert.ok(hand.includes(c));
-        assert.deepEqual(f.atouts.kept[s].map((c) => c.id), kept.map((c) => c.id), 'createFront garde les mêmes cartes');
+        assert.equal(f.atouts.kept[s].length, 3);
+        for (const c of f.atouts.kept[s]) assert.ok(hand.some((h) => h.id === c.id), 'cartes gardées : de la main');
+        const again = createFront({ seed: `main${k}`, attacker: k % 2 ? 'SU' : 'DE', year });
+        assert.deepEqual(again.atouts.kept[s], f.atouts.kept[s], 'même graine, mêmes cartes gardées');
       }
     }
   }
