@@ -87,3 +87,39 @@ test('atouts : le joueur ne voit que ses cartes au journal', () => {
   assert.equal(lines.length, 1);
   assert.equal(lines[0].side, 1);
 });
+
+test('atouts : tirage du joueur en attente, confirmation, bataille des airs après, déploiement', async () => {
+  const { confirmAtouts, autoConfirm, placeable, placeUnit, endPlacement } = await import('../src/frontatout.js');
+  const f = createFront({ seed: 'manuel', playerSide: 'SU', attacker: 'DE', year: 1943, setup: { atoutsManual: true } });
+  assert.deepEqual(f.atouts.pending, [false, true]);
+  assert.equal(f.airWar, undefined, 'la bataille des airs attend le choix du joueur');
+  assert.equal(f.guns.filter((g) => g.side === 1).length, 0, 'pas encore d\'unités pour le joueur');
+  const hand = f.atouts.hands[1];
+  assert.ok(confirmAtouts(f, 1, hand.slice(0, 2).map((c) => c.id)).error, 'il faut en garder 3');
+  const r = confirmAtouts(f, 1, hand.slice(0, 3).map((c) => c.id));
+  assert.ok(!r.error);
+  assert.ok(r.airWar && f.airWar === r.airWar, 'bataille des airs une fois les deux camps servis');
+  assert.ok(f.placing[1]);
+  const items = placeable(f, 1);
+  assert.equal(items[0].kind, 'hq');
+  for (const list of [f.guns, f.armor, f.aa, f.support]) assert.equal(new Set(list.map((u) => u.id)).size, list.length);
+  // Placer le PC ailleurs dans nos lignes ; pas chez l'ennemi.
+  let to = -1;
+  for (let i = 0; i < f.map.N && to < 0; i++) if (f.owner[i] === 1 && f.supplied[1][i] && f.map.flow[i] > 0 && Math.hypot(f.centers.x[i] - f.hq[1].x, f.centers.y[i] - f.hq[1].y) > 20) to = i;
+  assert.ok(!placeUnit(f, 1, 'hq', 0, { x: f.centers.x[to], y: f.centers.y[to] }).error);
+  assert.equal(f.hq[1].cell, to);
+  assert.ok(placeUnit(f, 1, 'hq', 0, { x: f.centers.x[0], y: f.centers.y[0] }).error);
+  // Point d'appui : ouvrages seulement à la fin du déploiement.
+  for (const p of f.strong[1]) assert.equal(p.built, false);
+  endPlacement(f, 1);
+  assert.equal(f.placing[1], false);
+  for (const p of f.strong[1]) assert.equal(p.built, true);
+  assert.equal(placeable(f, 1).length, 0);
+  assert.equal(autoConfirm(f, 1), null, 'plus rien en attente');
+  // Sans réponse du joueur, la journée part avec le choix automatique.
+  const g = createFront({ seed: 'manuel2', playerSide: 'DE', attacker: 'DE', year: 1943, setup: { atoutsManual: true } });
+  runDay(g);
+  assert.equal(g.atouts.pending[0], false);
+  assert.equal(g.atouts.kept[0].length, ATOUT_RULES.keep[0]);
+  assert.ok(g.airWar);
+});

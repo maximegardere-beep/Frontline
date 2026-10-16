@@ -735,11 +735,14 @@ kbd {
 .air-verdict { font-weight: 600; }
 .deploy-bar {
   position: absolute; left: max(10px, env(safe-area-inset-left, 0px)); right: 10px; bottom: 10px; max-width: 640px;
-  display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px;
+  display: flex; align-items: center; gap: 6px; padding: 6px 8px;
   background: rgba(27, 31, 22, 0.92); border: 1px solid rgba(0, 0, 0, 0.5); border-radius: 4px;
 }
 .deploy-title { font: 700 11px var(--f-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--brass); }
-.deploy-list { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; min-width: 0; }
+.deploy-list { display: flex; gap: 4px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.deploy-list::-webkit-scrollbar { display: none; }
+.dchip { flex: none; white-space: nowrap; }
+.deploy-bar .btn { flex: none; }
 .dchip { font: 600 12px var(--f-body); color: var(--text); background: var(--desk-3); border: 1px solid var(--line); border-radius: 3px; padding: 5px 8px; cursor: pointer; }
 .dchip[aria-pressed="true"] { border-color: var(--brass); color: var(--brass); }
 .deploy-bar:not([hidden]) ~ .hint { bottom: 70px; }

@@ -1004,3 +1004,21 @@ Chaque étape laisse le jeu jouable : jusqu'à l'étape 7, le joueur reçoit ses
   aucun pris (il se tient à 9 cases du front, rarement repéré).
 - Mesure (72 / 48 batailles), après l'étape 5 → après l'étape 6 : sans année fixe attaquant 24 → 28 %, défenseur
   72 → 67 % ; 1943 attaquant 27 → 23 %, défenseur 67 → 67 %, nuls 6 → 10 % (écart dans le bruit de mesure, ±6 points).
+
+### Étape 7 faite : interface des atouts
+
+- Ordre retenu : briefing → tirage → bataille des airs → déploiement (la bataille des airs dépend des cartes
+  choisies, chasseurs et soutien aérien, elle vient donc après le tirage et non avant comme prévu au plan).
+- Moteur : `setup.atoutsManual` (posé par l'interface) laisse la main du joueur en attente (`atouts.pending`), sans
+  unités ni bataille des airs ; `confirmAtouts` pose ses unités (`applyForces`, commun avec les renforts du 7e jour) et
+  lance la bataille des airs quand les deux camps sont servis. `placeable` / `placeUnit` / `endPlacement` : les unités
+  du dernier tirage (et le PC avant la bataille) se posent n'importe où dans ses lignes ravitaillées, d'un coup ; les
+  points d'appui ne se retranchent qu'à la fin du déploiement (`buildStrongpoints`), pour pouvoir changer de ville.
+  `beginDay` confirme d'office un tirage resté sans réponse et clôt le déploiement : les outils et l'IA n'en savent
+  rien.
+- Interface (`frontdeck.js`) : main en cartes à cocher (icône, rareté, contenu), « Choix de l'état-major »
+  (`chooseCards`) ; combat de chasseurs sur un canvas (formations qui se croisent, traçantes, l'appareil abattu tombe
+  en fumée, mitrailleuses et chute au son ; « Passer », image fixe si l'on réduit les animations), puis le récit des
+  manches et l'issue. Déploiement : bandeau des unités à placer (défilant sur téléphone), toucher une unité puis sa
+  position ; le bouton du jour devient « Terminer le déploiement ». Même enchaînement au matin du 7e jour, après le
+  bilan du soir 6.
