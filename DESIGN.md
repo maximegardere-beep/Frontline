@@ -694,3 +694,34 @@ densités. Le moteur garde des points d'accroche pour cela.
   44 % / nuls 17 % ; graines D/E/F, 40 % / 55 % / 5 %. Écarté : réglages proposés pour freiner l'offensive (seuil de
   percée 1,6, ténacité 0,8, effet du choc 0,75, réserves ×1,5…) : attaquant 14 %.
 - Outils : `tools/front-sim.mjs` lit aussi `SCORE` (seuils) ; `SCORES=1` affiche le score de chaque bataille.
+
+### Immersion et interface
+
+- Sons (`audio.js`), moins « 8 bits » : obus qui arrivent en bruit filtré en bande étroite qui descend (et non plus
+  un sifflet sinusoïdal), une note sourde dessous ; explosions et départs plus graves (coup sourd saturé, grondement
+  plus long, mottes de terre qui retombent). Réverbération de plaine : un convolueur partagé, réponse impulsionnelle
+  synthétisée (6 échos francs entre 70 et 600 ms, queue diffuse ≈ 3 s qui s'assombrit), part envoyée plus forte pour
+  un son lointain ; interface sèche. Compresseur de sortie presque limiteur (−18 dB, rapport 12) : crêtes ≈ 0,5.
+- Sirène du Stuka (« trompette de Jéricho ») : dents de scie désaccordées et saturées dans trois formants de tuyau,
+  175 → 410 Hz sur 2,3 s avec un battement irrégulier, souffle de l'air, moteur qui rugit puis la ressource ; bombes
+  plus lourdes. Orgues de Staline (groupes `rocket`) : 12 à 16 départs en rafale qui feulent, hurlement collectif,
+  chapelet d'impacts serrés. Banc sonore : boutons « Barrage lourd » et « Orgues de Staline ».
+- Terrain (`frontrender.js`, `WEAR`) : usure par case = pertes cumulées sur la bataille + 0,6 par cratère de barrage.
+  Teinte lissée (échantillonneur des masses) sous les troupes : brune au-delà de 1,5, grise cendre vers le champ
+  lunaire (35) ; trous d'obus peints au calque des cratères à partir de 5 (0,55 par unité, 42 par case au plus),
+  gris au-delà de 21. Mesure (4 batailles IA contre IA, ~700 cases touchées) : moitié au-delà de 2,5, un cinquième
+  au-delà de 12, 5 % au-delà de 40 : une bande labourée suit le front, quelques taches lunaires aux points chauds.
+- Champs qui brûlent (`FIELD_FIRE`) : en juillet-août par temps clair, une case de steppe dont la chaleur des combats
+  dépasse 3 s'allume (4 % par tick), le feu court sous le vent sur deux cases au plus, fume, puis laisse un chaume
+  sombre. Premier essai (12 %, propagation libre) : des pans entiers de l'arrière noircis, lus comme une ombre.
+- Épaves (`WRECK`) : une carcasse par 20 chars perdus d'une formation (le reste quand elle est anéantie), à 2 unités
+  au plus de sa position, vue par le joueur ; 90 au plus. Char noirci, tourelle de travers, fumée pendant 30 ticks.
+- Lumière : voile en multiplication, doré de 6 h à 8 h 30 (et le matin des ordres), chaud après 16 h 30, bleui après
+  18 h 30.
+- Chars plus petits : échelle 0,95 (1,7 avant) avec un plancher à l'écran au dézoom, trois chars au plus par
+  formation (deux en vue d'ensemble), serrés. L'artillerie garde son échelle.
+- Texte : barre d'aide muette par défaut ; consignes d'outil réduites à une ligne ; confirmations d'ordre brèves qui
+  s'effacent après 2,6 s. Étiquette de poche réduite à l'effectif (■ Festung, ➚ percée), taille constante à l'écran.
+  Règles du briefing repliées. Bilan du soir en cinq chiffres (pertes, pertes ennemies en fourchette, terrain,
+  villes ★, score), puis issue, quatre événements au plus, objectifs, météo et renforts en une ligne.
+

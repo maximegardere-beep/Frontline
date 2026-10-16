@@ -1,6 +1,7 @@
 // Sons du champ de bataille, entièrement synthétisés (Web Audio) : aucun fichier, aucune dépendance.
 // Tirs et explosions suivent la chronologie des effets visuels ; moteurs et pas pendant les mouvements ;
 // raids aériens (moteurs, DCA, piqué, bombes) ; vent et canonnade lointaine en fond ; quelques sons d'interface.
+// Une réverbération de plaine (réponse impulsionnelle synthétisée) fait rouler les détonations au loin.
 // Sans Web Audio (Node, tests), toutes les méthodes sont sans effet.
 
 const MUTE_KEY = 'frontline.mute';
@@ -26,8 +27,12 @@ class AudioBoard {
       const ctx = new AC();
       this.ctx = ctx;
       this.comp = ctx.createDynamicsCompressor();
-      this.comp.threshold.value = -16;
-      this.comp.ratio.value = 6;
+      // Compresseur de sortie, presque un limiteur : les gros calibres et leur réverbération ne saturent pas.
+      this.comp.threshold.value = -18;
+      this.comp.knee.value = 8;
+      this.comp.ratio.value = 12;
+      this.comp.attack.value = 0.002;
+      this.comp.release.value = 0.25;
       this.comp.connect(ctx.destination);
       this.master = ctx.createGain();
       this.master.gain.value = this.muted ? 0 : 0.8;
@@ -41,6 +46,15 @@ class AudioBoard {
       const b = this.brown.getChannelData(0);
       let last = 0;
       for (let i = 0; i < len; i++) { last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02; b[i] = last * 3.5; }
+      // Saturation douce (tanh) : les coups graves gagnent des harmoniques, audibles même sur un haut-parleur de téléphone.
+      this.curve = new Float32Array(1024);
+      for (let i = 0; i < 1024; i++) { const x = (i / 511.5) - 1; this.curve[i] = Math.tanh(2.6 * x) / Math.tanh(2.6); }
+      // Réverbération : chaque son y envoie une part de lui-même (plus forte s'il est lointain).
+      this.verb = ctx.createConvolver();
+      this.verb.buffer = this.plainImpulse();
+      const wet = ctx.createGain();
+      wet.gain.value = 0.38;
+      this.verb.connect(this.filter('lowpass', 3200)).connect(wet).connect(this.master);
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'hidden') this.ctx.suspend();
         else if (!this.muted) this.ctx.resume();
@@ -48,6 +62,29 @@ class AudioBoard {
     }
     if (this.ctx.state === 'suspended' && !this.muted) this.ctx.resume();
     if (this.ambWanted) this.ambient(true);
+  }
+
+  // Réponse impulsionnelle d'une plaine ouverte : quelques échos francs (lisière, village, colline), puis une queue
+  // diffuse qui s'assombrit en s'éteignant (≈ 3 s) ; légèrement différente à gauche et à droite.
+  plainImpulse() {
+    const ctx = this.ctx, sr = ctx.sampleRate, len = Math.floor(sr * 3.2);
+    const ir = ctx.createBuffer(2, len, sr);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = ir.getChannelData(ch);
+      let y = 0;
+      for (let i = 0; i < len; i++) {
+        const t = i / sr;
+        const c = 0.5 * Math.exp(-t * 1.6) + 0.03; // filtre passe-bas qui se referme
+        y += c * ((Math.random() * 2 - 1) - y);
+        d[i] = y * Math.min(1, t / 0.02) * Math.exp(-t / 0.75) * 0.9;
+      }
+      for (let e = 0; e < 6; e++) {
+        const at = Math.floor(sr * (0.07 + e * 0.08 + Math.random() * 0.12)), amp = 0.5 * Math.exp(-e * 0.35);
+        let z = 0;
+        for (let i = 0; i < sr * 0.03 && at + i < len; i++) { z += 0.25 * ((Math.random() * 2 - 1) - z); d[at + i] += z * amp * Math.exp(-i / (sr * 0.008)); }
+      }
+    }
+    return ir;
   }
 
   get live() { return !!this.ctx && !this.muted; }
@@ -65,7 +102,8 @@ class AudioBoard {
 
   // ---------- Briques ----------
 
-  out(pan = 0, gain = 1) {
+  // Sortie placée dans l'espace stéréo ; wet : part envoyée à la réverbération (davantage pour un son lointain).
+  out(pan = 0, gain = 1, wet = 0.32) {
     const g = this.ctx.createGain();
     g.gain.value = gain;
     if (this.ctx.createStereoPanner) {
@@ -73,7 +111,20 @@ class AudioBoard {
       p.pan.value = Math.max(-1, Math.min(1, pan));
       g.connect(p).connect(this.master);
     } else g.connect(this.master);
+    if (wet > 0 && this.verb) {
+      const w = this.ctx.createGain();
+      w.gain.value = wet * Math.max(0.45, gain) * (1.6 - gain * 0.6);
+      g.connect(w).connect(this.verb);
+    }
     return g;
+  }
+
+  // Saturation douce, vers dest.
+  drive(dest) {
+    const w = this.ctx.createWaveShaper();
+    w.curve = this.curve;
+    w.connect(dest);
+    return w;
   }
 
   // Sortie dont le panoramique et le volume peuvent être automatisés (avions qui traversent la carte).
@@ -122,12 +173,12 @@ class AudioBoard {
   }
 
   // Ton dont la hauteur glisse (coup sourd, sifflement, cloche).
-  tone(t, { wave = 'sine', f0, f1 = f0, peak, attack = 0.004, decay }, dest) {
+  tone(t, { wave = 'sine', f0, f1 = f0, peak, attack = 0.004, decay, sat = false }, dest) {
     const o = this.ctx.createOscillator();
     o.type = wave;
     o.frequency.setValueAtTime(f0, t);
     if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t + attack + decay);
-    o.connect(this.env(t, peak, attack, decay)).connect(dest);
+    o.connect(this.env(t, peak, attack, decay)).connect(sat ? this.drive(dest) : dest);
     o.start(t);
     o.stop(t + attack + decay + 0.05);
   }
@@ -141,12 +192,14 @@ class AudioBoard {
     this.burst(t, { type: 'lowpass', f0: 500, peak: 0.35, decay: 0.09 }, dest);
   }
 
+  // Départ de coup : claquement de bouche (de près), coup sourd saturé qui glisse vers le grave, souffle qui roule.
   cannon(t, dest, far, heavy) {
     const v = 0.9 + Math.random() * 0.2;
-    const k = far ? 0.45 : 1;
-    if (!far) this.burst(t, { type: 'highpass', f0: 1800, peak: 0.5, attack: 0.001, decay: 0.04 }, dest);
-    this.tone(t, { f0: (heavy ? 75 : 95) * v, f1: 32, peak: 0.9 * k, attack: 0.005, decay: heavy ? 0.7 : 0.45 }, dest);
-    this.burst(t, { type: 'lowpass', f0: far ? 500 : 1400, f1: 120, peak: 0.8 * k, attack: 0.004, decay: heavy ? 1.1 : 0.7 }, dest);
+    const k = far ? 0.5 : 1;
+    if (!far) this.burst(t, { type: 'bandpass', f0: 1300, q: 0.6, peak: 0.4, attack: 0.001, decay: 0.05 }, dest);
+    this.tone(t, { f0: (heavy ? 62 : 80) * v, f1: 26, peak: 0.85 * k, attack: 0.004, decay: heavy ? 0.9 : 0.6, sat: true }, dest);
+    this.burst(t, { type: 'lowpass', f0: far ? 380 : 900, f1: 70, peak: 0.85 * k, attack: 0.005, decay: heavy ? 1.5 : 1.0 }, dest);
+    this.burst(t + 0.02, { type: 'lowpass', f0: 120, peak: 0.5 * k, attack: 0.02, decay: heavy ? 1.8 : 1.2, buffer: this.brown }, dest);
   }
 
   // Rafale de mitrailleuse lointaine : claquements secs et rapprochés.
@@ -155,27 +208,47 @@ class AudioBoard {
     for (let i = 0; i < shots; i++) this.burst(t + i * 0.065, { type: 'bandpass', f0: f * v, q: 1.1, peak, attack: 0.001, decay: 0.05 }, dest);
   }
 
+  // Obus qui arrive : de l'air déchiré plutôt qu'un sifflet. Un chuintement en bande étroite qui descend et enfle
+  // jusqu'à l'impact, une note sourde qui glisse dessous, un froissement grave dans la dernière fraction de seconde.
+  // f0 : hauteur nominale (les gros calibres plus bas).
   whistle(t, dur, dest, level = 0.09, f0 = 1500 + Math.random() * 400) {
     if (dur < 0.25) return;
-    const o = this.ctx.createOscillator();
-    o.frequency.setValueAtTime(f0, t);
-    o.frequency.exponentialRampToValueAtTime(f0 * 0.42, t + dur);
-    const g = this.ctx.createGain();
+    const ctx = this.ctx, end = t + dur, fa = f0 * 0.5;
+    const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(level, t + dur * 0.7);
-    g.gain.linearRampToValueAtTime(0, t + dur);
-    o.connect(g).connect(dest);
+    g.gain.exponentialRampToValueAtTime(level * 0.5, t + dur * 0.5);
+    g.gain.exponentialRampToValueAtTime(level * 1.6, end - 0.04);
+    g.gain.linearRampToValueAtTime(0, end);
+    g.connect(dest);
+    const air = this.src(this.noise, t, dur + 0.02);
+    const bp = this.filter('bandpass', fa, 5);
+    bp.frequency.setValueAtTime(fa, t);
+    bp.frequency.exponentialRampToValueAtTime(fa * 0.38, end);
+    air.connect(bp).connect(g);
+    const o = ctx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(fa * 0.5, t);
+    o.frequency.exponentialRampToValueAtTime(fa * 0.16, end);
+    const og = ctx.createGain();
+    og.gain.value = 0.22;
+    o.connect(og).connect(this.filter('lowpass', 900)).connect(g);
     o.start(t);
-    o.stop(t + dur + 0.02);
+    o.stop(end + 0.02);
+    this.burst(end - 0.18, { type: 'lowpass', f0: 500, f1: 160, peak: level * 1.2, attack: 0.12, decay: 0.06 }, dest);
   }
 
+  // Explosion : claquement bref, souffle qui s'assombrit, coup sourd saturé, long grondement, puis la terre
+  // soulevée qui retombe en mottes.
   blast(t, size, dest, kill) {
     const k = Math.min(1.3, size / 18);
-    const decay = (kill ? 1.8 : 1.0) * k;
-    this.burst(t, { type: 'highpass', f0: 1200, peak: 0.35 * k, attack: 0.002, decay: 0.06 }, dest);
-    this.burst(t, { type: 'lowpass', f0: 1600, f1: 90, peak: 1.0 * k, attack: 0.006, decay }, dest);
-    this.burst(t, { type: 'lowpass', f0: 160, peak: 0.9 * k, attack: 0.01, decay: decay * 1.2, buffer: this.brown }, dest);
-    this.tone(t, { f0: 60, f1: 26, peak: 0.8 * k, attack: 0.008, decay: decay * 0.7 }, dest);
+    const decay = (kill ? 2.0 : 1.3) * Math.max(0.6, k);
+    this.burst(t, { type: 'bandpass', f0: 1100, q: 0.5, peak: 0.28 * k, attack: 0.002, decay: 0.05 }, dest);
+    this.burst(t, { type: 'lowpass', f0: 1100, f1: 70, peak: 0.8 * k, attack: 0.005, decay }, dest);
+    this.burst(t, { type: 'lowpass', f0: 130, peak: 0.85 * k, attack: 0.012, decay: decay * 1.5, buffer: this.brown }, dest);
+    this.tone(t, { f0: 70, f1: 22, peak: 0.7 * k, attack: 0.006, decay: decay * 0.8, sat: true }, dest);
+    for (let i = 0; i < 3 + k * 3; i++) {
+      this.burst(t + 0.35 + Math.random() * 0.9, { type: 'lowpass', f0: 380 + Math.random() * 400, peak: 0.05 + 0.06 * Math.random() * k, attack: 0.004, decay: 0.06 }, dest);
+    }
     // Destruction : munitions qui crépitent dans l'incendie.
     if (kill) {
       for (let i = 0; i < 9; i++) {
@@ -220,7 +293,10 @@ class AudioBoard {
         // Blindés au contact : départs de canons plus nombreux et plus proches.
         const guns = s.armor > 0 ? Math.min(3, 1 + Math.floor(s.armor * 0.2)) : Math.min(2, Math.floor(s.n / 4));
         for (let i = 0; i < guns; i++) this.cannon(at(), dest, !(s.armor > 0 && i === 0), Math.random() < 0.3);
-      } else if (s.k === 'barrage') this.barrage(t0 + Math.random() * dur * 0.3, dest, s.gun ? this.out(s.gun.pan, s.gun.gain) : null);
+      } else if (s.k === 'barrage') {
+        const guns = s.gun ? this.out(s.gun.pan, s.gun.gain) : null;
+        (s.kind === 'rocket' ? this.katyusha : this.barrage).call(this, t0 + Math.random() * dur * 0.3, dest, guns, s.kind === 'heavy');
+      }
       else if (s.k === 'town') this.blast(t0, 24, dest, true);
       else if (s.k === 'pocket') {
         this.burst(t0, { type: 'bandpass', f0: 1600, q: 0.8, peak: 0.1, attack: 0.01, decay: 0.18 }, dest);
@@ -233,26 +309,55 @@ class AudioBoard {
 
   // Barrage : la batterie tire en salve au loin (guns : sa position, ou null si on ne la voit pas),
   // un silence, les obus qui sifflent ensemble, des impacts groupés, puis un long grondement et la terre qui retombe.
-  barrage(t, dest, guns) {
+  barrage(t, dest, guns, heavy = false) {
     const from = guns ?? dest;
     const n = 3 + ((Math.random() * 2) | 0);
     for (let i = 0; i < n; i++) this.cannon(t + i * (0.13 + Math.random() * 0.05), from, true, true);
     const tw = t + n * 0.15 + 0.4 + Math.random() * 0.2;
-    const fall = 0.8 + Math.random() * 0.4;
-    for (let i = 0; i < 4; i++) {
+    const fall = 0.9 + Math.random() * 0.4;
+    for (let i = 0; i < 3; i++) {
       const d = fall + (Math.random() - 0.5) * 0.25;
-      this.whistle(tw + i * 0.07, d, dest, 0.06, 1250 + Math.random() * 700);
+      this.whistle(tw + i * 0.09, d, dest, 0.07, (heavy ? 900 : 1150) + Math.random() * 500);
     }
     const ti = tw + fall;
     for (let c = 0; c < 3; c++) {
       const tc = ti + c * (0.28 + Math.random() * 0.2);
-      for (let i = 0; i < 2 + (Math.random() < 0.5); i++) this.blast(tc + i * (0.04 + Math.random() * 0.07), 12 + Math.random() * 8, dest, false);
+      for (let i = 0; i < 2 + (Math.random() < 0.5); i++) this.blast(tc + i * (0.04 + Math.random() * 0.07), (heavy ? 18 : 13) + Math.random() * 8, dest, false);
     }
     // Queue : grondement sourd qui remplit l'espace, et retombées de terre.
-    this.burst(ti + 0.2, { type: 'lowpass', f0: 140, f1: 50, peak: 0.55, attack: 0.25, decay: 2.8, buffer: this.brown }, dest);
+    this.burst(ti + 0.2, { type: 'lowpass', f0: 140, f1: 50, peak: 0.45, attack: 0.25, decay: 3.2, buffer: this.brown }, dest);
     for (let i = 0; i < 7; i++) {
       this.burst(ti + 0.5 + Math.random() * 1.6, { type: 'bandpass', f0: 2500 + Math.random() * 2500, q: 1.5, peak: 0.02 + Math.random() * 0.03, attack: 0.002, decay: 0.03 }, dest);
     }
+  }
+
+  // Orgues de Staline : les rails crachent leurs roquettes en rafale, chacune dans un feulement rauque qui file au
+  // loin ; un hurlement collectif en l'air ; puis un chapelet d'impacts serrés qui balaie la zone.
+  katyusha(t, dest, guns) {
+    const from = guns ?? this.out(0, 0.25, 0.6);
+    const n = 12 + ((Math.random() * 5) | 0);
+    for (let i = 0; i < n; i++) {
+      const tl = t + i * (0.11 + Math.random() * 0.06);
+      this.burst(tl, { type: 'bandpass', f0: 350, f1: 1600, q: 1.4, peak: guns ? 0.3 : 0.12, attack: 0.03, decay: 0.55 }, from);
+      this.burst(tl, { type: 'lowpass', f0: 200, peak: guns ? 0.35 : 0.12, attack: 0.01, decay: 0.2, buffer: this.brown }, from);
+      for (let c = 0; c < 3; c++) this.burst(tl + 0.03 + c * 0.05, { type: 'highpass', f0: 2600, peak: 0.04, attack: 0.001, decay: 0.02 }, from);
+    }
+    const ti = t + 2.2 + Math.random() * 0.3;
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, ti - 1.4);
+    g.gain.exponentialRampToValueAtTime(0.06, ti - 0.1);
+    g.gain.linearRampToValueAtTime(0, ti);
+    g.connect(dest);
+    const air = this.src(this.noise, ti - 1.4, 1.45);
+    const bp = this.filter('bandpass', 1300, 2.5);
+    bp.frequency.setValueAtTime(1300, ti - 1.4);
+    bp.frequency.exponentialRampToValueAtTime(520, ti);
+    air.connect(bp).connect(g);
+    for (let i = 0; i < n; i++) {
+      const tb = ti + i * (0.07 + Math.random() * 0.06);
+      this.blast(tb, 9 + Math.random() * 5, dest, false);
+    }
+    this.burst(ti + 0.3, { type: 'lowpass', f0: 140, f1: 50, peak: 0.6, attack: 0.3, decay: 3, buffer: this.brown }, dest);
   }
 
   // ---------- Aviation ----------
@@ -291,6 +396,7 @@ class AudioBoard {
       o.start(t);
       o.stop(end + 0.05);
     }
+    if (this.verb) { const w = ctx.createGain(); w.gain.value = 0.25; out.node.connect(w).connect(this.verb); }
     const prop = this.src(this.noise, t, dur + 0.05, true);
     const pg = ctx.createGain();
     pg.gain.value = 0.25;
@@ -335,28 +441,79 @@ class AudioBoard {
     this.blast(t + fall, 9, dest, false);
   }
 
-  // Sirène de piqué : hurlement qui monte jusqu'au largage.
+  // « Trompette de Jéricho » du Stuka en piqué : une sirène entraînée par le vent relatif, dont le hurlement monte
+  // avec la vitesse. Timbre de tuyau (dents de scie désaccordées et saturées, trois formants), battement irrégulier,
+  // souffle de l'air, et sous elle le moteur qui rugit de plus en plus fort.
   siren(t, dur, dest) {
-    const bp = this.filter('bandpass', 1000, 1.4);
-    const g = this.ctx.createGain();
+    const ctx = this.ctx, end = t + dur, stop = end + 0.4;
+    const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.1, t + dur);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.25);
-    bp.connect(g).connect(dest);
-    for (const d of [1, 1.012]) {
-      const o = this.ctx.createOscillator();
-      o.type = 'sawtooth';
-      o.frequency.setValueAtTime(260 * d, t);
-      o.frequency.exponentialRampToValueAtTime(820 * d, t + dur);
-      const vib = this.ctx.createOscillator();
-      vib.frequency.value = 5.5;
-      const vd = this.ctx.createGain();
-      vd.gain.value = 12;
-      vib.connect(vd).connect(o.frequency);
-      o.connect(bp);
-      o.start(t); vib.start(t);
-      o.stop(t + dur + 0.3); vib.stop(t + dur + 0.3);
+    g.gain.exponentialRampToValueAtTime(0.035, t + dur * 0.35);
+    g.gain.exponentialRampToValueAtTime(0.11, end);
+    g.gain.exponentialRampToValueAtTime(0.0001, end + 0.3);
+    g.connect(dest);
+    const sum = ctx.createGain();
+    for (const [f, q, a] of [[480, 3, 1], [1150, 4, 0.7], [2400, 5, 0.35]]) {
+      const bp = this.filter('bandpass', f, q);
+      const bg = ctx.createGain();
+      bg.gain.value = a;
+      sum.connect(bp).connect(bg).connect(g);
     }
+    const sat = this.drive(sum);
+    const wob = [ctx.createOscillator(), ctx.createOscillator()];
+    wob[0].frequency.value = 3.7 + Math.random(); wob[1].frequency.value = 6.1 + Math.random();
+    for (const [i, d] of [[0, 1], [1, 1.007], [2, 0.5]]) {
+      const o = ctx.createOscillator();
+      o.type = i === 2 ? 'square' : 'sawtooth';
+      o.frequency.setValueAtTime(175 * d, t);
+      o.frequency.exponentialRampToValueAtTime(230 * d, t + dur * 0.4);
+      o.frequency.exponentialRampToValueAtTime(410 * d, end);
+      for (const w of wob) { const wd = ctx.createGain(); wd.gain.value = 3 * d; w.connect(wd).connect(o.frequency); }
+      const og = ctx.createGain();
+      og.gain.value = i === 2 ? 0.25 : 0.4;
+      o.connect(og).connect(sat);
+      o.start(t); o.stop(stop);
+    }
+    for (const w of wob) { w.start(t); w.stop(stop); }
+    // Souffle de l'air qui siffle sur la cellule.
+    const air = this.src(this.noise, t, dur + 0.35);
+    const ab = this.filter('bandpass', 700, 0.9);
+    ab.frequency.setValueAtTime(700, t);
+    ab.frequency.exponentialRampToValueAtTime(1900, end);
+    const ag = ctx.createGain();
+    ag.gain.setValueAtTime(0.0001, t);
+    ag.gain.exponentialRampToValueAtTime(0.05, end);
+    ag.gain.exponentialRampToValueAtTime(0.0001, end + 0.3);
+    air.connect(ab).connect(ag).connect(dest);
+    // Moteur : grondement qui enfle, puis la ressource (régime qui retombe en s'éloignant).
+    this.roar(t, dur + 1.6, dur, dest);
+  }
+
+  // Moteur d'un avion qui pique puis dégage : régime qui monte, crête à l'instant peak (s), puis s'éloigne.
+  roar(t, dur, peak, dest) {
+    const ctx = this.ctx, end = t + dur, tp = t + peak;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.14, tp);
+    g.gain.exponentialRampToValueAtTime(0.0001, end);
+    const lp = this.filter('lowpass', 260, 0.8);
+    lp.frequency.setValueAtTime(260, t);
+    lp.frequency.exponentialRampToValueAtTime(700, tp);
+    lp.frequency.exponentialRampToValueAtTime(220, end);
+    lp.connect(g).connect(dest);
+    for (const f of [72, 74.5]) {
+      const o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(f * 0.9, t);
+      o.frequency.linearRampToValueAtTime(f * 1.12, tp);
+      o.frequency.linearRampToValueAtTime(f * 0.8, end);
+      o.connect(lp);
+      o.start(t); o.stop(end + 0.05);
+    }
+    const rum = this.src(this.brown, t, dur + 0.05, true);
+    const rg = ctx.createGain();
+    rg.gain.value = 1.6;
+    rum.connect(rg).connect(lp);
   }
 
   // Passage en rase-mottes : moteur qui surgit et s'éloigne aussitôt, souffle.
@@ -380,7 +537,7 @@ class AudioBoard {
   // Frappe sur l'objectif (s.kind : strike, appui rapproché ; hunt, chasse de batterie ; s.first : premier passage).
   bombs(t, s, dest) {
     let tb = t;
-    if (s.kind === 'strike' && s.first) { this.siren(t, 1.5, dest); tb = t + 1.4; }
+    if (s.kind === 'strike' && s.first) { this.siren(t, 2.3, dest); tb = t + 2.1; }
     if (s.kind === 'hunt') {
       this.pass(t, dest);
       this.mg(t + 0.35, dest, 650, 0.2, 10);
@@ -390,8 +547,8 @@ class AudioBoard {
     const n = s.kind === 'strike' ? 5 : 2;
     for (let i = 0; i < n; i++) {
       const tt = tb + i * 0.15;
-      this.whistle(tt, 0.35, dest, 0.05, 1700 + Math.random() * 300);
-      this.blast(tt + 0.35, 9 + Math.random() * 4, this.out(s.pan + (i / (n - 1 || 1) - 0.5) * 0.3, s.gain), false);
+      this.whistle(tt, 0.45, dest, 0.05, 1300 + Math.random() * 300);
+      this.blast(tt + 0.45, 14 + Math.random() * 5, this.out(s.pan + (i / (n - 1 || 1) - 0.5) * 0.3, s.gain), false);
     }
   }
 
@@ -591,6 +748,7 @@ class AudioBoard {
       dest.gain.value = 0.13 + Math.random() * 0.1;
       const p = this.ctx.createStereoPanner?.();
       if (p) { p.pan.value = Math.random() * 1.6 - 0.8; dest.connect(p).connect(this.amb.bus); } else dest.connect(this.amb.bus);
+      if (this.verb) { const w = this.ctx.createGain(); w.gain.value = 0.9; dest.connect(w).connect(this.verb); }
       const n = Math.random() < 0.4 ? 2 + Math.floor(Math.random() * 3) : 1;
       for (let i = 0; i < n; i++) {
         const tt = t + i * (0.35 + Math.random() * 0.6);
@@ -617,7 +775,7 @@ class AudioBoard {
   ui(kind, where = null) {
     if (!this.live) return;
     const t = this.ctx.currentTime + 0.005;
-    const dest = this.out(0, 1);
+    const dest = this.out(0, 1, 0);
     if (kind === 'select') {
       // Déclic d'interrupteur.
       this.burst(t, { type: 'bandpass', f0: 3000, q: 2, peak: 0.12, attack: 0.001, decay: 0.02 }, dest);
@@ -640,7 +798,7 @@ class AudioBoard {
       this.burst(tt + 0.15, { type: 'bandpass', f0: 2000, q: 2, peak: 0.15, attack: 0.001, decay: 0.03 }, dest);
     } else if (kind === 'sos') {
       // Appel à l'aide d'un secteur qui craque : souffle radio, puis · · · — — — · · · pressé, deux fois.
-      const d = this.out(where?.pan ?? 0, 0.7 + 0.3 * (where?.gain ?? 1));
+      const d = this.out(where?.pan ?? 0, 0.7 + 0.3 * (where?.gain ?? 1), 0.15);
       this.burst(t, { type: 'bandpass', f0: 1300, q: 0.6, peak: 0.07, attack: 0.02, decay: 0.3 }, d);
       let tt = t + 0.25;
       for (let r = 0; r < 2; r++) {

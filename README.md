@@ -64,6 +64,8 @@ défenseur, est tiré de la graine et annoncé au briefing, avec l'objectif : le
   progression et donnent +15 % de défense à qui tient leurs berges.
 - **Le matin**, le jeu attend vos ordres. Choisir un outil en bas de la carte, puis toucher le départ et la cible :
   le jeu prend lui-même la case la plus pertinente autour du doigt (on peut déplacer la carte entre les deux appuis).
+  La barre sous la carte reste muette : elle ne s'affiche que pour une consigne courte, une erreur, la confirmation
+  d'un ordre (quelques secondes) ou l'estimation d'une zone touchée.
 
 | Outil | Gestes | Effet |
 |---|---|---|
@@ -89,12 +91,18 @@ défenseur, est tiré de la graine et annoncé au briefing, avec l'objectif : le
   d'autant plus vive que les pertes sont lourdes, tirs traçants des deux camps (jaunes allemands, orange
   soviétiques), rafales de mitrailleuse, obus là où les blindés poussent ; au matin, les barrages pilonnent leur
   zone, laissant fumée et sol noirci. On entend les fusillades et mitrailleuses des secteurs au contact, les
-  canons des blindés, les salves des barrages, les villes qui tombent.
+  canons des blindés, les salves des barrages (feulement des orgues de Staline, sirène des Stuka en piqué), les
+  villes qui tombent. La lumière suit l'heure : dorée à l'aube, chaude puis bleuie au soir.
+- **Le terrain garde la trace des combats** : là où l'on se bat, la steppe se piétine et brunit, puis se crible de
+  trous d'obus ; un secteur disputé plusieurs jours devient un champ lunaire gris. En été, par temps sec, un combat
+  violent peut mettre le feu aux blés, qui brûlent sous le vent et laissent un chaume noir. Les chars perdus restent
+  sur place, carcasses noircies qui fument quelques heures.
 - **Le panneau** (à droite, ou en bas en portrait) se replie avec le chevron (`P`) : la carte prend tout l'écran,
   il ne reste qu'un rail avec la vue d'ensemble (`0`), le son (`M`) et le bouton du jour. Zoom au pincer ou à la
   molette (`+` / `−` au clavier).
-- **Le soir**, un bilan : vos pertes, celles de l'ennemi estimées, le terrain, l'objectif, les renforts et la
-  météo du lendemain.
+- **Le soir**, un bilan en quelques chiffres : vos pertes, celles de l'ennemi (fourchette estimée), le terrain, les
+  villes ★, le score ; puis l'issue en vue, les événements, les objectifs secondaires, la météo et les renforts du
+  lendemain.
 - **Victoire** au soir du 10e jour : l'attaquant gagne s'il tient assez de villes ★, sinon le défenseur a tenu.
   Un camp qui tombe sous 12 % de ses effectifs ou de son terrain, ou qui perd toutes les villes, a perdu sur-le-champ.
 
@@ -122,11 +130,14 @@ La grille reste affichée en filigrane (bouton ⬡ pour la renforcer ou la masqu
 
 ## Son
 
-Tout est synthétisé à la volée (Web Audio), sans aucun fichier : départs de coups, sifflement des obus,
+Tout est synthétisé à la volée (Web Audio), sans aucun fichier : départs de coups, obus qui arrivent en déchirant l'air,
 explosions et crépitement des épaves, calés sur la chronologie des effets visuels et placés en stéréo
 selon leur position à l'écran (plus faibles hors champ) ; moteurs et chenilles des blindés, pas de
 l'infanterie pendant les mouvements ; vent et canonnade lointaine en fond ; déclics d'interface,
 transmission radio à l'exécution et cloche de fin de tour. Les tirs d'un ennemi invisible s'entendent étouffés.
+Une réverbération de plaine (réponse impulsionnelle synthétisée : quelques échos francs puis une longue queue qui
+s'assombrit) fait rouler les détonations, d'autant plus qu'elles sont lointaines ; les coups graves sont légèrement
+saturés pour rester audibles sur un haut-parleur de téléphone.
 
 ## Déroulement
 

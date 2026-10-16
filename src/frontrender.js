@@ -15,14 +15,14 @@ import { bfsDistance } from './path.js';
 import { createRng } from './rng.js';
 import { makeNoise } from './mapgen.js';
 import { FRONT_KINDS } from './terrain.js';
-import { FRONT_WEATHER, POCKET_MODES, VECTOR_TYPES, pocketName } from './front.js';
+import { FRONT_WEATHER, VECTOR_TYPES, cellAtPoint } from './front.js';
 import { MIN_POCKET, ARMOR_ATK } from './frontinput.js';
 import { FrontFx } from './frontfx.js';
 import { GUN_KINDS, visibleGuns, gunPower } from './frontguns.js';
 import { visibleArmor, armorRoute } from './frontarmor.js';
 import { AIR, airBase, visibleAA } from './frontair.js';
 import { railPoint } from './frontsupply.js';
-import { SPRITE_PAL, piece, tank, howitzer, towed, mortar, rocket, pit, dust } from './frontsprites.js';
+import { SPRITE_PAL, WRECK_PAL, piece, tank, wreck, howitzer, towed, mortar, rocket, pit, dust } from './frontsprites.js';
 
 export const CELL = 9; // rayon d'une case de la micro-grille, en pixels monde
 
@@ -37,6 +37,12 @@ const DOTS = { per: 0.45, max: 14, depth0: 4, depth: 22, scale: 14, r: 1.1, rear
 const ORDER_INK = '#ffd23f'; // ordres du joueur
 const ORDER_HALO = 'rgba(24, 20, 10, 0.8)';
 const SPRITE_K = 1.7; // échelle des pièces vues de dessus (lisibles sans zoomer)
+// Chars : plus petits que les pièces d'artillerie (une formation ne doit pas couvrir le secteur qu'elle attaque) ;
+// échelle monde, et plancher à l'écran quand on dézoome.
+const TANK_K = 0.95, TANK_SCREEN = 0.8;
+const tankScale = (s) => TANK_K * Math.max(1, TANK_SCREEN / s);
+// Coin de chars : jusqu'à trois (deux en vue d'ensemble), serrés.
+const TANK_FORM = [[0, 0], [-8, -7], [-8, 7]];
 const FIRE = { decay: 0.965, gain: 5, min: 0.08 }; // incendies : déclin par tick, attisement par point de destruction
 // Fumée des combats : chaleur par unité de densité perdue, déclin par tick, apport d'un cratère ; seuil d'un foyer,
 // chaleur d'un foyer à plein, espacement (unités de grille), nombre au plus, débit relatif à un incendie.
@@ -46,6 +52,16 @@ const TRANSFER_INK = 'rgba(150, 186, 236, 0.95)'; // regroupements de nuit
 const CONVOY = { speed: 0.012, trucks: 4, gap: 6 };
 // Cratères par tick de barrage à pleine puissance, et leur rayon (pixels monde ; une case fait 9 de rayon).
 const SCAR = { div: { n: 6, r: 1.1 }, heavy: { n: 5, r: 1.6 }, mortar: { n: 7, r: 0.9 }, rocket: { n: 9, r: 0.9 } };
+// Usure du terrain par les combats (pertes cumulées par case sur la bataille, plus chaque cratère de barrage) :
+// au-delà de trample, la steppe se piétine et brunit ; chaque unité au-delà de crater0 ajoute des trous d'obus
+// (per, au plus max par case) ; vers moon, la case devient un champ lunaire gris, criblé de cratères qui se recoupent.
+// Mesure (4 batailles IA contre IA) : sur ~700 cases touchées, la moitié dépasse 2,5, un cinquième 12, 5 % 40.
+const WEAR = { crater: 0.6, trample: 1.5, full: 25, crater0: 5, per: 0.55, max: 42, moon: 35 };
+// Champs qui brûlent (été, temps sec) : chaleur des combats qui allume la steppe, probabilité par tick, déclin du feu,
+// propagation sous le vent (sur gen cases au plus depuis le foyer), seuil sous lequel il s'éteint.
+const FIELD_FIRE = { heat: 3, chance: 0.04, decay: 0.88, spread: 0.12, gen: 2, min: 0.12 };
+// Épaves : chars perdus par carcasse, au plus par bataille ; ticks pendant lesquels elles fument.
+const WRECK = { per: 20, max: 90, smoke: 30, spread: 4 };
 
 
 // Poids de lissage d'un point de la carte : la case sous le point et ses voisines (noyau gaussien).
@@ -116,6 +132,13 @@ export class FrontRenderer extends Renderer {
     this.scarQueue = [];
     this.scarClock = -1;
     this.heat = new Float32Array(front.map.N); // intensité récente des combats par case (foyers de fumée)
+    this.wear = new Float32Array(front.map.N); // usure cumulée du terrain (WEAR)
+    this.wearCraters = new Uint8Array(front.map.N); // cratères d'usure déjà peints par case
+    this.wearDirty = true; // teinte de la terre labourée à repeindre (wearImage)
+    this.wearAny = false;
+    this.fieldFire = new Float32Array(front.map.N); // steppe en feu (0 à 1)
+    this.burnt = new Uint8Array(front.map.N); // chaume brûlé (ne repart pas) : 1 + distance au foyer
+    this.tanksSeen = new Map(); // chars de chaque formation au tick précédent, et reliquat de pertes (épaves)
     this.smoke = []; // foyers de fumée visibles : [x, y, force] × n
     this.fx = new FrontFx(CELL);
     this.sampler = makeSampler(this.map, this.worldW, this.worldH, 4, CELL * 1.25);
@@ -614,6 +637,7 @@ export class FrontRenderer extends Renderer {
 
   // Instantané lissé, à appeler après chaque tick ; le rendu interpole entre les deux derniers.
   snapshot(viewer) {
+    this.lastViewer = viewer;
     this.updateFires();
     this.queueCraters();
     this.smokeSources(viewer);
@@ -702,6 +726,12 @@ export class FrontRenderer extends Renderer {
     }
 
     const now = view.now ?? performance.now();
+    this.lastViewer = view.viewer ?? null;
+    const worn = this.wearImage();
+    if (this.wearAny) {
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(worn, 0, 0, this.sampler.w * this.sampler.step, this.sampler.h * this.sampler.step);
+    }
     this.fx.drawGround(ctx, now);
     this.drawHouses(view.viewer ?? null, false);
 
@@ -712,6 +742,7 @@ export class FrontRenderer extends Renderer {
 
     ctx.globalAlpha = 1;
     this.drawScars();
+    this.drawWrecks(now);
     this.drawHouses(view.viewer ?? null, true);
     this.drawDots(now);
     this.drawWorks(view.viewer ?? null);
@@ -720,6 +751,7 @@ export class FrontRenderer extends Renderer {
     this.drawSpearMass(spears);
     this.fx.drawGlow(ctx, now);
     this.drawFires(view.viewer ?? null, now);
+    this.drawFieldFires(view.viewer ?? null, now);
 
     // Ligne de front : partage des deux camps, épaisse et sombre. Elle s'interrompt sur l'eau infranchissable : là, c'est
     // la rivière qui sépare les camps.
@@ -738,6 +770,7 @@ export class FrontRenderer extends Renderer {
     this.drawSpearTips(spears.filter((sp) => !sp.formation));
     if (f.phase === 'resolve' && !this.fx.still) this.drawConvoys(view.viewer ?? null, now);
     this.drawArmor(view);
+    this.drawDaylight(Math.max(0, Math.min(1, view.t ?? 1)));
 
     this.drawTowns(view.viewer ?? null);
     this.drawObjectiveMarks();
@@ -905,8 +938,18 @@ export class FrontRenderer extends Renderer {
     this.scarClock = f.clock;
     // Chaleur des combats : pertes du tick, qui retombent en quelques heures.
     const loss = f.tickLoss;
-    for (let i = 0; i < this.map.N; i++) this.heat[i] = this.heat[i] * SMOKE.decay + (loss?.[i] ?? 0) * SMOKE.loss;
-    if (f.tick > f.cfg.barrageTicks) return;
+    for (let i = 0; i < this.map.N; i++) {
+      this.heat[i] = this.heat[i] * SMOKE.decay + (loss?.[i] ?? 0) * SMOKE.loss;
+      this.wear[i] += loss?.[i] ?? 0;
+    }
+    this.updateFieldFires();
+    this.spawnWrecks();
+    if (f.tick <= f.cfg.barrageTicks) this.barrageCraters();
+    this.queueWear();
+  }
+
+  barrageCraters() {
+    const f = this.front;
     const rng = createRng(`craters:${f.seed}:${f.clock}`);
     for (const s of [0, 1]) {
       for (const b of f.barrages[s]) {
@@ -921,9 +964,197 @@ export class FrontRenderer extends Renderer {
           if (h.col < 0 || h.row < 0 || h.col >= this.map.W || h.row >= this.map.H || this.map.river?.[i] || this.map.kind[i] === K.mountain) continue;
           this.scarQueue.push({ x, y, r: C.r * (0.7 + 0.6 * rng.next()), a: rng.next() * 6.3, k: rng.next() });
           this.heat[i] += SMOKE.barrage;
+          this.wear[i] += WEAR.crater;
         }
       }
     }
+  }
+
+  // Usure : chaque case reçoit des trous d'obus à mesure que ses pertes cumulées montent (positions tirées d'un
+  // générateur par case : une case pilonnée se remplit, elle ne se redessine pas). Au-delà de WEAR.moon, cratères
+  // gris de champ lunaire.
+  queueWear() {
+    const { N, kind } = this.map;
+    for (let i = 0; i < N; i++) {
+      const w = this.wear[i];
+      if (w < WEAR.crater0 || kind[i] === K.mountain || this.map.river?.[i]) continue;
+      const want = Math.min(WEAR.max, Math.floor((w - WEAR.crater0) * WEAR.per) + 1);
+      if (want <= this.wearCraters[i]) continue;
+      const c = this.center(i), moon = w > WEAR.moon * 0.6;
+      const rng = createRng(i * 2654435761 + this.wearCraters[i]);
+      for (let q = this.wearCraters[i]; q < want; q++) {
+        const a = rng.next() * Math.PI * 2, d = Math.sqrt(rng.next()) * CELL * 1.05;
+        const big = rng.next() < (moon ? 0.35 : 0.15);
+        this.scarQueue.push({ x: c.x + Math.cos(a) * d, y: c.y + Math.sin(a) * d * 0.95, r: (big ? 1.6 : 0.9) * (0.75 + 0.5 * rng.next()), a: rng.next() * 6.3, k: rng.next(), moon });
+      }
+      this.wearCraters[i] = want;
+    }
+    this.wearDirty = true;
+  }
+
+  // Teinte de la terre labourée, lissée (pas de cases visibles) : brune où l'on s'est battu, gris cendre vers le
+  // champ lunaire, noire là où la steppe a brûlé. Peinte sous les masses de troupes.
+  wearImage() {
+    const S = this.sampler;
+    if (!this.wearCanvas) {
+      this.wearCanvas = document.createElement('canvas');
+      this.wearCanvas.width = S.w;
+      this.wearCanvas.height = S.h;
+    }
+    if (!this.wearDirty) return this.wearCanvas;
+    this.wearDirty = false;
+    const { N } = this.map;
+    const churn = new Float32Array(N), moon = new Float32Array(N), burn = new Float32Array(N);
+    let any = false;
+    for (let i = 0; i < N; i++) {
+      const w = this.wear[i];
+      if (w > WEAR.trample) { churn[i] = Math.min(1, Math.log1p(w - WEAR.trample) / Math.log1p(WEAR.full)); any = true; }
+      if (w > WEAR.moon * 0.5) moon[i] = Math.min(1, (w - WEAR.moon * 0.5) / WEAR.moon);
+      if (this.burnt[i]) { burn[i] = 1 - this.fieldFire[i] * 0.5; any = true; }
+    }
+    const fc = S.field(churn).data, fm = S.field(moon).data, fb = S.field(burn).data;
+    const g = this.wearCanvas.getContext('2d'), img = g.createImageData(S.w, S.h), px = img.data;
+    for (let s = 0; s < S.w * S.h; s++) {
+      const c = fc[s], m = fm[s], b = fb[s];
+      if (c < 0.02 && b < 0.02) continue;
+      // Terre retournée (brun) → champ lunaire (gris cendre) ; chaume brûlé par-dessus (noir brunâtre).
+      let r = mixTo(112, 160, m), gg = mixTo(92, 154, m), bl = mixTo(66, 142, m);
+      let a = 0.5 * c + 0.45 * m;
+      if (b > 0.02) { const k = Math.min(1, b * 1.2); r = mixTo(r, 62, k); gg = mixTo(gg, 52, k); bl = mixTo(bl, 38, k); a = Math.max(a, 0.42 * k); }
+      px[s * 4] = r; px[s * 4 + 1] = gg; px[s * 4 + 2] = bl; px[s * 4 + 3] = Math.round(Math.min(0.85, a) * 255);
+    }
+    g.putImageData(img, 0, 0);
+    this.wearAny = any;
+    return this.wearCanvas;
+  }
+
+  // Steppe en feu : en été et par temps sec, un combat violent allume les blés ; le feu court sous le vent sur les
+  // cases de steppe voisines, fume, puis laisse un chaume noir pour le reste de la bataille.
+  updateFieldFires() {
+    const f = this.front, { N, nb, kind } = this.map;
+    const dry = f.season <= 1 && (f.weather === 'clear');
+    const rng = createRng(`fields:${f.seed}:${f.clock}`);
+    const w = f.wind ?? { dir: 0, force: 0.4 };
+    const wx = Math.cos(w.dir), wy = Math.sin(w.dir);
+    const lit = [];
+    for (let i = 0; i < N; i++) {
+      const fire = this.fieldFire[i];
+      if (fire > 0) {
+        this.fieldFire[i] = fire * (dry ? FIELD_FIRE.decay : FIELD_FIRE.decay * 0.7);
+        if (this.fieldFire[i] < FIELD_FIRE.min) this.fieldFire[i] = 0;
+        if (dry && fire > 0.5) lit.push(i);
+        continue;
+      }
+      if (!dry || this.burnt[i] || kind[i] !== K.plain || this.map.river?.[i]) continue;
+      if (this.heat[i] > FIELD_FIRE.heat && rng.next() < FIELD_FIRE.chance) { this.fieldFire[i] = 1; this.burnt[i] = 1; }
+    }
+    // Propagation : vers les voisines sous le vent, d'autant plus que le vent est fort.
+    for (const i of lit) {
+      if (this.burnt[i] > FIELD_FIRE.gen) continue;
+      const c = this.center(i);
+      for (let d = 0; d < 6; d++) {
+        const j = nb[i * 6 + d];
+        if (j < 0 || this.burnt[j] || kind[j] !== K.plain || this.map.river?.[j]) continue;
+        const q = this.center(j), L = Math.hypot(q.x - c.x, q.y - c.y) || 1;
+        const along = ((q.x - c.x) * wx + (q.y - c.y) * wy) / L;
+        if (along > 0.3 && rng.next() < FIELD_FIRE.spread * (0.5 + w.force) * along) { this.fieldFire[j] = 0.9; this.burnt[j] = this.burnt[i] + 1; }
+      }
+    }
+  }
+
+  // Flammes et fumée des champs qui brûlent, là où le camp observateur voit.
+  drawFieldFires(viewer, now) {
+    const f = this.front, { ctx } = this, { N } = this.map;
+    const sources = [];
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < N; i++) {
+      const heat = this.fieldFire[i];
+      if (heat <= 0) continue;
+      if (viewer !== null && f.owner[i] !== viewer && !f.vision[viewer][i]) continue;
+      const c = this.center(i);
+      // Front de flammes : quelques langues vacillantes réparties sur la case.
+      for (let q = 0; q < 3; q++) {
+        const ph = i * 1.7 + q * 2.3;
+        const x = c.x + Math.cos(ph) * 4.5, y = c.y + Math.sin(ph * 1.3) * 4;
+        const fl = 0.55 + 0.45 * Math.sin(now * 0.019 + ph) * Math.sin(now * 0.011 + ph * 2);
+        const R = 2.4 + 3.2 * heat;
+        ctx.globalAlpha = Math.min(1, 0.25 + 0.55 * heat) * fl;
+        ctx.drawImage(this.fx.fireSprite(), x - R, y - R, R * 2, R * 2);
+      }
+      if (heat > 0.3 && (i % 2 === 0)) sources.push(c.x, c.y, 0.5 * heat);
+    }
+    ctx.restore();
+    this.fx.plumeSources(sources, 'field');
+  }
+
+  // ---------- Épaves ----------
+
+  // Une carcasse par WRECK.per chars perdus d'une formation (et toutes les siennes quand elle est anéantie), là où
+  // elle se trouve, vue par le camp du joueur ou à lui ; elle reste jusqu'à la fin de la bataille.
+  spawnWrecks() {
+    const f = this.front;
+    if (!f.armor) return;
+    const viewer = this.lastViewer ?? null;
+    const rng = createRng(`wrecks:${f.seed}:${f.clock}`);
+    for (const a of f.armor) {
+      const prev = this.tanksSeen.get(a.id);
+      const tanks = a.lost ? 0 : a.tanks;
+      this.tanksSeen.set(a.id, { tanks, rest: prev?.rest ?? 0 });
+      if (!prev || tanks >= prev.tanks) continue;
+      const st = this.tanksSeen.get(a.id);
+      st.rest = prev.rest + (prev.tanks - tanks);
+      const i = cellAtPoint(f, a);
+      const seen = viewer === null || a.side === viewer || (i >= 0 && f.vision[viewer][i]);
+      while (st.rest >= WRECK.per || (a.lost && st.rest > WRECK.per * 0.3)) {
+        st.rest = Math.max(0, st.rest - WRECK.per);
+        if (!seen || this.wrecks.length >= WRECK.max) continue;
+        const c = this.toWorld({ x: a.x + (rng.next() - 0.5) * WRECK.spread, y: a.y + (rng.next() - 0.5) * WRECK.spread });
+        this.wrecks.push({ x: c.x, y: c.y, ang: (a.dir ?? 0) + (rng.next() - 0.5) * 1.6, side: a.side, born: f.clock, turret: (rng.next() - 0.5) * 2.4 });
+      }
+    }
+  }
+
+  // Carcasses : tache de sol brûlé, char noirci (tourelle de travers), fumée les premières heures.
+  drawWrecks(now) {
+    if (!this.wrecks.length) return;
+    const { ctx, cam } = this, f = this.front;
+    const k = tankScale(cam.s) * 0.95;
+    const smoke = [];
+    for (const w of this.wrecks) {
+      ctx.fillStyle = 'rgba(30, 24, 18, 0.35)';
+      ctx.beginPath();
+      ctx.ellipse(w.x, w.y, 7 * k, 5 * k, w.ang, 0, Math.PI * 2);
+      ctx.fill();
+      piece(ctx, w.x, w.y, w.ang, k, (G, P, sh) => wreck(G, P, sh, w.turret), WRECK_PAL[w.side]);
+      const age = f.clock - w.born;
+      if (age < WRECK.smoke) smoke.push(w.x, w.y, 0.35 * (1 - age / WRECK.smoke));
+    }
+    void now;
+    this.fx.plumeSources(smoke, 'wreck');
+  }
+
+  // ---------- Lumière ----------
+
+  // Lumière du jour sur la carte : rasante et dorée à l'aube, puis neutre ; chaude au soir, bleuie à la tombée.
+  // Heure : de 6 h à 20 h au fil des ticks de la journée ; le matin des ordres est l'aube.
+  drawDaylight(t) {
+    const f = this.front;
+    if (f.phase === 'over') return;
+    const frac = f.phase === 'plan' ? 0 : Math.min(1, Math.max(0, (f.tick - 1 + t) / f.cfg.ticks));
+    const h = 6 + frac * 14;
+    const { ctx } = this;
+    const layer = (rgb, a) => {
+      if (a <= 0.005) return;
+      ctx.fillStyle = `rgba(${rgb}, ${a})`;
+      ctx.fillRect(0, 0, this.worldW, this.worldH);
+    };
+    ctx.save();
+    ctx.globalCompositeOperation = 'multiply';
+    if (h < 8.5) layer('255, 178, 120', 0.3 * (8.5 - h) / 2.5);
+    if (h > 16.5) layer('255, 160, 104', Math.min(0.3, 0.3 * (h - 16.5) / 2.5));
+    if (h > 18.5) layer('92, 104, 160', 0.28 * Math.min(1, (h - 18.5) / 1.5));
+    ctx.restore();
   }
 
   // Calque des cratères, au-dessus des masses (lisible dans les deux camps) : chaque impact ajoute une tache brune très légère (elles s'accumulent en
@@ -962,11 +1193,12 @@ export class FrontRenderer extends Renderer {
       }
       ctx.fillStyle = 'rgba(70, 52, 32, 0.45)';
       for (let q = 0; q < 5; q++) { const a = c.a + q * 1.26, d = c.r * (1.7 + (q % 3) * 0.4); ctx.fillRect(c.x + Math.cos(a) * d, c.y + Math.sin(a) * d, 0.6, 0.6); }
-      ctx.fillStyle = 'rgba(238, 226, 190, 0.55)';
+      // Champ lunaire : bourrelets gris cendre, entonnoirs plus froids.
+      ctx.fillStyle = c.moon ? 'rgba(206, 200, 186, 0.6)' : 'rgba(238, 226, 190, 0.55)';
       ctx.beginPath(); ctx.arc(c.x - 0.35, c.y - 0.35, c.r * 1.35, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = 'rgba(92, 70, 44, 0.8)';
+      ctx.fillStyle = c.moon ? 'rgba(96, 90, 80, 0.85)' : 'rgba(92, 70, 44, 0.8)';
       ctx.beginPath(); ctx.arc(c.x + 0.2, c.y + 0.2, c.r * 1.2, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = 'rgba(40, 30, 20, 0.8)';
+      ctx.fillStyle = c.moon ? 'rgba(44, 42, 38, 0.85)' : 'rgba(40, 30, 20, 0.8)';
       ctx.beginPath(); ctx.arc(c.x + 0.1, c.y + 0.15, c.r * 0.8, 0, Math.PI * 2); ctx.fill();
     }
     this.scarQueue.length = 0;
@@ -1119,12 +1351,14 @@ export class FrontRenderer extends Renderer {
         strokeSegments(ctx, segs);
         ctx.setLineDash([]);
         const own = viewer === null || viewer === s;
+        // Étiquette brève : effectif (ou « encerclés » chez l'ennemi) et un signe pour le comportement choisi.
         const men = own ? `${(Math.round((p.troops * f.cfg.men) / 100) * 100).toLocaleString('fr-FR')} h` : 'encerclés';
-        const label = `Poche ${pocketName(f, p)} · ${men}${p.mode !== 'hold' ? ` · ${POCKET_MODES[p.mode]}` : ''}`;
+        const label = `${p.mode === 'festung' ? '■ ' : p.mode === 'breakout' ? '➚ ' : ''}${men}`;
         const c = this.toWorld({ x: p.cx, y: p.cy });
-        ctx.font = '700 10px "IBM Plex Mono", monospace';
+        const fs = 11 / Math.max(0.8, this.cam.s);
+        ctx.font = `700 ${fs}px "IBM Plex Mono", monospace`;
         ctx.textAlign = 'center';
-        ctx.lineWidth = 3;
+        ctx.lineWidth = fs * 0.3;
         ctx.strokeStyle = 'rgba(244, 236, 210, 0.9)';
         ctx.strokeText(label, c.x, c.y);
         ctx.fillStyle = '#1d1a12';
@@ -1221,7 +1455,7 @@ export class FrontRenderer extends Renderer {
     if (!f.armor) return;
     const { ctx, cam } = this;
     const viewer = view.viewer ?? null;
-    const k = SPRITE_K * Math.max(1, 1 / cam.s);
+    const k = tankScale(cam.s);
     const px = 1 / cam.s;
     const planning = f.phase === 'plan';
     for (const { a, x, y, dir, tanks, known } of visibleArmor(f, viewer)) {
@@ -1256,14 +1490,13 @@ export class FrontRenderer extends Renderer {
         ctx.fillStyle = ORDER_INK;
         ctx.fill();
       }
-      let n = Math.max(1, Math.min(5, Math.round(tanks / 35)));
-      if (cam.s < 1.1) n = Math.min(n, 3);
-      const form = [[0, 0], [-10, -9], [-10, 9], [-20, -18], [-20, 18]].slice(0, n);
-      const pts = form.map(([fx, fy]) => [c.x + (fx * Math.cos(ang) - fy * Math.sin(ang)) * k + Math.cos(ang) * 8 * k, c.y + (fx * Math.sin(ang) + fy * Math.cos(ang)) * k + Math.sin(ang) * 8 * k]);
+      const n = Math.max(1, Math.min(cam.s < 1.1 ? 2 : 3, Math.round(tanks / 50)));
+      const form = TANK_FORM.slice(0, n);
+      const pts = form.map(([fx, fy]) => [c.x + (fx * Math.cos(ang) - fy * Math.sin(ang)) * k + Math.cos(ang) * 4 * k, c.y + (fx * Math.sin(ang) + fy * Math.cos(ang)) * k + Math.sin(ang) * 4 * k]);
       ctx.globalAlpha = known ? 1 : 0.5;
       if (sel) {
         ctx.beginPath();
-        ctx.arc(c.x, c.y, 26 * k, 0, Math.PI * 2);
+        ctx.arc(c.x, c.y, 20 * k, 0, Math.PI * 2);
         ctx.strokeStyle = ORDER_INK;
         ctx.lineWidth = 2 * px;
         ctx.stroke();
@@ -1275,7 +1508,7 @@ export class FrontRenderer extends Renderer {
         ctx.font = `700 ${10 * px}px "IBM Plex Sans Condensed", "Arial Narrow", sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        const ly = c.y + 30 * k;
+        const ly = c.y + 22 * k;
         ctx.lineWidth = 3 * px;
         ctx.strokeStyle = 'rgba(250, 240, 210, 0.85)';
         ctx.strokeText(a.name, c.x, ly);
@@ -1521,22 +1754,21 @@ export class FrontRenderer extends Renderer {
   // poussière ; le nom du groupe en dessous. Le nombre de chars suit les troupes que la percée entraîne.
   drawSpearTips(spears) {
     const { ctx, cam } = this;
-    const k = SPRITE_K * Math.max(1, 1 / cam.s);
+    const k = tankScale(cam.s);
     for (const sp of spears) {
       const h = this.toWorld(sp.head);
       const ang = Math.atan2(sp.uy, sp.ux);
       let mass = 0;
       for (const i of sp.cells) mass += this.front.dens[i];
-      let n = Math.max(2, Math.min(5, Math.round(mass / 60)));
-      if (cam.s < 1.1) n = Math.min(n, 3);
-      const form = [[0, 0], [-10, -9], [-10, 9], [-20, -18], [-20, 18]].slice(0, n);
+      const n = Math.max(1, Math.min(cam.s < 1.1 ? 2 : 3, Math.round(mass / 80)));
+      const form = TANK_FORM.slice(0, n);
       const pts = form.map(([fx, fy]) => [h.x + (fx * Math.cos(ang) - fy * Math.sin(ang)) * k, h.y + (fx * Math.sin(ang) + fy * Math.cos(ang)) * k]);
       for (const [x, y] of pts) dust(ctx, x, y, ang, k);
       for (const [x, y] of pts) piece(ctx, x, y, ang, k, (G, P, sh) => tank(G, P, sh, sp.side === 1), SPRITE_PAL[sp.side]);
       ctx.font = `700 ${10 / cam.s}px "IBM Plex Sans Condensed", "Arial Narrow", sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      const ly = h.y + (Math.sin(ang) > 0.3 ? -1 : 1) * 30 * k;
+      const ly = h.y + (Math.sin(ang) > 0.3 ? -1 : 1) * 22 * k;
       ctx.lineWidth = 3 / cam.s;
       ctx.strokeStyle = 'rgba(250, 240, 210, 0.85)';
       ctx.strokeText(sp.name, h.x - Math.cos(ang) * 10 * k, ly);

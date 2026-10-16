@@ -8,6 +8,12 @@ export const SPRITE_PAL = [
   { body: '#56603a', dark: '#2c321c', track: '#24261c', light: '#8e9a62' },
 ];
 
+// Épaves : la peinture a brûlé ; seul un reste de teinte du camp sur le glacis.
+export const WRECK_PAL = [
+  { body: '#4a463a', dark: '#1c1a16', track: '#161512', light: '#6a6450' },
+  { body: '#3c4030', dark: '#1a1c14', track: '#151611', light: '#5a6046' },
+];
+
 const CREW = '#2b2a20';
 
 // Ombre portée puis pièce : fn(g, pal, shadow).
@@ -47,6 +53,31 @@ export function tank(g, P, sh, heavy = false) {
   g.moveTo(1.5, 0);
   g.lineTo(heavy ? 8.5 : 7.5, 0);
   g.stroke();
+}
+
+// Char détruit : caisse noircie, une chenille déroulée, tourelle de travers (turn, radians), tube pendant.
+export function wreck(g, P, sh, turn = 0.6) {
+  const L = 10.5, W = 6;
+  fill(g, P.track, sh);
+  g.fillRect(-L / 2, -W / 2, L, 1.7);
+  g.fillRect(-L / 2 - 2.5, W / 2 - 1.5, L * 0.6, 1.2);
+  fill(g, P.body, sh);
+  g.fillRect(-L / 2 + 0.6, -W / 2 + 1.2, L - 1.2, W - 2.4);
+  if (!sh) { g.fillStyle = 'rgba(12, 10, 8, 0.55)'; g.beginPath(); g.ellipse(1.5, -0.4, 2.6, 1.6, 0.4, 0, Math.PI * 2); g.fill(); }
+  g.save();
+  g.translate(-0.6, 0.3);
+  g.rotate(turn);
+  fill(g, P.light, sh);
+  g.beginPath();
+  g.ellipse(0, 0, 2.4, 2, 0, 0, Math.PI * 2);
+  g.fill();
+  stroke(g, P.dark, sh);
+  g.lineWidth = 0.8;
+  g.beginPath();
+  g.moveTo(2, 0);
+  g.lineTo(5.5, 0.9);
+  g.stroke();
+  g.restore();
 }
 
 // Obusier en batterie : flèches d'affût ouvertes, roues, bouclier, tube, servants.

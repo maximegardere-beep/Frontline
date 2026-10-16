@@ -588,6 +588,14 @@ kbd {
 .seg { display: flex; gap: 4px; }
 .seg .btn { flex: 1; }
 .tab.badge::before { content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--pencil); vertical-align: 1px; }
+/* Bilan du soir : quelques chiffres clés. */
+.f-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 8px; margin: 14px 0 12px; }
+.f-stat { padding: 8px 10px; border-top: 3px solid var(--ink-muted); background: rgba(42, 36, 22, 0.06); min-width: 0; }
+.f-stat b { display: block; font: 700 22px/1.1 var(--f-mono); overflow-wrap: anywhere; }
+.f-stat span { font-size: 12px; letter-spacing: 0.04em; color: var(--ink-muted); }
+.f-stat.good { border-top-color: #4f7d2c; }
+.f-stat.bad { border-top-color: var(--pencil); }
+.f-outlook { margin: 0 0 8px; }
 .dossier .warn-note { padding: 6px 10px; border-left: 3px solid var(--pencil); background: rgba(192, 57, 43, 0.1); }
 
 /* Menu : entrée du front stratégique. */

@@ -41,16 +41,16 @@ const SIDE_NAME = ['Wehrmacht', 'Armée rouge'];
 
 // Outils du matin : vecteurs (deux appuis), ligne (deux appuis), barrage et réserves (un appui).
 const TOOLS = {
-  infantry: { label: 'Infanterie', short: 'Inf.', taps: 2, hint: 'Touchez le départ dans vos lignes, puis l\'objectif.' },
-  armor: { label: 'Blindés', short: 'Blindés', taps: 1, hint: 'Formation blindée : touchez son objectif (ou une autre formation pour la choisir). Elle rejoint le front par vos lignes puis perce.' },
-  fix: { label: 'Fixation', short: 'Fixer', taps: 2, hint: 'Fixation : touchez le départ dans vos lignes, puis le secteur ennemi à fixer. Vos troupes pressent sans chercher à prendre, à pertes réduites ; l\'ennemi fixé ne peut plus envoyer de renforts ailleurs.' },
-  retreat: { label: 'Repli', short: 'Repli', taps: 2, hint: 'Repli ordonné : touchez le secteur à dégager, puis où se replier dans vos lignes.' },
-  line: { label: 'Ligne de défense', short: 'Ligne', taps: 2, hint: 'Ligne de défense : touchez une extrémité, puis l\'autre, dans vos lignes. Tranchées en un jour, barbelés en deux, antichar en trois (niveau réglable dans le panneau).' },
-  barrage: { label: 'Barrage', short: 'Barrage', taps: 1, hint: 'Barrage de zone : touchez la zone à pilonner. Le groupe d\'artillerie disponible le plus puissant qui l\'a à portée tirera.' },
-  air: { label: 'Aviation', short: 'Air', taps: 1, hint: 'Aviation : touchez la zone à frapper en fin de matinée (appui rapproché, redoutable contre les chars), ou une batterie ennemie repérée (chasse). Les avions partent de votre bord de carte : la DCA ennemie sur leur route les émousse et peut en abattre.' },
-  reserve: { label: 'Réserves', short: 'Réserves', taps: 1, hint: 'Chaque appui fait monter 800 hommes en ligne autour du point touché.' },
-  pontoon: { label: 'Pont de bateaux', short: 'Pont', taps: 1, hint: 'Pont de bateaux : touchez la rivière au bord de vos lignes. Le génie le jette cette nuit jusqu\'à l\'autre rive ; fragile, un barrage ou une frappe aérienne le coule. Deux par bataille.' },
-  transfer: { label: 'Transfert', short: 'Transf.', taps: 2, hint: 'Regroupement de nuit : touchez le secteur à dégarnir, puis où envoyer ses troupes, dans vos lignes. Par une route tenue, jusqu\'à 600 hommes et loin ; à travers champs, 150 hommes et tout près.' },
+  infantry: { label: 'Infanterie', short: 'Inf.', taps: 2, hint: 'Départ dans vos lignes, puis objectif.' },
+  armor: { label: 'Blindés', short: 'Blindés', taps: 1, hint: 'Touchez son objectif.' },
+  fix: { label: 'Fixation', short: 'Fixer', taps: 2, hint: 'Départ dans vos lignes, puis secteur à fixer.' },
+  retreat: { label: 'Repli', short: 'Repli', taps: 2, hint: 'Secteur à dégager, puis point de repli.' },
+  line: { label: 'Ligne de défense', short: 'Ligne', taps: 2, hint: 'Une extrémité, puis l\'autre.' },
+  barrage: { label: 'Barrage', short: 'Barrage', taps: 1, hint: 'Touchez la zone à pilonner.' },
+  air: { label: 'Aviation', short: 'Air', taps: 1, hint: 'Zone à frapper, ou batterie ennemie repérée.' },
+  reserve: { label: 'Réserves', short: 'Réserves', taps: 1, hint: 'Touchez où faire monter 800 hommes.' },
+  pontoon: { label: 'Pont de bateaux', short: 'Pont', taps: 1, hint: 'Touchez la rivière au bord de vos lignes.' },
+  transfer: { label: 'Transfert', short: 'Transf.', taps: 2, hint: 'Secteur à dégarnir, puis destination.' },
 };
 
 const fui = {
@@ -149,7 +149,7 @@ function goalText(f) {
     : `Bataille aux points. Chaque soir où l'ennemi tient une ville ★ lui rapporte : reprenez-les vite, ou retardez leur chute. Saignez l'offensive, encerclez ses pointes, remplissez vos objectifs secondaires : une offensive qui ne gagne presque rien est une victoire défensive.`;
 }
 
-const signed = (n) => `${n >= 0 ? '+' : '−'}${Math.abs(Math.round(n))}`;
+const signed = (n) => { const r = Math.round(n); return `${r >= 0 ? '+' : '−'}${Math.abs(r)}`; };
 
 // Issue vue du joueur : victoire, défaite ou indécis, et le libellé gradué.
 function gradeFor(f, grade) {
@@ -213,12 +213,13 @@ function showFrontBriefing() {
   `, () => byId('f-start').addEventListener('click', () => { fui.hooks.hideDossier(); setHint(TOOLS_HELP()); refreshFront(); }));
 }
 
-const TOOLS_HELP = () => `${touchOnly() ? 'Touchez' : 'Cliquez'} la carte pour estimer les forces ; choisissez un outil pour donner un ordre.`;
+// Barre d'aide muette par défaut : elle ne parle que pour une consigne courte, une erreur ou une estimation.
+const TOOLS_HELP = () => '';
 
 function frontRules() {
   const c = fui.front?.cfg ?? { maxVectors: 4, maxArmor: 2, maxLines: 2, days: 10 };
   return `
-    <details class="rules" open>
+    <details class="rules">
       <summary>Front stratégique</summary>
       <ol>
         <li><b>Masses.</b> Plus d'unités : chaque camp est une masse de troupes, plus sombre où elle est dense. Le trait noir est le front. Hors de vue, l'ennemi n'est qu'une estimation estompée.</li>
@@ -267,28 +268,25 @@ function showDayReport() {
   const obj = attackerTowns(f);
   const att = f.attacker === s;
   const myPockets = bigPockets(f, s);
+  const sc = scoreBreakdown(f), g = gradeFor(f, sc.grade);
+  const pct = (x) => `${x >= 0 ? '+' : '−'}${Math.abs(x).toFixed(1).replace('.', ',')} %`;
+  const stat = (v, l, cls = '') => `<div class="f-stat ${cls}"><b>${v}</b><span>${l}</span></div>`;
+  const w = FRONT_WEATHER[f.weather];
   fui.hooks.showDossier(`
     <p class="eyebrow">${escHtml(f.map.name)} · bilan du soir</p>
     <h1 class="title-l">Jour ${d.day} / ${f.cfg.days}</h1>
-    <div class="brief-grid">
-      <section>
-        <h2>Pertes</h2>
-        <p>Vos pertes : <b>${fmtMen(lost)}</b>.<br>Pertes ennemies estimées : ${theirs < 50 ? 'négligeables' : menRange(theirs, 0.7, 1.35)}.</p>
-        <h2>Terrain</h2>
-        <p>${Math.abs(terr) < 0.5 ? 'Le front n\'a guère bougé.' : terr > 0 ? `Vous gagnez ${terr.toFixed(1).replace('.', ',')} % du secteur.` : `Vous cédez ${(-terr).toFixed(1).replace('.', ',')} % du secteur.`} Vous tenez ${Math.round(territory(f, s) * 100)} % du terrain et ${townsHeld(f, s)} ville${townsHeld(f, s) > 1 ? 's' : ''}.</p>
-        <p>Villes ★ : ${obj} sur ${f.defTowns.length} ${att ? 'prises' : 'perdues'}.</p>
-        ${(() => { const sc = scoreBreakdown(f); const g = gradeFor(f, sc.grade); return `<p>Score de ${att ? 'votre offensive' : 'l\'offensive ennemie'} : <b>≈ ${signed(sc.total)}</b> (${signed(sc.total - d.score)} aujourd'hui). Issue en vue : <b>${g.label.toLowerCase()}</b>${g.mine === true ? ' en votre faveur' : g.mine === false ? ' pour l\'ennemi' : ''}.</p>`; })()}
-        <h2>Vos objectifs secondaires</h2>
-        ${objectivesHtml(f, s)}
-      </section>
-      <section>
-        <h2>Événements</h2>
-        ${events.length ? `<ul class="ticks">${events.slice(0, 6).map((e) => `<li>${escHtml(e.text)}</li>`).join('')}${events.length > 6 ? `<li>… et ${events.length - 6} autres (journal).</li>` : ''}</ul>` : '<p>Pas de ville prise, pas d\'encerclement.</p>'}
-        <h2>Demain</h2>
-        ${f.phase === 'over' ? '' : `<p>Renforts reçus : ${fmtMen(reinf)} (réserves : ${fmtMen(men(f.reserve[s]))}).</p>${weatherText(f)}`}
-        ${myPockets.length && f.phase !== 'over' ? `<p class="warn-note">${myPockets.length > 1 ? `${myPockets.length} poches de vos troupes attendent` : 'Une poche de vos troupes attend'} vos ordres (onglet Ordres).</p>` : ''}
-      </section>
+    <div class="f-stats">
+      ${stat(fmtMen(lost), 'vos pertes', 'bad')}
+      ${stat(theirs < 50 ? '—' : menRange(theirs, 0.7, 1.35).replace(' à ', '–').replace(' hommes', ''), 'pertes ennemies (est.)')}
+      ${stat(Math.abs(terr) < 0.5 ? '=' : pct(terr), `terrain · ${Math.round(territory(f, s) * 100)} %`, terr >= 0.5 ? 'good' : terr <= -0.5 ? 'bad' : '')}
+      ${stat(`${obj} / ${f.defTowns.length}`, `villes ★ ${att ? 'prises' : 'perdues'}`)}
+      ${stat(`${signed(sc.total)}`, `score · ${signed(sc.total - d.score)} auj.`)}
     </div>
+    <p class="f-outlook">Issue en vue : <b>${g.label.toLowerCase()}</b>${g.mine === true ? ' en votre faveur' : g.mine === false ? ' pour l\'ennemi' : ''}.</p>
+    ${events.length ? `<ul class="ticks">${events.slice(0, 4).map((e) => `<li>${escHtml(e.text)}</li>`).join('')}${events.length > 4 ? `<li>… ${events.length - 4} autres (journal)</li>` : ''}</ul>` : ''}
+    ${objectivesHtml(f, s)}
+    ${f.phase === 'over' ? '' : `<p class="muted small">Demain : ${w.label.toLowerCase()} · renforts ${fmtMen(reinf)}.</p>`}
+    ${myPockets.length && f.phase !== 'over' ? `<p class="warn-note">${myPockets.length > 1 ? `${myPockets.length} poches attendent` : 'Une poche attend'} vos ordres.</p>` : ''}
     <div class="row-end"><button class="btn btn-primary" id="f-next">${f.phase === 'over' ? 'Résultat' : `Ordres du jour ${f.day}`}</button></div>
   `, () => byId('f-next').addEventListener('click', () => {
     if (f.phase === 'over') return showFrontDebrief();
@@ -389,9 +387,11 @@ function fail(r) {
   return true;
 }
 
+// Confirmation d'un ordre : brève, elle s'efface d'elle-même.
 function placed(text) {
   sound.ui('order');
   setHint(text);
+  fui.hintTimer = setTimeout(() => setHint(fui.tool ? TOOLS[fui.tool].hint : TOOLS_HELP()), 2600);
 }
 
 function onTap(p) {
@@ -404,7 +404,7 @@ function onTap(p) {
     if (fui.aaSel != null) {
       if (aa && aa.id === fui.aaSel) { fui.aaSel = null; setHint(TOOLS_HELP()); return refreshFront(); }
       const r = moveAA(f, s, fui.aaSel, { x: p.x, y: p.y });
-      if (!fail(r)) { placed(`${r.name} : en position. Elle protège ${Math.round(AIR.aaRange / 1.73)} cases autour d'elle.`); fui.aaSel = null; }
+      if (!fail(r)) { placed(`${r.name} : en position.`); fui.aaSel = null; }
       return refreshFront();
     }
     // Artillerie : toucher un de ses groupes le sélectionne ; l'appui suivant fixe sa destination.
@@ -415,7 +415,7 @@ function onTap(p) {
       let to = { x: p.x, y: p.y };
       if (f.owner[cellAtPoint(f, to)] !== s) { const j = pickNear(p, 'near'); if (j >= 0) to = cellPoint(j); }
       const r = setGunOrder(f, s, fui.gun, { dest: to });
-      if (!fail(r)) { placed(`${r.name} : ${GUN_POSTURES[r.posture].label.toLowerCase()} vers sa nouvelle position (${Math.round(GUN_POSTURES[r.posture].fire * 100)} % de sa puissance de feu aujourd'hui).`); fui.gun = null; }
+      if (!fail(r)) { placed(`${r.name} : ${GUN_POSTURES[r.posture].label.toLowerCase()} (feu ${Math.round(GUN_POSTURES[r.posture].fire * 100)} % aujourd'hui).`); fui.gun = null; }
       return refreshFront();
     }
     const a = armorNear(p);
@@ -433,7 +433,7 @@ function onTap(p) {
   if (fui.breakout) {
     const r = setPocketMode(f, s, fui.breakout, 'breakout', { x: p.x, y: p.y });
     fui.breakout = null;
-    if (!fail(r)) placed(`Percée d'évasion de la poche ${pocketName(f, r)} : toutes ses forces convergent vers la sortie.`);
+    if (!fail(r)) placed(`Poche ${pocketName(f, r)} : percée d'évasion.`);
     return refreshFront();
   }
 
@@ -445,24 +445,24 @@ function onTap(p) {
     if (!unit) return cancelTool();
     if (a && a.id === unit.id) { fui.tool = null; fui.armor = null; setHint(TOOLS_HELP()); return refreshFront(); }
     const r = setArmorOrder(f, s, unit.id, { x: p.x, y: p.y });
-    if (!fail(r)) { placed(`${r.name} : en route vers son objectif. Elle gagne le front par vos lignes, puis perce.`); fui.tool = null; fui.armor = null; }
+    if (!fail(r)) { placed(`${r.name} : en route.`); fui.tool = null; fui.armor = null; }
     return refreshFront();
   }
   if (tool === 'barrage') {
     const r = addBarrage(f, s, { x: p.x, y: p.y });
-    if (!fail(r)) { placed(`Barrage réglé : ${f.guns.find((g) => g.id === r.gun).name} pilonnera la zone au lever du jour.`); fui.tool = null; }
+    if (!fail(r)) { placed(`Barrage : ${f.guns.find((g) => g.id === r.gun).name}, à l'aube.`); fui.tool = null; }
     return refreshFront();
   }
   if (tool === 'pontoon') {
     const r = addPontoon(f, s, { x: p.x, y: p.y });
-    if (!fail(r)) { placed(`Le génie jettera un pont de bateaux cette nuit (${r.cells.length} case${r.cells.length > 1 ? 's' : ''} d'eau). Il en restera ${f.pontoons[s] - 1}.`); fui.tool = null; }
+    if (!fail(r)) { placed(`Pont de bateaux cette nuit (reste ${f.pontoons[s] - 1}).`); fui.tool = null; }
     return refreshFront();
   }
   if (tool === 'air') {
     const r = addAirMission(f, s, { x: p.x, y: p.y });
     if (!fail(r)) {
       const t = r.kind === 'hunt' ? (r.target.type === 'gun' ? f.guns : f.aa).find((x) => x.id === r.target.id) : null;
-      placed(r.kind === 'hunt' ? `Chasse : les avions viseront ${t?.name ?? 'la batterie'} en fin de matinée.` : 'Appui rapproché : la zone sera attaquée en fin de matinée.');
+      placed(r.kind === 'hunt' ? `Chasse : ${t?.name ?? 'la batterie'}, fin de matinée.` : 'Appui aérien : fin de matinée.');
       fui.tool = null;
     }
     return refreshFront();
@@ -472,7 +472,7 @@ function onTap(p) {
     if (i < 0) { setHint('Touchez vos lignes ravitaillées.', true); return; }
     const r = deployReserve(f, s, i, f.cfg.chunk);
     if (!fail(r)) {
-      placed(`${fmtMen(men(r.amount))} montent en ligne. Réserves restantes : ${fmtMen(men(f.reserve[s]))}.`);
+      placed(`+${fmtMen(men(r.amount))} · réserves ${fmtMen(men(f.reserve[s]))}.`);
       fui.probe = { ...cellPoint(i), r: 2.5 };
       resnap();
     }
@@ -497,17 +497,17 @@ function onTap(p) {
     let j = cellAtPoint(f, p);
     if (j < 0 || f.owner[j] !== s) j = pickNear(p, 'near');
     r = j < 0 ? { error: 'Touchez vos lignes.' } : addTransfer(f, s, a.cell, j);
-    if (!fail(r)) { placed(`${fmtMen(men(r.amount))} ${r.road ? 'par la route' : 'à travers champs'} : ils ont marché toute la nuit.`); resnap(); }
+    if (!fail(r)) { placed(`${fmtMen(men(r.amount))} ${r.road ? 'par la route' : 'à travers champs'}.`); resnap(); }
   } else if (tool === 'line') {
     let b = { x: p.x, y: p.y };
     if (f.owner[cellAtPoint(f, b)] !== s) { const j = pickNear(p, 'near'); if (j >= 0) b = cellPoint(j); }
     r = addLine(f, s, a.point, b);
-    if (!fail(r)) placed(`Ligne de défense : ${r.cells.length} cases se retranchent pendant la journée.`);
+    if (!fail(r)) placed(`Ligne : ${r.cells.length} cases.`);
   } else {
     let to = { x: p.x, y: p.y };
     if (tool === 'retreat' && f.owner[cellAtPoint(f, to)] !== s) { const j = pickNear(p, 'near'); if (j >= 0) to = cellPoint(j); }
     r = addVector(f, s, tool, a.cell, to);
-    if (!fail(r)) placed(`${VECTOR_TYPES[tool].label} : environ ${fmtMen(men(vectorCatchment(f, r)))} engagés.`);
+    if (!fail(r)) placed(`${VECTOR_TYPES[tool].label} : ≈ ${fmtMen(men(vectorCatchment(f, r)))}.`);
   }
   if (!r.error) fui.tool = null;
   refreshFront();
@@ -533,7 +533,7 @@ function selectArmor(id) {
   fui.gun = null; fui.aaSel = null;
   fui.probe = null;
   sound.ui('select');
-  setHint(`${a.name} · ${Math.round(a.tanks)} chars · ${expLabel(a.exp).toLowerCase()} · carburant ${Math.round(a.fuel * 100)} %. Touchez son objectif.`);
+  setHint(`${a.name} · ${Math.round(a.tanks)} chars · ${expLabel(a.exp).toLowerCase()} · carburant ${Math.round(a.fuel * 100)} %.`);
   refreshFront();
 }
 
@@ -556,7 +556,7 @@ function selectAA(id) {
   fui.gun = null;
   fui.probe = null;
   sound.ui('select');
-  setHint(`${a.name} · DCA, ${Math.round(a.str * 100)} %. Touchez sa nouvelle position dans vos lignes (${Math.round(AIR.aaMove / 1.73)} cases au plus en une nuit). L'ennemi ne la voit que de près, ou quand elle tire.`);
+  setHint(`${a.name} · DCA, ${Math.round(a.str * 100)} %. Nouvelle position (${Math.round(AIR.aaMove / 1.73)} cases au plus).`);
   refreshFront();
 }
 
@@ -577,7 +577,7 @@ function selectGun(id) {
   fui.gun = id;
   fui.probe = null;
   sound.ui('select');
-  setHint(`${g.name} · ${GUN_KINDS[g.kind].label}, portée ${Math.round(GUN_KINDS[g.kind].range / 1.73)} cases. Touchez sa destination, ou réglez sa posture dans le panneau.`);
+  setHint(`${g.name} · ${GUN_KINDS[g.kind].label}, portée ${Math.round(GUN_KINDS[g.kind].range / 1.73)} cases. Touchez sa destination.`);
   refreshFront();
 }
 
@@ -644,7 +644,7 @@ function pocketMode(id, mode) {
     fui.tool = null;
     fui.pending = null;
     fui.breakout = id;
-    setHint('Touchez la direction de la percée : en général, vos lignes les plus proches.');
+    setHint('Touchez la direction de la percée.');
     return refreshFront();
   }
   fail(setPocketMode(f, fui.side, id, mode));
@@ -741,7 +741,7 @@ function tickSounds(events, tick, T) {
         // Départs de la batterie : là où elle est, si on la voit ; sinon, seulement les obus qui arrivent.
         const g = f.guns?.find((x) => x.id === b.gun);
         const gunSeen = g && (g.side === s || g.seen?.[s]?.clock === f.clock);
-        items.push({ k: 'barrage', ...frontLocate(b.x, b.y), gun: gunSeen ? frontLocate(g.x, g.y) : null });
+        items.push({ k: 'barrage', kind: g?.kind, ...frontLocate(b.x, b.y), gun: gunSeen ? frontLocate(g.x, g.y) : null });
       }
     }
   }

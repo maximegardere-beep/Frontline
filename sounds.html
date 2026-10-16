@@ -27,6 +27,8 @@
   <div class="row">
     <button data-s="barrage">Barrage (batterie visible)</button>
     <button data-s="barrageBlind">Barrage (batterie cachée)</button>
+    <button data-s="heavy">Barrage lourd</button>
+    <button data-s="katyusha">Orgues de Staline</button>
     <button data-s="fire">Fusillade</button>
     <button data-s="town">Ville qui tombe</button>
     <button data-s="pocket">Encerclement</button>
@@ -65,6 +67,8 @@ const L = (pan, gain = 1) => ({ pan, gain });
 const PLAY = {
   barrage: () => sound.front([{ k: 'barrage', ...L(0.3), gun: L(-0.6, 0.6) }], T),
   barrageBlind: () => sound.front([{ k: 'barrage', ...L(-0.2), gun: null }], T),
+  heavy: () => sound.front([{ k: 'barrage', kind: 'heavy', ...L(0.2), gun: L(-0.5, 0.6) }], T),
+  katyusha: () => sound.front([{ k: 'barrage', kind: 'rocket', ...L(0.3), gun: L(-0.6, 0.6) }], T),
   fire: () => sound.front([{ k: 'fire', n: 6, armor: 3, ...L(0) }], T),
   town: () => sound.front([{ k: 'town', ...L(0) }], T),
   pocket: () => sound.front([{ k: 'pocket', ...L(0) }], T),
