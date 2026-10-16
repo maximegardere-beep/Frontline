@@ -907,3 +907,22 @@ Chaque étape laisse le jeu jouable : jusqu'à l'étape 7, le joueur reçoit ses
   défenseur 42 → 56 %, nuls 18 → 6 %, encerclements 3,5 → 2,5 ; 1943 (48 batailles) attaquant 33 → 40 %,
   défenseur 60 → 56 %. Moins d'issues indécises et d'encerclements : le défenseur n'a plus de blindés et l'attaquant
   en a moins. À reprendre à l'étape 8, une fois toutes les cartes en place.
+
+### Étape 2 faite : poste de commandement
+
+- `src/fronthq.js` : un PC par camp, placé 16 unités derrière le contact (à hauteur des blindés de l'attaquant, au
+  centre pour le défenseur). Coordination linéaire jusqu'au bord du rayon (20 ; 1941 soviétique 14, 1944 soviétique
+  24) : attaque +12 %, vitesse +15 %, défense +10 % au PC, × liaison ; appliquée à la fin de `rebuildFields`.
+- Liaison : −0,4 par barrage ennemi sur le PC, −0,3 par frappe aérienne, +0,5 la nuit. Désorganisé sous 0,3 : plus de
+  bonus, `staffNight` sauté, `engageCap` 0,45, vecteurs à partir du tick 10. Pris : malus (× 0,6 pour la Wehrmacht,
+  × 1,3 pour l'Armée rouge de 1941), `engageCap` 0,35, documents saisis (formations blindées révélées une journée) ;
+  repris : liaison 0,1 ; PC de secours au rayon moitié après deux nuits.
+- Déplacement : ordre du matin ; à 17 unités au plus (~10 cases), saut de nuit (liaison ≤ 0,6 au matin) ; plus loin,
+  de jour (liaison 0, repéré). IA (`planHQ`) : recule de nuit sous 16 unités de l'ennemi, de jour sous 8, et suit un
+  front qui s'éloigne. Elle ne vise pas encore le PC ennemi (étape 6).
+- Interface minimale : toucher le PC puis sa position (rayon et saut de nuit dessinés), section « Commandement » de
+  l'onglet Ordres, règles et README. `setup.hq: false` : aucun PC (banc, tests de physique).
+- Mesure IA contre IA, après l'étape 1 → après l'étape 2 : sans année fixe (72 batailles) attaquant 39 → 36 %,
+  défenseur 56 → 58 % ; 1943 (48 batailles) attaquant 40 → 33 %, défenseur 56 → 67 %. Le défenseur, statique près de
+  son PC, profite davantage de la coordination ; l'attaquant pousse souvent au-delà de son rayon. À reprendre à
+  l'étape 8 (et quand l'IA visera le PC ennemi).
