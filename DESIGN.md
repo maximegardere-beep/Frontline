@@ -725,3 +725,168 @@ densités. Le moteur garde des points d'accroche pour cela.
   Règles du briefing repliées. Bilan du soir en cinq chiffres (pertes, pertes ennemies en fourchette, terrain,
   villes ★, score), puis issue, quatre événements au plus, objectifs, météo et renforts en une ligne.
 
+
+## Atouts, poste de commandement, bataille des airs (chantier)
+
+Le front stratégique devient le mode principal (le tactique est débranché, `TACTICAL_ENABLED` dans `main.js`).
+Les moyens de chaque camp ne sont plus placés d'office : ils sont tirés au sort avant la bataille et au 7e jour,
+choisis et posés sur la carte par chaque camp. Un poste de commandement coordonne les troupes autour de lui ; une
+bataille des airs décide qui a le droit de faire voler son aviation.
+
+### Cahier des charges (validé)
+
+| Sujet | Décision |
+|---|---|
+| Tirage | Avant le jour 1 : tirer 5 cartes, en garder 3. Au matin du jour 7 (renforts) : tirer 4, garder 2 ; le camp mené aux points en tire 5 |
+| Paquets | Selon le rôle (attaquant, défenseur) et l'année ; chaque carte a une rareté : commun, rare, élite |
+| Remplacement | Les cartes remplacent complètement l'artillerie, les formations blindées et la DCA placées d'office (`cfg.guns`, `attackGuns`, `cfg.armor`, `aaBatteries`). Effectifs, réserves et renforts inchangés |
+| Placement | Instantané, avant le jour 1 (et au matin du jour 7), dans ses lignes ; l'IA place les siennes |
+| Attaquant | Divisions blindées (rareté), artillerie lourde, soutien aérien, génie d'assaut, barrage de lance-roquettes, parachutistes, DCA |
+| Défenseur | Canons antichar, bataillons de soutien, point d'appui, artillerie divisionnaire, DCA, chasseurs |
+| Bataillon de soutien | Placé en arrière, projette une zone sur un secteur du front qui se retranche chaque jour sans mouvement (tranchées, puis barbelés, puis hérissons, ouvrages actuels) ; l'effet reste si le bataillon part. Remplace l'outil « Ligne », retiré de l'écran |
+| Canon antichar | Comme l'artillerie, avec un cône de tir devant lui, efficace contre les blindés ; démoli par plusieurs barrages ou frappes aériennes |
+| Bataille des airs | Avant le jour 1 et rejouée au jour 7 : manches de dés mises en scène (combat de chasseurs) ; le vainqueur a le droit au soutien aérien, le perdant garde la DCA qu'il a tirée |
+| Poste de commandement | Un par camp, hors tirage, placé avec les cartes et déplaçable ; rayon de coordination dégressif ; jauge de liaison ; désorganisé s'il est bombardé ou déplacé de jour ; capturé : malus et documents saisis ; reprenable ; PC de secours |
+
+### Catalogue des cartes (première version, à équilibrer)
+
+Chaque carte est une donnée (`frontatout.js`) : `{ key, role, rarity, label, apply(front, side, place) }`. Une carte
+vaut un **groupement** et non une seule pièce : avec 3 cartes au lieu d'une dizaine de moyens aujourd'hui, chacune doit
+peser. Les noms et les chiffres changent avec l'année (`SCENARIOS[year].atouts` : poids des cartes, poids des raretés,
+libellés).
+
+Attaquant :
+
+| Carte | Commun | Rare | Élite |
+|---|---|---|---|
+| Division blindée | 1 formation, 130 chars, Aguerrie | 1 formation, 170 chars, Vétéran | Bataillon lourd (Tiger, Tigre royal, IS-2 selon l'année) : 100 chars, choc ×1,5, pertes ×0,6, plus lent |
+| Artillerie lourde | 2 groupes divisionnaires | 1 divisionnaire + 1 lourd | 1 lourd + 1 super-lourd (rayon 3, vient à bout des hérissons, fait sauter les ponts) |
+| Lance-roquettes | 1 salve par bataille, rayon 3 | 1 salve, rayon 4 | 2 salves, rayon 4 |
+| Soutien aérien | +1 sortie par jour, +1 en bataille des airs | +2 sorties, +2 | +2 sorties, +3, avions d'assaut (Stuka, Sturmovik : frappes ×1,5 contre les chars) |
+| Génie d'assaut | 1 compagnie, zone de rayon 3 | rayon 4, +1 pont de bateaux | rayon 5, ouvrages ennemis rasés deux fois plus vite |
+| Parachutistes | — | 1 largage, 400 h | 1 largage, 700 h |
+| DCA | 2 batteries | 3 batteries | 2 batteries de 88 (DCA et antichar) |
+
+Défenseur :
+
+| Carte | Commun | Rare | Élite |
+|---|---|---|---|
+| Canons antichar | 2 pièces légères (45 mm, Pak 36) | 2 pièces moyennes (ZiS-3, Pak 40) | 1 batterie de 88 ou de 100 mm (portée et dégâts ×1,6, aussi DCA) |
+| Bataillon de soutien | 1 bataillon, jusqu'aux barbelés | 1 bataillon, jusqu'aux hérissons | 2 bataillons |
+| Point d'appui | Ville ★ : défense ×1,4, tranchées autour | ×1,7, tranchées et barbelés | ×2, ouvrages complets, garnison de 300 h |
+| Artillerie divisionnaire | 2 groupes (divisionnaire, mortiers) | divisionnaire + lance-roquettes | divisionnaire + lourd |
+| DCA | 2 batteries | 3 batteries | 2 batteries lourdes |
+| Chasseurs | +1 en bataille des airs | +2 | +3, et +1 sortie s'il gagne |
+
+Garanties de la main : 5 cartes distinctes ou non, avec au moins une carte de feu (artillerie ou lance-roquettes)
+et, pour l'attaquant, une division blindée ; pour le défenseur, un canon antichar ou un bataillon de soutien.
+Le tirage utilise sa propre suite (`createRng(\`atout:${seed}:${side}:${round}\`)`), jamais `front.rng` (sinon la
+météo et l'IA changent) : la main est reproductible d'après la graine.
+
+### Poste de commandement
+
+- Objet `front.hq[s] = { x, y, cell, link, state, movedDay, lostDay, backup }`. États : opérationnel, désorganisé
+  (liaison < 30 %), capturé, absent.
+- **Coordination** : coefficient par case `coord(i)`, plein au PC, nul au-delà du rayon (12 cases ; selon le camp et
+  l'année, voir plus bas), proportionnel à la liaison. Il multiplie l'attaque (+12 %), la défense (+10 %) et la vitesse
+  (+15 %) dans le champ de chaque camp (`front.js`, construction de `F.atk`, `F.fort`, `F.speed`). Rien à changer dans
+  `combat.js`.
+- **Liaison** (0 à 100 %) : un barrage qui couvre le PC −40, une frappe aérienne −30, la nuit +50.
+- **Déplacement** : de nuit et à 10 cases au plus, liaison ramenée à 60 % au plus ; plus loin ou de jour : désorganisé
+  pour la journée. Même geste que le déplacement d'une batterie de DCA.
+- **Désorganisé** : plus de bonus, plus de transferts de l'état-major la nuit (`staffNight`), part des troupes
+  engagées plafonnée à 45 % (`engageCap` 0,6 ; c'est elle, et non `maxVectors`, qui limite les ordres), et les vecteurs
+  ne partent qu'à midi.
+- **Capturé** (la case du PC passe à l'ennemi) : le bonus devient un malus de même ampleur sur l'ancien rayon,
+  `engageCap` à 35 %, et l'ennemi voit pendant une journée vos formations blindées, vos réserves et vos ordres du
+  lendemain matin (documents saisis). Reprendre la case rend le PC, désorganisé, puis opérationnel après une nuit.
+- **PC de secours** : après deux nuits sans PC, un PC apparaît loin à l'arrière, rayon réduit de moitié.
+- **Repérage** : invisible pour l'ennemi au-delà de 4 cases de ses troupes, sauf s'il bouge de jour ou qu'une frappe
+  ou des parachutistes l'ont trouvé ; une fois repéré, il se vise au barrage et à la chasse aérienne.
+- **Camps et années** : la Wehrmacht souffre moins de la perte de son PC (malus ×0,6) ; l'Armée rouge de 1941 a un
+  petit rayon (8) et un malus ×1,3 ; celle de 1944 un grand rayon (14). Dans `FRONT_TRAITS` et `SCENARIOS`.
+
+### Bataille des airs
+
+- Force aérienne de chaque camp : base de l'année (tirée des sorties actuelles : 1941 [3, 1] … 1944 [1, 3]) + cartes de
+  chasseurs et de soutien aérien.
+- Trois manches : chaque camp lance autant de d6 que sa force, touche sur 5+ ; plus de touches gagne la manche, et le
+  perdant de la manche perd 1 de force. Deux manches gagnées : **suprématie** (sorties de l'année + cartes) ; le perdant
+  n'a plus de sorties jusqu'à la bataille suivante. Égalité : **ciel disputé**, sorties divisées par deux pour les deux.
+- Au jour 7, on rejoue avec la force restante plus les nouvelles cartes.
+- Un seul point d'entrée dans le moteur : `sortiesToday` (`frontair.js`), lu par `addAirMission`, `planAir` et le
+  compteur de l'interface. La DCA est indépendante : elle ne vient plus que des cartes.
+- Le journal des manches (jets, touches, avions abattus) sert à l'animation ; il est calculé d'avance, l'animation ne
+  fait que le rejouer.
+
+### Nouvelles unités : branchements dans le moteur
+
+- **Canon antichar** : nouveau type dans `GUN_KINDS` (`at`), exclu des barrages (`gunFor`) et du tir d'appui contre
+  l'infanterie (`supportFire`). Orientation vers le contact le plus proche, cône de 100° et de 6 cases. Une formation
+  blindée dans le cône subit des pertes en plus (`armorRiposte`) et perd du choc (`armorPressure`), comme sur les
+  hérissons (`front.at`). Solidité `str` comme l'artillerie : un barrage ou une chasse aérienne en retire environ un
+  quart, donc trois ou quatre coups pour le démolir ; perdu si sa case tombe.
+- **Bataillon de soutien** : tableau `front.support[s]`. Sa zone : les cases amies entre lui et le front, sur ±6 rangées,
+  jusqu'à 6 cases du contact. Chaque tick, une variante de `buildTick` (`frontworks.js`) fait avancer ces cases, avec
+  le ralentissement au contact et les paliers existants ; le palier monte avec les jours passés sans bouger (jour 1
+  tranchées, 2 barbelés, 3 hérissons, limité par la rareté). Les ouvrages vivent dans les tableaux par case
+  (`entrench`, `wire`, `at`) : ils restent quand le bataillon part. Il remplit aussi `lineMask` (les troupes s'y portent).
+- **Retrait de l'outil « Ligne »** : bouton de `index.html`, branches `tool === 'line'` de `frontui.js`, raccourci `4`,
+  règles. `addLine` reste dans le moteur ; l'IA (`frontai.js`, deux appels) place et déplace des bataillons à la place.
+- **Génie d'assaut** : unité placée comme un canon ; chaque tick, les barbelés et hérissons ennemis au contact dans
+  son rayon fondent (`damageWorks`), et ses vecteurs y gagnent de la vitesse.
+- **Lance-roquettes** : une salve est un barrage à grand rayon et au choc fort, ordonné avec l'outil Barrage tant qu'il
+  reste des salves ; la carte est épuisée ensuite.
+- **Parachutistes** : au lever du jour choisi, un îlot de cases prises jusqu'à 15 cases derrière le front ennemi. Coupé
+  de son bord de carte, il devient une poche et fond comme elle : il faut le rejoindre. Posé sur un pont, il le tient ;
+  sur le PC ennemi, il le capture.
+- **Point d'appui** : sur une ville ★ amie ; défense de la ville (`townHold`) multipliée, ouvrages posés autour au départ.
+- **Rareté des blindés** : champ `tier` sur la formation, d'où `shockMul`, `lossMul`, `speedMul` dans `armorPressure`,
+  `armorRiposte` et la route ; le sprite de char lourd existe déjà (`tank(…, heavy)`).
+
+### Interface
+
+- Après « Prendre le commandement » : bataille des airs (petit canvas dans le dossier, sa propre boucle d'animation,
+  le sprite d'avion de `frontfx.js` exporté, traçantes, sons de moteurs, mitrailleuses, avion abattu ; « Passer »),
+  puis la main de 5 cartes (on en coche 3), puis le placement sur la carte : bandeau des cartes gardées, toucher une
+  carte puis sa position, le PC en premier, aperçu de la zone ou du cône. « Commencer » quand tout est posé (un bouton
+  « placer pour moi » applique le placement automatique). Le jeu reste en phase `plan` : une nouvelle phase casserait la
+  dizaine de gardes `phase === 'plan'` ; un drapeau d'interface masque la barre d'outils pendant le placement.
+- Même enchaînement au matin du jour 7, après le bilan du soir 6.
+- Le code d'interface des Atouts va dans un module à part (`frontdeck.js`) : `frontui.js` dépasse déjà 1 100 lignes.
+- Carte : PC (tente ou semi-chenillé à antenne, rayon en pointillé pendant le matin), canons antichar et leur cône,
+  bataillons et leur zone, génie, parachutistes. Liaison du PC dans l'onglet Forces ; grésillement radio quand il est
+  désorganisé.
+
+### Moteur, tests, outils
+
+- `createFront` tire et place tout seul par défaut (`setup.atouts: 'auto'`) : main tirée, choix et placement par
+  l'heuristique de l'IA, pour les deux camps. Le joueur humain remplace ensuite les siens (`'manual'`). `front-sim`
+  marche donc tel quel. `atouts: false` garde les moyens placés d'office, pour le banc de calibrage (`front-bench`) et
+  les tests de physique qui supposent des formations blindées connues.
+- Numéros des nouvelles unités : à la suite des existants (`Math.max(...ids) + 1`), les formations blindées
+  numérotées par bataille ; `nextAirId` de `frontair.js` est global au module, à rendre propre à la bataille.
+- Tests : main reproductible et garanties respectées ; remplacement complet (aucun canon, char ni DCA hors cartes) ;
+  tirage du jour 7 ; PC (bonus dans le rayon, désorganisation, capture, reprise, secours) ; cône antichar ; zone du
+  bataillon et persistance après départ ; parachutistes devenus poche ; bataille des airs (suprématie, ciel disputé,
+  `sortiesToday` à 0 pour le perdant) ; plus d'outil « Ligne » dans la page.
+- `front-sim` : journal des cartes gardées par bataille, taux de victoire par carte et par rareté, issue de la
+  bataille des airs. Cible inchangée : attaquant ≈ 40 %.
+
+### Plan (une étape par commit)
+
+1. **Moteur des Atouts** (`frontatout.js`) : catalogue et paquets par année, tirage 5 → 3 et 4 → 2, heuristique de
+   choix, placement automatique, remplacement des moyens placés d'office, tirage du jour 7 dans `endDay`. Cartes de
+   cette étape : division blindée (avec la rareté), artillerie, DCA, soutien aérien. Tests.
+2. **Poste de commandement** : modèle, coordination, liaison, déplacement, capture et reprise, documents saisis, PC de
+   secours, liens avec `staffNight` et `engageCap`, placement par l'IA. Tests.
+3. **Canon antichar et bataillon de soutien**, retrait de l'outil « Ligne » (interface, IA, règles). Tests.
+4. **Génie d'assaut, lance-roquettes, parachutistes, point d'appui**. Tests.
+5. **Bataille des airs** : résolution, `sortiesToday`, rejouée au jour 7, DCA issue des cartes seulement. Tests.
+6. **IA** : choix des cartes selon la carte et le rôle, placement selon les secteurs (`readFront`), usage du PC
+   (le déplacer de nuit, viser le PC ennemi repéré), des parachutistes et des salves.
+7. **Interface** : dossiers de la bataille des airs et du tirage, placement sur la carte, jour 7, rendu des nouvelles
+   unités, sons, règles, README.
+8. **Équilibrage** : `front-sim` et `front-pool` par année ; poids des cartes et des raretés, chiffres des cartes.
+
+Chaque étape laisse le jeu jouable : jusqu'à l'étape 7, le joueur reçoit ses cartes placées automatiquement.
