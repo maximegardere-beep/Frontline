@@ -48,7 +48,9 @@ const NAME = ['la Luftwaffe', 'l\'aviation soviétique'];
 // Résout la bataille des airs et la note au journal (les deux camps la voient : le ciel se lit).
 export function fightAirWar(front, bonus, round) {
   const base = front.cfg.airBase ?? front.cfg.sorties;
-  const force = round === 0 ? [0, 1].map((s) => base[s] + bonus[s]) : [0, 1].map((s) => front.airWar.force[s] + bonus[s]);
+  // L'attaquant choisit l'heure et le lieu : sa chasse a l'initiative (cfg.airInitiative, avant chaque bataille des airs).
+  const init = (s) => (s === front.attacker ? front.cfg.airInitiative ?? 0 : 0);
+  const force = round === 0 ? [0, 1].map((s) => base[s] + bonus[s] + init(s)) : [0, 1].map((s) => front.airWar.force[s] + bonus[s] + init(s));
   const w = airBattle(front, force, round);
   front.airWar = w;
   front.airWars ??= [];
