@@ -52,7 +52,15 @@ défenseur, est tiré de la graine et annoncé au briefing, avec l'objectif : le
   d'avance. Avant la bataille, chaque camp tire 5 cartes selon son rôle et l'année, et en garde 3 ; au matin du
   7e jour, il en tire 4 (5 s'il est mené aux points) et en garde 2. Chaque carte a une rareté (commun, rare, élite :
   les chars lourds, Tiger, KV ou IS-2, sont des cartes d'élite). L'attaquant tire divisions blindées, artillerie
-  lourde, soutien aérien et DCA ; le défenseur, artillerie divisionnaire et DCA. Pour l'instant, le choix et le
+  lourde, soutien aérien et DCA ; le défenseur, artillerie divisionnaire, canons antichar, bataillons de soutien et
+  DCA.
+- **Canons antichar** (défenseur) : ils tirent dans un cône face au contact, sur les seuls blindés, qu'ils déciment et
+  freinent (les chars lourds encaissent mieux) ; pas de barrage. Deux ou trois barrages ou chasses aériennes en
+  viennent à bout ; débordés, ils sont perdus.
+- **Bataillons de soutien** (défenseur) : posés en arrière, ils retranchent le secteur du front devant eux (zone
+  surlignée le matin), d'autant plus qu'ils restent en place : tranchées le premier jour, barbelés ensuite, puis
+  obstacles antichar, jusqu'au niveau de leur carte. Touchez-en un puis sa nouvelle position : il s'y rend de nuit et
+  recommence par des tranchées ; les ouvrages faits restent. Ils remplacent l'ancien outil « Ligne ». Pour l'instant, le choix et le
   placement sont automatiques ; le briefing liste vos cartes.
 - **Poste de commandement** : votre PC (tente à antenne) coordonne les troupes dans son rayon (une douzaine de
   cases) : attaque, défense et vitesse y gagnent jusqu'à 10-15 %, selon la distance et la liaison. Touchez-le puis sa
@@ -81,7 +89,6 @@ défenseur, est tiré de la graine et annoncé au briefing, avec l'objectif : le
 | Infanterie (`1`) | départ, cible | couloir large, lent, tenace |
 | Blindés (`2`) | départ, cible | percée étroite, rapide et profonde ; s'enlise sous la pluie ; 2 par jour |
 | Repli (`3`) | secteur, point de repli | les troupes décrochent avec moins de pertes |
-| Ligne (`4`) | une extrémité, l'autre | les cases le long du trait se retranchent pendant la journée ; 2 par jour |
 | Barrage (`5`) | la zone | pilonnée au lever du jour, même dans le brouillard ; 12 cases au plus de vos lignes |
 | Réserves (`6`) | un appui par renfort | 800 hommes montent en ligne autour du point ; `U` annule le dernier |
 | Pont (`G`) | la rivière, au bord de vos lignes | le génie jette un pont de bateaux la nuit ; 2 par bataille ; un barrage ou une frappe aérienne le coule |

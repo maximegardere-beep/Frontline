@@ -12,6 +12,7 @@
 //
 // Ce module ne dépend pas de front.js (il est importé par lui) : il lit l'état du front directement.
 
+import { GUN_KINDS } from './frontguns.js';
 import { createRng } from './rng.js';
 
 export const SCORE = {
@@ -90,7 +91,7 @@ export const OBJECTIVES = {
   // Réduire au silence des groupes d'artillerie ennemis.
   guns: {
     check(front, o) {
-      const lost = front.guns.filter((g) => g.side !== o.side && g.lost).length;
+      const lost = front.guns.filter((g) => g.side !== o.side && g.lost && !GUN_KINDS[g.kind].at).length;
       return { done: lost >= o.count, final: lost >= o.count ? true : null, text: `${lost} / ${o.count}` };
     },
   },
@@ -104,7 +105,7 @@ export const OBJECTIVES = {
   // Garder tous ses groupes d'artillerie.
   keepGuns: {
     check(front, o) {
-      const lost = front.guns.filter((g) => g.side === o.side && g.lost).length;
+      const lost = front.guns.filter((g) => g.side === o.side && g.lost && !GUN_KINDS[g.kind].at).length;
       return { done: lost === 0, final: lost > 0 ? false : null, text: lost ? `${lost} perdu${lost > 1 ? 's' : ''}` : 'aucun perdu' };
     },
   },

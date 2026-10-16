@@ -18,7 +18,8 @@ import { FRONT_KINDS } from './terrain.js';
 import { FRONT_WEATHER, VECTOR_TYPES, cellAtPoint } from './front.js';
 import { MIN_POCKET, ARMOR_ATK } from './frontinput.js';
 import { FrontFx } from './frontfx.js';
-import { GUN_KINDS, visibleGuns, gunPower } from './frontguns.js';
+import { GUN_KINDS, AT_RULES, visibleGuns, gunPower } from './frontguns.js';
+import { visibleSupport, SUPPORT, SUPPORT_LEVELS } from './frontbattalion.js';
 import { visibleArmor, armorRoute } from './frontarmor.js';
 import { AIR, airBase, visibleAA } from './frontair.js';
 import { railPoint } from './frontsupply.js';
@@ -779,6 +780,7 @@ export class FrontRenderer extends Renderer {
     this.drawGuns(view);
     if (f.phase === 'plan') this.drawTransfers(view.viewer ?? null);
     this.drawAA(view);
+    this.drawSupport(view);
     this.drawHQ(view);
     if (f.phase === 'plan') this.drawAirPlans(view.viewer ?? null);
     this.fx.drawArcs(ctx, now, 1 / cam.s);
@@ -1634,6 +1636,57 @@ export class FrontRenderer extends Renderer {
     }
   }
 
+  // Bataillons de soutien : pelle et pioche croisées sur un fanion ; le matin, la zone qu'ils retranchent (les siens),
+  // et leur déplacement prévu.
+  drawSupport(view) {
+    const f = this.front;
+    if (!f.support?.length) return;
+    const viewer = view.viewer ?? null;
+    const { ctx, cam } = this;
+    const px = 1 / cam.s, k = SPRITE_K * Math.max(1, px);
+    const planning = f.phase === 'plan';
+    for (const { b, x, y, known, own } of visibleSupport(f, viewer)) {
+      const c = this.toWorld({ x, y });
+      const sel = own && view.support === b.id;
+      ctx.save();
+      if (own && (planning || sel)) {
+        ctx.fillStyle = sel ? 'rgba(255, 210, 63, 0.22)' : 'rgba(92, 74, 40, 0.13)';
+        for (const i of b.cells) { const p = this.center(i); ctx.beginPath(); ctx.arc(p.x, p.y, CELL * 0.62, 0, Math.PI * 2); ctx.fill(); }
+        if (b.dest) {
+          const d = this.toWorld(b.dest);
+          ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(d.x, d.y);
+          ctx.setLineDash([4 * px, 4 * px]); ctx.strokeStyle = ORDER_INK; ctx.lineWidth = 2 * px; ctx.stroke(); ctx.setLineDash([]);
+          ctx.beginPath(); ctx.arc(d.x, d.y, 4 * k, 0, Math.PI * 2); ctx.stroke();
+        }
+        if (sel) {
+          ctx.beginPath(); ctx.arc(c.x, c.y, SUPPORT.move * CELL, 0, Math.PI * 2);
+          ctx.strokeStyle = 'rgba(38, 48, 61, 0.35)'; ctx.lineWidth = 1 * px; ctx.stroke();
+        }
+      }
+      ctx.globalAlpha = own || known ? 1 : 0.55;
+      const P = SPRITE_PAL[b.side];
+      ctx.translate(c.x, c.y);
+      ctx.fillStyle = 'rgba(30, 24, 16, 0.3)'; ctx.fillRect(-4.2 * k, -3.2 * k, 9.4 * k, 7.4 * k);
+      ctx.fillStyle = P.body; ctx.strokeStyle = P.dark; ctx.lineWidth = 0.7 * k;
+      ctx.fillRect(-5 * k, -4 * k, 9.4 * k, 7.4 * k); ctx.strokeRect(-5 * k, -4 * k, 9.4 * k, 7.4 * k);
+      ctx.lineWidth = 1 * k; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(-3 * k, 2 * k); ctx.lineTo(2.4 * k, -2.4 * k); ctx.moveTo(-3 * k, -2.4 * k); ctx.lineTo(2.4 * k, 2 * k); ctx.stroke();
+      ctx.lineCap = 'butt';
+      ctx.restore();
+      if (sel || cam.s > 1.3 || (own && planning)) {
+        ctx.font = `600 ${9 * px}px "IBM Plex Sans Condensed", "Arial Narrow", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.lineWidth = 3 * px;
+        ctx.strokeStyle = 'rgba(250, 240, 210, 0.85)';
+        const label = own ? `Génie · ${SUPPORT_LEVELS[b.level]}` : 'Génie ennemi';
+        ctx.strokeText(label, c.x, c.y - 9 * k);
+        ctx.fillStyle = SIDE_LINE[b.side];
+        ctx.fillText(label, c.x, c.y - 9 * k);
+      }
+    }
+  }
+
   // Postes de commandement : tente à antenne et fanion ; le matin, le rayon de coordination du sien et son
   // déplacement prévu ; capturé, une croix.
   drawHQ(view) {
@@ -1880,9 +1933,24 @@ export class FrontRenderer extends Renderer {
       const own = viewer === null || g.side === viewer;
       const sel = view.gun === g.id;
       const K = GUN_KINDS[g.kind];
+      if (own && K.at && !planning) {
+        // Canon antichar : son cône de tir reste visible pendant la journée, à peine.
+        ctx.beginPath();
+        ctx.moveTo(c.x, c.y);
+        ctx.arc(c.x, c.y, K.range * CELL, g.face - AT_RULES.cone, g.face + AT_RULES.cone);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(29, 26, 18, 0.06)';
+        ctx.fill();
+      }
       if (own && planning) {
         ctx.beginPath();
-        ctx.arc(c.x, c.y, K.range * CELL, 0, Math.PI * 2);
+        if (K.at) {
+          ctx.moveTo(c.x, c.y);
+          ctx.arc(c.x, c.y, K.range * CELL, g.face - AT_RULES.cone, g.face + AT_RULES.cone);
+          ctx.closePath();
+          ctx.fillStyle = 'rgba(29, 26, 18, 0.08)';
+          ctx.fill();
+        } else ctx.arc(c.x, c.y, K.range * CELL, 0, Math.PI * 2);
         ctx.setLineDash(sel ? [] : [3 * px, 5 * px]);
         ctx.lineWidth = (sel ? 2 : 1) * px;
         ctx.strokeStyle = sel ? ORDER_INK : 'rgba(29, 26, 18, 0.35)';
@@ -1940,13 +2008,14 @@ export class FrontRenderer extends Renderer {
     const { ctx, cam } = this;
     const P = SPRITE_PAL[g.side];
     const k = SPRITE_K * Math.max(1, 1 / cam.s);
-    const face = g.side === 0 ? 0 : Math.PI;
+    const at = !!GUN_KINDS[g.kind].at;
+    const face = at ? g.face ?? (g.side === 0 ? 0 : Math.PI) : g.side === 0 ? 0 : Math.PI;
     const moveAng = g.dest ? Math.atan2((g.dest.y - g.y), (g.dest.x - g.x)) : face;
-    let n = g.kind === 'mortar' ? 4 : 3;
+    let n = g.kind === 'mortar' ? 4 : at ? 2 : 3;
     n = Math.max(1, Math.ceil(n * g.str - 0.05));
     if (cam.s < 1.1) n = Math.min(n, 2);
-    const gap = (g.kind === 'mortar' || g.kind === 'nebel' ? 6 : g.kind === 'rocket' ? 7.5 : 8.5) * k;
-    const sprite = g.kind === 'mortar' ? mortar : g.kind === 'rocket' ? rocket : g.kind === 'nebel' ? nebelwerfer : (G, Pl, sh) => howitzer(G, Pl, sh, g.kind === 'heavy' ? 1.3 : 1);
+    const gap = (g.kind === 'mortar' || g.kind === 'nebel' ? 6 : g.kind === 'rocket' ? 7.5 : at ? 7 : 8.5) * k;
+    const sprite = at ? (G, Pl, sh) => howitzer(G, Pl, sh, g.kind === 'atHeavy' ? 0.95 : 0.7) : g.kind === 'mortar' ? mortar : g.kind === 'rocket' ? rocket : g.kind === 'nebel' ? nebelwerfer : (G, Pl, sh) => howitzer(G, Pl, sh, g.kind === 'heavy' ? 1.3 : 1);
     if (sel) {
       ctx.beginPath();
       ctx.arc(c.x, c.y, (n * gap) / 2 + 8 * k, 0, Math.PI * 2);
@@ -1960,7 +2029,7 @@ export class FrontRenderer extends Renderer {
         // Ligne de pièces de front, perpendiculaire à la direction de tir.
         const off = (q - (n - 1) / 2) * gap;
         const x = c.x - Math.sin(face) * off, y = c.y + Math.cos(face) * off;
-        if (g.kind !== 'rocket') pit(ctx, x, y, face, (g.kind === 'mortar' || g.kind === 'nebel' ? 3.4 : g.kind === 'heavy' ? 6 : 5) * k);
+        if (g.kind !== 'rocket') pit(ctx, x, y, face, (g.kind === 'mortar' || g.kind === 'nebel' ? 3.4 : g.kind === 'heavy' ? 6 : at ? 3.6 : 5) * k);
         piece(ctx, x, y, face, k, sprite, P);
       } else {
         // Colonne attelée, dans la direction de marche.

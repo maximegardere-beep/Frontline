@@ -13,7 +13,16 @@ export const GUN_KINDS = {
   mortar: { label: 'Mortiers lourds 120 mm', short: 'Mortiers', range: 12, r: 2.6, rate: 0.045, works: 0.1, speed: 0.7 },
   rocket: { label: 'Lance-roquettes (Katioucha)', short: 'Katioucha', range: 13, r: 3.5, rate: 0.07, works: 0.06, speed: 0.8 },
   nebel: { label: 'Lance-roquettes (Nebelwerfer)', short: 'Nebelwerfer', range: 12, r: 3, rate: 0.065, works: 0.06, speed: 0.7 },
+  // Canons antichar (atout du défenseur) : tir tendu dans un cône face au contact, contre les seuls blindés ; pas de
+  // barrage ni d'appui contre l'infanterie. at.kill : chars détruits par tick à bout portant et pleine puissance ;
+  // at.shock : choc retiré à la formation visée ; back : placement derrière le contact.
+  atLight: { label: 'Canons antichar légers', short: 'Antichar', range: 6, r: 0, rate: 0, works: 0, speed: 0.7, back: 3, at: { kill: 4, shock: 0.3 } },
+  atMed: { label: 'Canons antichar', short: 'Antichar', range: 7.5, r: 0, rate: 0, works: 0, speed: 0.6, back: 3.5, at: { kill: 6, shock: 0.4 } },
+  atHeavy: { label: 'Canons antichar lourds', short: 'Antichar lourd', range: 10, r: 0, rate: 0, works: 0, speed: 0.4, back: 4.5, at: { kill: 9, shock: 0.5 } },
 };
+
+// Cône de tir des canons antichar (demi-angle) ; les chars lourds encaissent mieux.
+export const AT_RULES = { cone: 0.87, heavy: 0.6, maxShock: 0.6 };
 
 // fire : part de la puissance ; move : part de la vitesse du groupe.
 export const GUN_POSTURES = {
@@ -34,6 +43,13 @@ export const GUN_RULES = {
 };
 
 const ORDINAL = (n) => `${n}${n === 1 ? 'er' : 'e'}`;
+
+// Nom suivant, pour éviter deux unités du même nom : « 1er rég. … » → « 2e rég. … », « Pz.Jg.Abt. 40 » → « … 41 ».
+export function nextName(name) {
+  const m = name.match(/^(\d+)(?:er|e) (.*)$/);
+  if (m) return `${Number(m[1]) + 1}e ${m[2]}`;
+  return /\d/.test(name) ? name.replace(/\d+/, (n) => String(Number(n) + 1)) : `${name} II`;
+}
 
 function gunCell(front, g) {
   const h = pixelToHex(g.x, g.y, 1);
@@ -69,7 +85,7 @@ export function createGuns(front, kinds) {
       const K = GUN_KINDS[kind];
       let row = Math.round(((k + 0.5) / list.length) * H);
       while (Number.isNaN(frontX[row]) && row < H - 1) row++;
-      const want = { x: frontX[row] - (s === 0 ? 1 : -1) * Math.max(7, K.range * 0.5), y: cy[row * W] };
+      const want = { x: frontX[row] - (s === 0 ? 1 : -1) * (K.back ?? Math.max(7, K.range * 0.5)), y: cy[row * W] };
       // Case amie la plus proche du point voulu, hors montagne.
       let best = -1, bd = Infinity;
       for (let i = 0; i < N; i++) {
@@ -77,11 +93,15 @@ export function createGuns(front, kinds) {
         const d = Math.hypot(cx[i] - want.x, cy[i] - want.y);
         if (d < bd) { bd = d; best = i; }
       }
-      const n = list.slice(0, k + 1).filter((x) => x === kind).length;
-      const name = s === 0
-        ? (kind === 'heavy' ? `Art.Abt. ${600 + k * 7}` : kind === 'nebel' ? `Werfer-Rgt. ${51 + k}` : `Art.Rgt. ${100 + k * 33}`)
-        : (kind === 'rocket' ? `${ORDINAL(n)} rég. de mortiers de la Garde` : kind === 'mortar' ? `${ORDINAL(n)} rég. de mortiers` : `${ORDINAL(n)} rég. d'artillerie`);
-      guns.push({ id: id++, side: s, kind, name, x: cx[best], y: cy[best], str: 1, posture: 'battery', dest: null, lost: false, fired: -99, seen: [null, null] });
+      const n = list.slice(0, k + 1).filter((x) => x === kind || (K.at && GUN_KINDS[x].at && kind !== 'atHeavy' && x !== 'atHeavy')).length;
+      const name = K.at
+        ? (s === 0 ? (kind === 'atHeavy' ? `Flak-Abt. ${21 + k * 9} (8,8 cm)` : `Pz.Jg.Abt. ${40 + k * 13}`) : kind === 'atHeavy' ? `${ORDINAL(n)} rég. antichar lourd` : `${ORDINAL(n)} rég. antichar`)
+        : s === 0
+          ? (kind === 'heavy' ? `Art.Abt. ${600 + k * 7}` : kind === 'nebel' ? `Werfer-Rgt. ${51 + k}` : `Art.Rgt. ${100 + k * 33}`)
+          : (kind === 'rocket' ? `${ORDINAL(n)} rég. de mortiers de la Garde` : kind === 'mortar' ? `${ORDINAL(n)} rég. de mortiers` : `${ORDINAL(n)} rég. d'artillerie`);
+      let unique = name;
+      while (guns.some((g) => g.name === unique) || front.guns?.some((g) => g.name === unique)) unique = nextName(unique);
+      guns.push({ id: id++, side: s, kind, name: unique, x: cx[best], y: cy[best], str: 1, posture: 'battery', dest: null, lost: false, fired: -99, seen: [null, null], face: s === 0 ? 0 : Math.PI });
     });
   }
   return guns;
@@ -120,7 +140,7 @@ export function setGunOrder(front, s, id, { posture, dest } = {}) {
 export function gunFor(front, s, at) {
   let best = null;
   for (const g of front.guns) {
-    if (g.side !== s || gunPower(g) <= 0 || front.barrages[s].some((b) => b.gun === g.id)) continue;
+    if (g.side !== s || GUN_KINDS[g.kind].at || gunPower(g) <= 0 || front.barrages[s].some((b) => b.gun === g.id)) continue;
     if (Math.hypot(g.x - at.x, g.y - at.y) > GUN_KINDS[g.kind].range) continue;
     if (!best || gunPower(g) * GUN_KINDS[g.kind].rate > gunPower(best) * GUN_KINDS[best.kind].rate) best = g;
   }
@@ -157,7 +177,7 @@ export function supportFire(front, edges) {
   const cx = front.centers.x, cy = front.centers.y;
   for (const g of front.guns) {
     const p = gunPower(g);
-    if (p <= 0) continue;
+    if (p <= 0 || GUN_KINDS[g.kind].at) continue;
     const busy = front.tick < front.cfg.barrageTicks && front.barrages[g.side].some((b) => b.gun === g.id);
     if (busy) continue;
     const R = GUN_KINDS[g.kind].range;
@@ -179,6 +199,53 @@ export function supportFire(front, edges) {
       front.stats.losses[1 - g.side] += l;
     }
     g.fired = front.clock;
+  }
+}
+
+// Orientation d'un canon antichar : vers la case ennemie la plus proche (à défaut, vers le camp ennemi).
+function atFacing(front, g) {
+  const cx = front.centers.x, cy = front.centers.y, R = GUN_KINDS[g.kind].range * 2;
+  let bd = Infinity, face = g.side === 0 ? 0 : Math.PI;
+  for (let i = 0; i < front.map.N; i++) {
+    if (front.owner[i] !== 1 - g.side || Math.abs(cx[i] - g.x) > R) continue;
+    const d = Math.hypot(cx[i] - g.x, cy[i] - g.y);
+    if (d < bd) { bd = d; face = Math.atan2(cy[i] - g.y, cx[i] - g.x); }
+  }
+  return face;
+}
+
+// Une formation est-elle dans le cône d'un canon antichar ? Renvoie la proximité (0 à 1) ou 0.
+export function inCone(g, x, y) {
+  const K = GUN_KINDS[g.kind];
+  const dx = x - g.x, dy = y - g.y, d = Math.hypot(dx, dy);
+  if (d > K.range) return 0;
+  let a = Math.abs(Math.atan2(dy, dx) - g.face);
+  if (a > Math.PI) a = 2 * Math.PI - a;
+  return a > AT_RULES.cone && d > 1 ? 0 : 1 - (0.5 * d) / K.range;
+}
+
+// Chaque tick : les canons antichar tirent sur les formations ennemies dans leur cône. Pertes en chars, et choc
+// retiré au tick suivant (armorPressure). En tirant, ils se dévoilent.
+export function atFire(front) {
+  for (const a of front.armor ?? []) a.underAT = 0;
+  for (const g of front.guns) {
+    const K = GUN_KINDS[g.kind];
+    if (!K.at || g.lost) continue;
+    g.face = atFacing(front, g);
+    const p = gunPower(g);
+    if (p <= 0) continue;
+    for (const a of front.armor ?? []) {
+      if (a.side === g.side || a.lost) continue;
+      const k = inCone(g, a.x, a.y) * p;
+      if (k <= 0) continue;
+      const kill = Math.min(a.tanks, K.at.kill * k * (a.heavy ? AT_RULES.heavy : 1));
+      a.tanks -= kill;
+      front.stats.atKills = front.stats.atKills ?? [0, 0];
+      front.stats.atKills[g.side] += kill;
+      a.underAT = Math.min(AT_RULES.maxShock, a.underAT + K.at.shock * k);
+      a.fought = true;
+      g.fired = front.clock;
+    }
   }
 }
 

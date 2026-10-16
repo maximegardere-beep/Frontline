@@ -139,7 +139,7 @@ export function armorPressure(front, push) {
     }
     // Ravitaillement (dépôts loin derrière) et fatigue réduisent le choc.
     const sup = front.supplyK?.[a.side][a.cell] ?? 1;
-    const base = a.tanks * R.shock * heavyK(a, 'shock') * front.quality[a.side] * expFactor(a.exp) * sup * (1 - 0.4 * (a.fatigue ?? 0));
+    const base = (1 - (a.underAT ?? 0)) * a.tanks * R.shock * heavyK(a, 'shock') * front.quality[a.side] * expFactor(a.exp) * sup * (1 - 0.4 * (a.fatigue ?? 0));
     const hit = (k, share) => {
       const v = base * share * front.map.atkA[k] * (1 - 0.6 * (front.at?.[k] ?? 0));
       if (v <= 0) return;

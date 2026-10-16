@@ -13,12 +13,13 @@
 // L'attaquant engage plus volontiers que le défenseur, qui contre-attaque surtout ce qui est faible.
 // Poches : tirage pondéré entre statu quo, Festung et percée d'évasion (troupes piégées, distance aux lignes amies).
 
+import { planSupport } from './frontbattalion.js';
 import { planHQ } from './fronthq.js';
 import { planAir, addAirMission } from './frontair.js';
 import { addVector, addLine, addBarrage, addPontoon, deployReserve, setPocketMode, edgeCol, cellAtPoint, waterOpen, FRONT_WEATHER, VECTOR_TYPES } from './front.js';
 import { bfsDistance, floodFill, components } from './path.js';
 import { GUN_KINDS, setGunOrder } from './frontguns.js';
-import { setArmorOrder } from './frontarmor.js';
+import { setArmorOrder, visibleArmor } from './frontarmor.js';
 
 const SECTOR = 4; // un secteur toutes les 4 lignes
 
@@ -121,17 +122,11 @@ export function planFront(front, s) {
   for (const sec of sectors) { sec.ratio = sec.own / (sec.foe * sec.foeDef * sec.water); sec.hold = (sec.own * sec.water) / (sec.foe * sec.foeDef); }
   planGuns(front, s);
 
-  // 1. Défense : secteurs menacés (l'ennemi y est nettement plus fort).
+  // 1. Défense : secteurs menacés (l'ennemi y est nettement plus fort). Les ouvrages viennent des bataillons de
+  // soutien (atouts) ; les canons antichar se portent face aux blindés ennemis connus.
   const threatened = [...sectors].filter((x) => x.hold < (attacking ? 0.7 : 0.9)).sort((a, b) => a.hold - b.hold);
-  let lines = 0;
-  for (const sec of threatened) {
-    if (lines >= cfg.maxLines) break;
-    // Ligne de défense parallèle au front, 2 à 3 cases en arrière.
-    const h = point(front, sec.head);
-    const back = -dirX * 3;
-    const r = addLine(front, s, { x: h.x + back, y: h.y - 6 }, { x: h.x + back, y: h.y + 6 }, sec.hold < 0.5 ? 3 : 2);
-    if (!r.error) lines++;
-  }
+  planSupport(front, s, sectors);
+  planAT(front, s, sectors);
   // Réserves : presque tout le pool monte en ligne chaque matin (en garder trop, c'est les laisser dormir pendant
   // que le front cède). Le défenseur les répartit sur ses secteurs menacés au prorata du déficit ; l'attaquant en
   // garde la moitié pour nourrir ses percées (plus bas).
@@ -166,7 +161,6 @@ export function planFront(front, s) {
     // Décrochage : de la pointe vers la sortie, et du centre si le saillant est grand.
     for (const from of z.size > 40 ? [z.tip, z.mid] : [z.tip]) addVector(front, s, 'retreat', from, z.exit);
     const ux = z.exit.x - point(front, z.tip).x, uy = z.exit.y - point(front, z.tip).y, L = Math.hypot(ux, uy) || 1;
-    if (lines < cfg.maxLines && !addLine(front, s, { x: z.exit.x - (uy / L) * 6, y: z.exit.y + (ux / L) * 6 }, { x: z.exit.x + (uy / L) * 6, y: z.exit.y - (ux / L) * 6 }, 2).error) lines++;
     const neck = cellAtPoint(front, z.exit);
     if (neck >= 0 && front.owner[neck] === s) deploy(neck, budget * 0.3);
     aiNote(front, s, z);
@@ -452,12 +446,44 @@ function threatenedBridges(front, s) {
 
 // Artillerie : chaque groupe se tient à mi-portée derrière le front connu. Trop près (menacé d'être débordé), il
 // recule ; trop loin pour tirer au-delà du front, il avance, en appui mobile si l'étape tient dans la journée.
+// Canons antichar : chaque groupe se porte (de jour, en déplacement) derrière le secteur où l'ennemi a le plus de chars
+// connus, ou à défaut le plus menacé ; un seul groupe par secteur, et il reste s'il y est déjà.
+function planAT(front, s, sectors) {
+  const own = front.guns.filter((g) => g.side === s && !g.lost && GUN_KINDS[g.kind].at);
+  if (!own.length || !sectors.length) return;
+  const cy = front.centers.y, cx = front.centers.x;
+  const dirX = s === 0 ? 1 : -1;
+  const tanks = new Map(sectors.map((sec) => [sec, 0]));
+  for (const { a, x, y, tanks: n } of visibleArmor(front, s)) {
+    if (a.side === s) continue;
+    const sec = sectors.reduce((a, b) => (Math.hypot(cx[b.head] - x, cy[b.head] - y) < Math.hypot(cx[a.head] - x, cy[a.head] - y) ? b : a));
+    tanks.set(sec, tanks.get(sec) + n);
+  }
+  const ranked = [...sectors].sort((a, b) => tanks.get(b) - tanks.get(a) || a.hold - b.hold);
+  const taken = new Set();
+  for (const g of own) {
+    const here = ranked.find((sec) => !taken.has(sec) && Math.hypot(cx[sec.head] - g.x, cy[sec.head] - g.y) < 8);
+    if (here && ranked.indexOf(here) < own.length + 1) { taken.add(here); continue; }
+    const want = ranked.find((sec) => !taken.has(sec));
+    if (!want) continue;
+    taken.add(want);
+    const to = { x: cx[want.head] - dirX * GUN_KINDS[g.kind].back, y: cy[want.head] };
+    let best = null, bd = Infinity;
+    for (let i = 0; i < front.map.N; i++) {
+      if (front.owner[i] !== s || front.map.flow[i] <= 0) continue;
+      const d = Math.hypot(cx[i] - to.x, cy[i] - to.y);
+      if (d < bd) { bd = d; best = { x: cx[i], y: cy[i] }; }
+    }
+    if (best && Math.hypot(best.x - g.x, best.y - g.y) > 3) setGunOrder(front, s, g.id, { dest: best, posture: 'move' });
+  }
+}
+
 function planGuns(front, s) {
   const { map, centers } = front;
   const mem = front.memory[s];
   const dirX = s === 0 ? 1 : -1;
   for (const g of front.guns) {
-    if (g.side !== s || g.lost) continue;
+    if (g.side !== s || g.lost || GUN_KINDS[g.kind].at) continue; // canons antichar : planAT
     const R = GUN_KINDS[g.kind].range;
     let near = Infinity, nx = 0, ny = 0;
     for (let i = 0; i < map.N; i++) {

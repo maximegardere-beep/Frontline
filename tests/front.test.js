@@ -549,7 +549,7 @@ test('IA : un saillant en passe d\'être encerclé décroche vers son goulot (pr
   const retreats = f.orders[0].filter((v) => v.type === 'retreat' && z.cells.includes(v.fromI));
   assert.ok(retreats.length >= 1, 'décrochage depuis le saillant');
   assert.ok(retreats.every((v) => Math.hypot(v.to.x - z.exit.x, v.to.y - z.exit.y) < Math.hypot(v.from.x - z.exit.x, v.from.y - z.exit.y)), 'vers le goulot');
-  assert.ok(f.lines[0].length >= 1, 'ligne de défense au goulot');
+  // Plus de ligne de défense au goulot : les ouvrages viennent des bataillons de soutien (atouts).
   assert.ok(!f.orders[0].some((v) => v.type === 'infantry' && z.cells.includes(v.fromI)), 'pas d\'attaque depuis le saillant évacué');
 });
 
@@ -664,7 +664,7 @@ test('regroupement de nuit : la route porte plus loin et davantage, transfert an
 
 test('aviation : sorties par jour, la DCA sur la route émousse la mission et se dévoile, brouillard au sol', async () => {
   const { AIR, addAirMission, airTick, sortiesToday } = await import('../src/frontair.js');
-  const f = createFront({ seed: 'air', attacker: 'DE', biome: 'steppe' });
+  const f = createFront({ seed: 'air', attacker: 'DE', biome: 'steppe', setup: LEGACY });
   f.weather = 'clear';
   assert.equal(sortiesToday(f, 0), f.cfg.sorties[0]);
   // Cible : une case soviétique au contact ; une DCA soviétique posée sur la route des avions.

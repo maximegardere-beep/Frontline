@@ -108,7 +108,8 @@ test('interface : chaque élément cherché par le contrôleur existe dans la pa
     // Identifiants créés dans les dossiers (HTML injecté) : présents dans le source du contrôleur lui-même.
     for (const id of ids) assert.ok(html.includes(`id="${id}"`) || src.includes(`id="${id}"`), `#${id} (${file})`);
   }
-  for (const tool of ['infantry', 'armor', 'retreat', 'line', 'barrage', 'reserve']) assert.ok(html.includes(`data-tool="${tool}"`), tool);
+  for (const tool of ['infantry', 'armor', 'retreat', 'barrage', 'reserve']) assert.ok(html.includes(`data-tool="${tool}"`), tool);
+  assert.ok(!html.includes('data-tool="line"'), 'plus d\'outil « Ligne » : les ouvrages viennent des bataillons de soutien');
 });
 
 test('fichier unique : les modules assemblés se compilent (pas de nom déclaré deux fois)', () => {

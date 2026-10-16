@@ -119,36 +119,41 @@ export function captureWorks(front, i) {
 
 // Un tick de chantier pour les lignes du camp s.
 export function buildTick(front, s) {
+  for (const l of front.lines[s]) buildSite(front, s, l);
+}
+
+// Un tick de chantier sur un site { cells, core, level } (ligne de défense, zone d'un bataillon de soutien) :
+// tranchées, puis barbelés (niveau 2) et obstacles antichar (3) une fois les tranchées à moitié creusées ; trois fois
+// plus lent au contact de l'ennemi. site.done : achevé.
+export function buildSite(front, s, l) {
   const { nb } = front.map;
   const B = WORKS.build, ticks = front.cfg.ticks;
-  for (const l of front.lines[s]) {
-    let done = true;
-    for (const i of l.cells) {
-      if (front.owner[i] !== s) continue;
-      let contact = false;
-      for (let d = 0; d < 6; d++) { const j = nb[i * 6 + d]; if (j >= 0 && front.owner[j] === 1 - s) { contact = true; break; } }
-      const r = (contact ? WORKS.contact : 1) / ticks;
-      const before = [front.entrench[i], front.wire[i], front.at[i]];
-      if (front.entrench[i] < 1) {
-        // Tranchées prises à l'ennemi : on les retourne (elles deviennent les nôtres une fois refaites à moitié).
-        if (front.trenchSide[i] !== s) { front.trenchSide[i] = s; front.entrench[i] *= 0.5; }
-        front.entrench[i] = Math.min(1, front.entrench[i] + B.trench * r);
-      }
-      if (l.level >= 2 && front.entrench[i] >= 0.5 && front.wire[i] < 1) front.wire[i] = Math.min(1, front.wire[i] + B.wire * r);
-      if (l.level >= 3 && front.entrench[i] >= 0.5 && front.at[i] < 1) front.at[i] = Math.min(1, front.at[i] + B.at * r);
-      if (l.core?.has(i) && front.entrench[i] >= 0.08) front.trenchLine[i] = 1;
-      if (front.entrench[i] < 1 || (l.level >= 2 && front.wire[i] < 1) || (l.level >= 3 && front.at[i] < 1)) done = false;
-      if (before.some((v, k) => Math.floor(v * 5) !== Math.floor([front.entrench[i], front.wire[i], front.at[i]][k] * 5))) {
-        front.worksVersion++;
-        // Reconstruit : la ruine disparaît.
-        if (front.entrench[i] >= WORKS.wreckFrom) front.wreck[i] &= ~1;
-        if (front.wire[i] >= WORKS.wreckFrom) front.wreck[i] &= ~2;
-        if (front.at[i] >= WORKS.wreckFrom) front.wreck[i] &= ~4;
-      }
-      notePeak(front, i);
+  let done = true;
+  for (const i of l.cells) {
+    if (front.owner[i] !== s) continue;
+    let contact = false;
+    for (let d = 0; d < 6; d++) { const j = nb[i * 6 + d]; if (j >= 0 && front.owner[j] === 1 - s) { contact = true; break; } }
+    const r = (contact ? WORKS.contact : 1) / ticks;
+    const before = [front.entrench[i], front.wire[i], front.at[i]];
+    if (front.entrench[i] < 1) {
+      // Tranchées prises à l'ennemi : on les retourne (elles deviennent les nôtres une fois refaites à moitié).
+      if (front.trenchSide[i] !== s) { front.trenchSide[i] = s; front.entrench[i] *= 0.5; }
+      front.entrench[i] = Math.min(1, front.entrench[i] + B.trench * r);
     }
-    l.done = done;
+    if (l.level >= 2 && front.entrench[i] >= 0.5 && front.wire[i] < 1) front.wire[i] = Math.min(1, front.wire[i] + B.wire * r);
+    if (l.level >= 3 && front.entrench[i] >= 0.5 && front.at[i] < 1) front.at[i] = Math.min(1, front.at[i] + B.at * r);
+    if (l.core?.has(i) && front.entrench[i] >= 0.08) front.trenchLine[i] = 1;
+    if (front.entrench[i] < 1 || (l.level >= 2 && front.wire[i] < 1) || (l.level >= 3 && front.at[i] < 1)) done = false;
+    if (before.some((v, k) => Math.floor(v * 5) !== Math.floor([front.entrench[i], front.wire[i], front.at[i]][k] * 5))) {
+      front.worksVersion++;
+      // Reconstruit : la ruine disparaît.
+      if (front.entrench[i] >= WORKS.wreckFrom) front.wreck[i] &= ~1;
+      if (front.wire[i] >= WORKS.wreckFrom) front.wreck[i] &= ~2;
+      if (front.at[i] >= WORKS.wreckFrom) front.wreck[i] &= ~4;
+    }
+    notePeak(front, i);
   }
+  l.done = done;
 }
 
 // Défense d'une case pour son occupant s : tranchées pleines s'il les a creusées, à moitié sinon.

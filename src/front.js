@@ -19,8 +19,9 @@ import { WORKS, initWorks, defenderBelt, barrageWorks, captureWorks, buildTick, 
 import { initScore, eveningScore, noteCapture, scoreBreakdown, GRADES } from './frontscore.js';
 import { createAA, airTick, updateAASightings, airNight } from './frontair.js';
 import { dealAtouts, reinforceAtouts, ATOUT_RULES } from './frontatout.js';
+import { createSupport, refreshZones, supportDawn, supportTick, supportNight, updateSupportSightings } from './frontbattalion.js';
 import { createHQ, applyHQ, engageCapOf, ordersWait, hqDawn, hqTick, hqAfter, hqSightings, hqNight } from './fronthq.js';
-import { GUN_KINDS, GUN_RULES, createGuns, gunFor, gunPower, moveGuns, supportFire, gunsNight, updateGunSightings } from './frontguns.js';
+import { GUN_KINDS, GUN_RULES, createGuns, gunFor, gunPower, moveGuns, supportFire, gunsNight, updateGunSightings, atFire } from './frontguns.js';
 
 export const FRONT_SIDES = ['DE', 'SU'];
 export const sideIndex = (s) => (s === 'DE' ? 0 : 1);
@@ -184,6 +185,7 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
     cfg.guns = deal.guns;
     cfg.armor = deal.armor;
     cfg.aaBatteries = deal.aa;
+    cfg.support = deal.support;
     cfg.sorties = cfg.sorties.map((n, s) => n + deal.sorties[s]);
   } else {
     // Moyens de rupture de l'attaquant : groupes d'artillerie et sorties aériennes en plus (la défense, renforcée, ne
@@ -222,6 +224,8 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
   updateMemory(front);
   front.armor = createArmor(front, cfg.armor ?? ARMOR_SETUP);
   front.hq = cfg.hq ? createHQ(front) : null;
+  front.support = createSupport(front, cfg.support ?? [[], []]); // bataillons de soutien (frontbattalion.js)
+  refreshZones(front);
   front.docs = [-1, -1]; // documents saisis sur un PC ennemi : lisibles jusqu'à ce tick (fronthq.js)
   updateGunSightings(front);
   updateAASightings(front);
@@ -498,7 +502,7 @@ export function addLine(front, s, a, b, level = 2) {
 // d'artillerie disponible le plus puissant qui l'a à portée (gunId pour en imposer un).
 export function addBarrage(front, s, at, gunId = null) {
   if (front.phase !== 'plan') return { error: 'Les ordres se donnent le matin.' };
-  const free = front.guns.filter((g) => g.side === s && gunPower(g) > 0 && !front.barrages[s].some((b) => b.gun === g.id));
+  const free = front.guns.filter((g) => g.side === s && !GUN_KINDS[g.kind].at && gunPower(g) > 0 && !front.barrages[s].some((b) => b.gun === g.id));
   if (!free.length) return { error: 'Aucun groupe d\'artillerie disponible : tous ont leur mission, ou sont en déplacement.' };
   const g = gunId != null ? free.find((x) => x.id === gunId && Math.hypot(x.x - at.x, x.y - at.y) <= GUN_KINDS[x.kind].range) : gunFor(front, s, at);
   if (!g) return { error: 'Hors de portée de vos groupes d\'artillerie disponibles.' };
@@ -811,6 +815,7 @@ export function beginDay(front) {
   }
   front.lineMask.fill(0);
   for (const s of [0, 1]) for (const l of front.lines[s]) for (const i of l.cells) front.lineMask[i] = 1;
+  supportDawn(front);
   hqDawn(front);
   front.phase = 'resolve';
   front.tick = 0;
@@ -833,6 +838,7 @@ export function stepTick(front) {
   events.push(...early);
   for (const t of front.townCells) ruinTown(front, t, front.tickLoss[t] * RUINS.combat);
   armorAfter(front, front.tickLoss, densBefore, events);
+  atFire(front); // canons antichar
   supportFire(front, front.tickEdges);
   moveGuns(front, events);
   for (const e of events) {
@@ -854,6 +860,7 @@ export function stepTick(front) {
   }
   const fresh = updateSupply(front);
   hqAfter(front, events);
+  supportTick(front, events); // zones des bataillons de soutien : chantiers ; bataillons débordés
   // Malus logistique immédiat : une poche perd chaque tick une part de sa densité.
   for (const s of [0, 1]) {
     for (const p of front.pockets[s]) {
@@ -878,6 +885,7 @@ export function stepTick(front) {
   updateAASightings(front);
   updateArmorSightings(front);
   hqSightings(front);
+  updateSupportSightings(front);
   checkFrontVictory(front);
   if (front.phase === 'resolve' && front.tick >= front.cfg.ticks) endDay(front);
   return events;
@@ -974,6 +982,7 @@ function endDay(front) {
   front.transfers = [[], []];
   staffNight(front); // regroupement de nuit (pas sans PC en état)
   hqNight(front);
+  supportNight(front);
   buildPontoons(front);
   // Nuit : une part des pertes du jour rejoint (blessés légers, isolés), hors troupes perdues dans les poches.
   if (front.dayStart) {
