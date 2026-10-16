@@ -2,14 +2,15 @@
 
 import { Renderer, HEX, splineAt } from './render.js';
 import { WeatherLayer } from './weather.js';
-import { WEATHER, LIGHT, BIOMES, lightAt, clockLabel, lightChanges } from './conditions.js';
-import { createBattle, executeTurn, onMap, active, unitAt, canDeployAt, updateVisibility, HOLD_TO_WIN } from './game.js';
+import { WEATHER, LIGHT, BIOMES, lightAt, clockLabel, lightChanges, DEFAULT_CONDITIONS } from './conditions.js';
+import { createBattle, executeTurn, onMap, active, unitAt, canDeployAt, updateVisibility, HOLD_TO_WIN, callFire, cancelFire, fireLeft, cityShare, FIRE_CALLS } from './game.js';
+import { generateUrbanMap, URBAN_SIZES } from './urbangen.js';
 import { planSide, DIRECTIVES } from './ai.js';
 import { buildCombatFx } from './fx.js';
 import { sound } from './audio.js';
 import { createRng } from './rng.js';
 import { reachable, pathFrom, hexKey, pathCost } from './path.js';
-import { unitStats, UNIT_TYPES, LEVELS, SIDES, other, hpState, resetIds, XP_FOR_LEVEL, unitLabel, variantOf, VARIANTS } from './units.js';
+import { unitStats, UNIT_TYPES, LEVELS, SIDES, other, hpState, resetIds, XP_FOR_LEVEL, unitLabel, variantOf, VARIANTS, makeUnit } from './units.js';
 import { tileAt, describeTile, terrainDefense } from './terrain.js';
 import { hexDistance, hexToPixel, sameHex } from './hex.js';
 import { newCampaign, battleSetup, concludeBattle, campaignOver, campaignVerdict, CAMPAIGN_LENGTH, KIND_LABELS } from './campaign.js';
@@ -52,6 +53,9 @@ const ui = {
   dirTool: null,
   manual: new Set(),
   assignment: null,
+  // Bataille de rue (startUrban) : { onEnd } ; callTool : feu hors carte en cours de désignation.
+  urban: null,
+  callTool: null,
 };
 
 const MAX_DIRECTIVES = 3;
@@ -120,9 +124,14 @@ function showFrontMenu() {
       <label class="seed" for="seed">Graine <input id="seed" value="${seed}" maxlength="12" autocomplete="off"></label>
       ${frontActive() ? '<button class="btn btn-primary" id="back">Retour au front</button>' : ''}
     </div>
+    <p class="muted small">Essai : <button class="linkish" data-urban="DE">bataille de rue côté Wehrmacht</button> · <button class="linkish" data-urban="SU">côté Armée rouge</button></p>
     ${frontRules()}
   `, () => {
     $('back')?.addEventListener('click', hideDossier);
+    document.querySelectorAll('[data-urban]').forEach((b) => b.addEventListener('click', () => {
+      hideDossier();
+      startUrbanTest(b.dataset.urban, $('seed').value.trim() || seed);
+    }));
     document.querySelectorAll('[data-front]').forEach((b) => b.addEventListener('click', () => {
       ui.weather.set('clear', 'day');
       openFront(b.dataset.front, $('seed').value.trim() || seed, frontYear());
@@ -286,7 +295,69 @@ function conditionsHtml(s) {
     <p><b>Heure.</b> ${sky}</p>`;
 }
 
+// ---------- Bataille de rue ----------
+
+// Lance une bataille de rue dans le cadre tactique. opts : seed, playerSide, attacker, map (urbangen.js), armies,
+// fire ({ DE: { barrage, support }, SU: … }), title, conditions, maxTurns, intro (texte du briefing), onEnd(state)
+// (appelé au bilan ; sans lui, retour au menu).
+export function startUrban(opts) {
+  resetIds(1000);
+  ui.urban = { onEnd: opts.onEnd ?? null };
+  ui.campaign = { playerSide: opts.playerSide, army: opts.armies[opts.playerSide], index: 0, results: [], urban: true };
+  ui.inGame = true;
+  ui.state = createBattle({ seed: opts.seed, playerSide: opts.playerSide, armies: opts.armies, kind: 'ville', maxTurns: opts.maxTurns ?? 10, title: opts.title ?? `Bataille de ${opts.map.name}`, conditions: opts.conditions ?? DEFAULT_CONDITIONS, map: opts.map, attacker: opts.attacker, fire: opts.fire });
+  ui.reopenReport = null;
+  ui.directives = [];
+  ui.dirTool = null;
+  ui.callTool = null;
+  ui.manual = new Set();
+  ui.assignment = null;
+  ui.staffRng = createRng(`staff:${opts.seed}`);
+  ui.selectedId = null;
+  $('front-app').hidden = true;
+  $('tac-app').hidden = false;
+  ui.renderer.resize();
+  ui.renderer.setMap(ui.state.map);
+  ui.renderer.initialView(opts.playerSide);
+  refresh();
+  const s = ui.state, me = opts.playerSide, attacking = s.attacker === me;
+  const fire = s.fire[me];
+  showDossier(`
+    <p class="eyebrow">Bataille de rue · ${attacking ? 'attaque' : 'défense'}</p>
+    <h1 class="title-l">${esc(s.title)}</h1>
+    <p class="lede">${esc(opts.intro ?? (attacking ? 'Prenez la ville îlot par îlot : les chars tiennent les rues, l\'infanterie nettoie les maisons.' : 'Tenez la ville : l\'infanterie dans les maisons, l\'antichar en enfilade sur la grand-rue.'))}</p>
+    <div class="brief-grid">
+      <section>
+        <h2>Objectif</h2>
+        <ul class="ticks"><li>${attacking ? 'Tenir au moins la moitié de la ville (îlots pondérés : l\'église compte double) au terme.' : 'Garder plus de la moitié de la ville au terme.'}</li><li>Un îlot passe à qui y a seul de l'infanterie ou des chars ; disputé, il ne change pas de mains.</li><li>Limite : ${s.maxTurns} tours.</li></ul>
+        <h2>Feux</h2>
+        <p>${fire.barrage ? `${fire.barrage} barrage${fire.barrage > 1 ? 's' : ''} focalisé${fire.barrage > 1 ? 's' : ''} (l'hexagone et ses six voisins, amis compris : les maisons s'effondrent, les gravats ferment la rue aux chars)` : 'Aucun barrage'} ; ${fire.support ? `${fire.support} tir${fire.support > 1 ? 's' : ''} d'appui sur une case vue` : 'aucun tir d\'appui'}. Un de chaque par tour, barre « Feux » en bas de la carte.</p>
+      </section>
+      <section>
+        <h2>Vos forces</h2>
+        <ul class="roster">${opts.armies[me].map((u) => `<li><span class="chip chip-${u.type}">${unitLabel(u)}</span> ${esc(u.name)} <em>${LEVELS[u.level]}</em></li>`).join('')}</ul>
+      </section>
+    </div>
+    <div class="row-end"><button class="btn btn-primary" id="go-deploy">Déployer les troupes</button></div>
+  `, () => $('go-deploy').addEventListener('click', () => { hideDossier(); refresh(); }));
+}
+
+// Essai depuis le menu : une ville tirée de la graine, armées d'essai, feux hors carte.
+function startUrbanTest(playerSide, seed) {
+  const rng = createRng(`essai:${seed}`);
+  const attacker = rng.chance(0.5) ? 'DE' : 'SU', defender = other(attacker);
+  const size = rng.pick(Object.keys(URBAN_SIZES));
+  const map = generateUrbanMap(seed, { size, river: rng.chance(0.4) ? (attacker === 'DE' ? 'east' : 'west') : null, roads: ['W', 'E', ...(rng.chance(0.6) ? ['N'] : []), ...(rng.chance(0.6) ? ['S'] : [])] });
+  const mk = (side, list) => list.map((type) => makeUnit(side, type, rng.int(1, 2), rng));
+  const armies = {
+    [attacker]: mk(attacker, ['infantry', 'infantry', 'infantry', 'infantry', 'infantry', 'infantry', 'tank', 'tank', 'tank', 'recon']),
+    [defender]: mk(defender, ['infantry', 'infantry', 'infantry', 'infantry', 'infantry', 'infantry', 'at']),
+  };
+  startUrban({ seed, playerSide, attacker, map, armies, fire: { [attacker]: { barrage: 2, support: 3 }, [defender]: { barrage: 1, support: 2 } } });
+}
+
 function showDebrief() {
+  if (ui.urban) return urbanDebrief();
   const c = ui.campaign;
   const s = ui.state;
   const won = s.result.winner === c.playerSide;
@@ -321,6 +392,44 @@ function showDebrief() {
     $('to-menu')?.addEventListener('click', () => { ui.inGame = false; showMenu(); });
     $('next')?.addEventListener('click', showBriefing);
     $('see-map')?.addEventListener('click', () => { hideDossier(); refresh(); });
+  });
+  ui.reopenReport();
+}
+
+function urbanDebrief() {
+  const s = ui.state, me = player();
+  const won = s.result.winner === me, draw = !s.result.winner;
+  const lost = s.units.filter((u) => u.side === me && !onMap(u)).map((u) => u.name);
+  const killed = s.units.filter((u) => u.side !== me && !onMap(u)).length;
+  const done = ui.urban.onEnd;
+  ui.reopenReport = () => showDossier(`
+    <p class="eyebrow">Rapport après action · ${esc(s.title)}</p>
+    <h1 class="title-l ${won ? 'win' : draw ? '' : 'loss'}">${won ? 'Victoire' : draw ? 'Indécis' : 'Défaite'}</h1>
+    <p class="lede">${esc(s.result.reason)}</p>
+    <div class="brief-grid">
+      <section>
+        <h2>La ville</h2>
+        <ul class="ticks">${s.blocks.map((b) => `<li>${esc(b.label[0].toUpperCase() + b.label.slice(1))} : ${SIDES[b.owner].name}${b.contested ? ' (disputé)' : ''}</li>`).join('')}</ul>
+      </section>
+      <section>
+        <h2>Pertes</h2>
+        <p>${lost.length ? lost.map(esc).join(', ') : 'Aucune unité perdue.'}</p>
+        <p>Unités ennemies hors de combat : ${killed}.</p>
+      </section>
+    </div>
+    <div class="row-end"><button class="btn btn-ghost" id="see-map">Revoir la carte</button><button class="btn btn-primary" id="urban-done">${done ? 'Retour au front' : 'Retour au menu'}</button></div>
+  `, () => {
+    $('see-map').addEventListener('click', () => { hideDossier(); refresh(); });
+    $('urban-done').addEventListener('click', () => {
+      const st = ui.state;
+      ui.urban = null;
+      ui.inGame = false;
+      ui.state = null;
+      $('tac-app').hidden = true;
+      $('front-app').hidden = false;
+      hideDossier();
+      if (done) done(st); else showMenu();
+    });
   });
   ui.reopenReport();
 }
@@ -379,6 +488,17 @@ function onMapClick(ev) {
     return;
   }
   if (s.phase !== 'plan') return;
+
+  if (ui.callTool) {
+    const kind = ui.callTool;
+    const had = s.calls[player()].find((c) => c.kind === kind);
+    if (had && sameHex(had, h)) { cancelFire(s, player(), kind); ui.callTool = null; return refresh(); }
+    const r = callFire(s, player(), kind, h);
+    if (r.error) { $('hint').textContent = r.error; $('hint').hidden = false; $('hint').dataset.tool = '1'; return; }
+    ui.callTool = null;
+    sound.ui('order');
+    return refresh();
+  }
 
   if (sel && ui.mode === 'barrage') {
     const st = unitStats(sel);
@@ -552,8 +672,10 @@ async function endPhase() {
   const visEnd = s.visibility[me].units;
   ui.animVisible = new Set([...visStart, ...visEnd]);
   // Un tir direct trahit le tireur ; une batterie qui tire de loin reste invisible.
+  // Feux hors carte (bataille de rue) : une batterie fictive, au bord de la carte.
+  const shooter = (f) => s.units.find((u) => u.id === f.attacker) ?? { id: f.attacker, type: 'artillery', side: f.side };
   for (const f of res.fires) {
-    const a = s.units.find((u) => u.id === f.attacker);
+    const a = shooter(f);
     if (a.side !== me && !f.indirect) ui.animVisible.add(a.id);
   }
   // Mouvement continu : chaque unité glisse à vitesse constante le long d'une spline passant par ses positions successives.
@@ -613,7 +735,7 @@ async function endPhase() {
     const lastShot = new Map();
     res.fires.forEach((f, i) => { if (f.target) lastShot.set(f.target, i); });
     const fires = res.fires.map((f, i) => {
-      const a = s.units.find((u) => u.id === f.attacker);
+      const a = shooter(f);
       return {
         a: hexToPixel(f.from.col, f.from.row, HEX),
         b: hexToPixel(f.to.col, f.to.row, HEX),
@@ -741,6 +863,7 @@ function refresh() {
   document.querySelectorAll('[data-panel]').forEach((p) => p.classList.toggle('active', p.dataset.panel === ui.tab));
   renderObjective();
   renderDirectiveBar();
+  renderFireBar();
   renderUnitCard();
   renderArmy();
   renderLog();
@@ -750,11 +873,36 @@ function refresh() {
 function renderObjective() {
   const s = ui.state;
   const el = $('objective');
+  if (s.kind === 'ville') {
+    el.hidden = false;
+    const held = s.blocks.filter((b) => b.owner === player()).length;
+    el.innerHTML = `<span class="star">★</span> Ville tenue par l'attaquant : ${Math.round(cityShare(s) * 100)} % · vos îlots ${held}/${s.blocks.length}`;
+    return;
+  }
   if (!s.objective) { el.hidden = true; return; }
   el.hidden = false;
   const o = s.objective;
   const name = tileAt(s.map, o.col, o.row).name ?? 'Objectif';
   el.innerHTML = `<span class="star">★</span> ${esc(name)} : ${o.owner ? `${SIDES[o.owner].name}${o.contested ? ', disputé' : ''} · ${o.hold}/${HOLD_TO_WIN}` : 'non tenu'}`;
+}
+
+// Bataille de rue : barrage focalisé et tir d'appui, un de chaque par tour, dans la limite du stock.
+function renderFireBar() {
+  const s = ui.state, bar = $('fire-bar');
+  const me = player();
+  bar.hidden = s.kind !== 'ville' || s.phase !== 'plan' || ui.command || !(s.fire[me].barrage + s.fire[me].support);
+  if (bar.hidden) { ui.callTool = null; return; }
+  for (const b of bar.querySelectorAll('[data-call]')) {
+    const kind = b.dataset.call, left = fireLeft(s, me, kind), asked = s.calls[me].some((c) => c.kind === kind);
+    b.setAttribute('aria-pressed', String(ui.callTool === kind));
+    b.disabled = !left && !asked;
+    b.querySelector('.call-n').textContent = '●'.repeat(left) + (asked ? '✓' : '');
+  }
+  if (ui.callTool) {
+    $('hint').dataset.tool = '1';
+    $('hint').textContent = `${touchUI ? 'Touchez' : 'Cliquez'} la carte : ${ui.callTool === 'barrage' ? 'barrage focalisé sur l\'hexagone et ses six voisins (amis compris)' : 'tir d\'appui sur une case que vous voyez'}.`;
+    $('hint').hidden = false;
+  }
 }
 
 function renderDirectiveBar() {
@@ -763,7 +911,7 @@ function renderDirectiveBar() {
   $('directive-bar').hidden = !ui.command || s.phase === 'over';
   document.querySelectorAll('[data-dir]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.dir === ui.dirTool)));
   $('dir-clear').disabled = !ui.directives.length;
-  if (!ui.dirTool && $('hint').dataset.tool) { $('hint').hidden = true; delete $('hint').dataset.tool; }
+  if (!ui.dirTool && !ui.callTool && $('hint').dataset.tool) { $('hint').hidden = true; delete $('hint').dataset.tool; }
   if (ui.dirTool) {
     $('hint').dataset.tool = '1';
     $('hint').textContent = `${touchUI ? 'Touchez' : 'Cliquez'} la carte pour placer « ${DIRECTIVES[ui.dirTool].label} » (${ui.directives.length}/${MAX_DIRECTIVES})`;
@@ -1011,12 +1159,16 @@ function start() {
     refresh();
   }));
   $('btn-go').addEventListener('click', endPhase);
+  document.querySelectorAll('[data-call]').forEach((b) => b.addEventListener('click', () => {
+    ui.callTool = ui.callTool === b.dataset.call ? null : b.dataset.call;
+    refresh();
+  }));
   $('btn-help').addEventListener('click', () => showDossier(`<p class="eyebrow">Manuel de campagne</p><h1 class="title-l">Règles</h1>${rulesHtml().replace('<details class="rules">', '<details class="rules" open>')}<div class="row-end"><button class="btn btn-primary" id="close-help">Reprendre</button></div>`, () => $('close-help').addEventListener('click', hideDossier)));
   $('btn-menu').addEventListener('click', showMenu);
   window.addEventListener('keydown', (e) => {
     if (!$('overlay').hidden || e.target.tagName === 'INPUT') return;
     if (e.key === 'm' || e.key === 'M') return setMuted(!sound.muted);
-    if (frontActive() || !TACTICAL_ENABLED) return; // le front stratégique a ses propres raccourcis
+    if (frontActive() || (!TACTICAL_ENABLED && !ui.urban)) return; // le front stratégique a ses propres raccourcis
     if (e.key === 'Enter') endPhase();
     else if (e.key === 'Escape') { if (ui.dirTool) { ui.dirTool = null; refresh(); } else select(null); }
     else if (e.key === 'd' || e.key === 'D') setCommand(!ui.command);

@@ -180,6 +180,11 @@ kbd {
 .dtool[data-dir="defend"] { border-left-color: #4f7db0; }
 .dtool[data-dir="retreat"] { border-left-color: #b58a2e; }
 .dtool[aria-pressed="true"] { background: var(--paper); color: var(--ink); }
+/* Bataille de rue : feux hors carte, en bas de la carte. */
+.fire-bar { top: auto; bottom: 10px; }
+.dtool[data-call] { border-left-color: var(--brass); }
+.call-n { font: 500 11px var(--f-mono); letter-spacing: 1px; color: var(--brass); }
+.dtool[aria-pressed="true"] .call-n { color: var(--ink-muted); }
 .dtool-x { border-left-width: 1px; background: transparent; color: var(--muted); font-weight: 500; }
 .lbl-short { display: none; }
 .dtool:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
@@ -459,6 +464,7 @@ kbd {
   .dock { order: 0; border-bottom: 0; border-top: 1px solid var(--line); padding: 8px 16px; }
   .map-tools { top: 8px; }
   .directive-bar { top: 8px; gap: 4px; padding: 4px; }
+  .directive-bar.fire-bar { top: auto; bottom: 8px; }
   .directive-title, #dir-off, .lbl-long { display: none; }
   .lbl-short { display: inline; }
   .dtool { min-height: 40px; padding: 4px 8px; }

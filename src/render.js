@@ -8,7 +8,7 @@ import { createRng } from './rng.js';
 import { makeNoise } from './mapgen.js';
 import { lightAt } from './conditions.js';
 import { unitStats, UNIT_TYPES, VARIANTS } from './units.js';
-import { onMap, retreatCol, deployZone } from './game.js';
+import { onMap, retreatCol, inDeployZone } from './game.js';
 import { drawFx, fxShake, stampScars, stampTracks, drawWreck } from './fx.js';
 
 export const HEX = 30;
@@ -118,6 +118,111 @@ function paletteFor(map) {
   // Pluie : sol détrempé, plus sombre et plus vert.
   if (map.weather === 'rain') return { stops: ELEV_STOPS.map((s) => [s[0] * 0.86, s[1] * 0.9, s[2] * 0.84]), C: { ...C, farmA: '#c9b86e', farmB: '#ad9d52', roadHi: '#c9a35d' } };
   return { stops: ELEV_STOPS, C };
+}
+
+// ---------- Ville tactique ----------
+
+// Une case bâtie vue de dessus (hexagones d'environ 50 m) : maisons en pierre serrées en pâté, isbas en bois dans
+// leurs jardins, église sur la place, halles de l'usine.
+function urbanTile(ctx, t, { x, y }, C) {
+  const r = createRng(t.col * 53 + t.row * 1009 + 5);
+  const house = (hx, hy, w, h, rot, roof) => {
+    ctx.save();
+    ctx.translate(hx, hy);
+    ctx.rotate(rot);
+    ctx.fillStyle = 'rgba(40, 30, 18, 0.3)';
+    ctx.fillRect(-w / 2 + 2, -h / 2 + 2, w, h);
+    ctx.fillStyle = roof;
+    ctx.fillRect(-w / 2, -h / 2, w, h);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.18)'; // pan à l'ombre
+    if (w >= h) ctx.fillRect(-w / 2, 0, w, h / 2); else ctx.fillRect(0, -h / 2, w / 2, h);
+    ctx.strokeStyle = 'rgba(30, 20, 10, 0.6)';
+    ctx.lineWidth = 0.8;
+    ctx.strokeRect(-w / 2, -h / 2, w, h);
+    ctx.restore();
+  };
+  if (t.terrain === 'building') {
+    // Pâté : une masse de toits continue d'un hexagone à l'autre (tuile ou ardoise), faîtages, murs mitoyens et une
+    // petite cour au milieu.
+    const roof = r.next() < 0.25 ? '#6f7378' : C.roof;
+    hexPath(ctx, x, y, HEX * 1.0);
+    ctx.fillStyle = roof;
+    ctx.fill();
+    hexPath(ctx, x, y, HEX * 0.72);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.14)'; // versant intérieur, à l'ombre
+    ctx.fill();
+    hexPath(ctx, x, y, HEX * 0.42);
+    ctx.fillStyle = 'rgba(132, 140, 98, 0.95)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(30, 20, 10, 0.55)';
+    ctx.lineWidth = 0.9;
+    ctx.stroke();
+    hexPath(ctx, x, y, HEX * 0.72);
+    ctx.strokeStyle = 'rgba(255, 236, 200, 0.25)';
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(30, 20, 10, 0.5)';
+    for (let k = 0; k < 9; k++) {
+      const a = r.next() * Math.PI * 2;
+      ctx.beginPath();
+      ctx.moveTo(x + Math.cos(a) * HEX * 0.42, y + Math.sin(a) * HEX * 0.42);
+      ctx.lineTo(x + Math.cos(a) * HEX * 0.9, y + Math.sin(a) * HEX * 0.9);
+      ctx.stroke();
+    }
+  } else if (t.terrain === 'isba') {
+    for (let k = 0; k < 3; k++) {
+      const a = r.next() * Math.PI * 2, d = 5 + r.next() * HEX * 0.4;
+      const hx = x + Math.cos(a) * d, hy = y + Math.sin(a) * d * 0.8;
+      ctx.strokeStyle = 'rgba(90, 70, 40, 0.5)';
+      ctx.setLineDash([2, 2]);
+      ctx.strokeRect(hx - 9, hy - 7, 18, 14);
+      ctx.setLineDash([]);
+      house(hx, hy, 13, 9, (r.next() - 0.5) * 0.4, '#8a6a46');
+    }
+  } else if (t.terrain === 'garden') {
+    for (let k = 0; k < 3; k++) {
+      const gx = x + (r.next() - 0.5) * HEX, gy = y + (r.next() - 0.5) * HEX * 0.9;
+      ctx.fillStyle = k % 2 ? 'rgba(126, 150, 92, 0.55)' : 'rgba(150, 140, 86, 0.55)';
+      ctx.fillRect(gx - 9, gy - 6, 18, 12);
+      ctx.strokeStyle = 'rgba(90, 70, 40, 0.45)';
+      ctx.setLineDash([2, 2]);
+      ctx.strokeRect(gx - 9, gy - 6, 18, 12);
+      ctx.setLineDash([]);
+    }
+  } else if (t.terrain === 'strong' && t.label === 'église') {
+    ctx.fillStyle = 'rgba(40, 30, 18, 0.3)';
+    ctx.fillRect(x - 9, y - 15, 22, 34);
+    ctx.fillStyle = '#ddd5c0';
+    ctx.fillRect(x - 11, y - 17, 22, 34);
+    ctx.fillRect(x - 18, y - 5, 36, 10);
+    ctx.strokeStyle = '#2d2414';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x - 11, y - 17, 22, 34);
+    ctx.strokeRect(x - 18, y - 5, 36, 10);
+    ctx.beginPath();
+    ctx.arc(x, y, 6.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#4f7a62';
+    ctx.fill();
+    ctx.stroke();
+  } else if (t.terrain === 'strong') {
+    // Usine : halles à toits en dents de scie, cheminée.
+    ctx.fillStyle = '#7b7d7a';
+    ctx.fillRect(x - HEX * 0.75, y - HEX * 0.5, HEX * 1.5, HEX);
+    ctx.strokeStyle = 'rgba(30, 30, 30, 0.6)';
+    ctx.lineWidth = 1;
+    for (let k = -3; k <= 3; k++) {
+      ctx.beginPath();
+      ctx.moveTo(x + k * 6, y - HEX * 0.5);
+      ctx.lineTo(x + k * 6, y + HEX * 0.5);
+      ctx.stroke();
+    }
+    ctx.strokeRect(x - HEX * 0.75, y - HEX * 0.5, HEX * 1.5, HEX);
+    if ((t.col + t.row) % 3 === 0) {
+      ctx.beginPath();
+      ctx.arc(x + 10, y - 6, 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = '#5a3a2a';
+      ctx.fill();
+    }
+  }
 }
 
 // ---------- Champs continus ----------
@@ -517,13 +622,34 @@ export class Renderer {
       }
     }
 
-    // 7. Routes : courbes douces suivant les chemins de la grille.
+    // 7. Ville tactique : chaussées pavées sous les routes, puis le bâti (urbanTile).
+    if (map.urban) {
+      for (const t of map.tiles) {
+        if (t.terrain !== 'street' || t.river) continue;
+        const { x, y } = this.center(t);
+        hexPath(ctx, x, y, HEX * 1.02);
+        ctx.fillStyle = t.plaza ? 'rgba(214, 200, 164, 0.95)' : 'rgba(205, 190, 152, 0.9)';
+        ctx.fill();
+        if (t.plaza) {
+          const r = createRng(t.col * 7 + t.row * 131);
+          ctx.fillStyle = 'rgba(120, 100, 70, 0.35)';
+          for (let i = 0; i < 26; i++) ctx.fillRect(x + (r.next() - 0.5) * HEX * 1.4, y + (r.next() - 0.5) * HEX * 1.2, 2, 1.4);
+        }
+      }
+    }
+    // Routes : courbes douces suivant les chemins de la grille.
     for (const [lw, col] of [[5.2, C.roadLo], [2.6, C.roadHi]]) {
       ctx.strokeStyle = col;
       ctx.lineWidth = lw;
       for (const path of map.roads) {
         ctx.beginPath();
-        splineTo(ctx, path.map((hx) => this.center(hx)));
+        const pts = path.map((hx) => this.center(hx));
+        if (map.urban && path.every((hx) => hx.col === path[0].col)) {
+          // Rue nord-sud d'une ville : droite, au milieu de la colonne d'hexagones (qui zigzague d'un demi-hexagone).
+          const mx = pts.reduce((a, p) => a + p.x, 0) / pts.length;
+          ctx.moveTo(mx, pts[0].y);
+          ctx.lineTo(mx, pts[pts.length - 1].y);
+        } else splineTo(ctx, pts);
         ctx.stroke();
       }
     }
@@ -536,9 +662,11 @@ export class Renderer {
       ctx.fillRect(x - 7, y - 2, 14, 4);
     }
 
+    if (map.urban) for (const t of map.tiles) urbanTile(ctx, t, this.center(t), C);
+
     // 8. Villages : maisons groupées et église. Bourg : îlots serrés alignés sur un même quadrillage de rues.
     const townAngle = createRng(`town:${map.seed}`).next() * 0.6 - 0.3;
-    for (const t of map.villages) {
+    for (const t of map.urban ? [] : map.villages) {
       const { x, y } = this.center(t);
       const r = createRng(t.col * 31 + t.row * 977);
       if (t.town) {
@@ -679,6 +807,17 @@ export class Renderer {
           ctx.lineTo(px + Math.cos(ang) * 7 + Math.cos(ang + 1.57) * 4, py + Math.sin(ang) * 7 + Math.sin(ang + 1.57) * 4);
           ctx.stroke();
         }
+      } else if (ch.kind === 'rubble') {
+        // Gravats en travers de la rue : moellons et poutres ; les chars ne passent plus.
+        for (let i = 0; i < 30; i++) {
+          const a = r.next() * Math.PI * 2, d = Math.sqrt(r.next()) * HEX * 0.6;
+          ctx.save();
+          ctx.translate(x + Math.cos(a) * d, y + Math.sin(a) * d);
+          ctx.rotate(r.next() * Math.PI);
+          ctx.fillStyle = i % 4 ? 'rgba(120, 112, 100, 0.95)' : 'rgba(70, 52, 36, 0.95)';
+          ctx.fillRect(-2, -1.5, 3 + r.next() * 4, 2.5 + r.next() * 2);
+          ctx.restore();
+        }
       } else if (ch.kind === 'burnt') {
         ctx.fillStyle = 'rgba(46, 42, 36, 0.85)';
         blobPath(ctx, x, y, HEX * 0.82, r, 10);
@@ -794,8 +933,18 @@ export class Renderer {
     }
 
     if (state.phase === 'deploy') {
-      const keys = new Set(map.tiles.filter((t) => deployZone(state, side).includes(t.col)).map((t) => t.row * map.W + t.col));
+      const keys = new Set(map.tiles.filter((t) => inDeployZone(state, side, t)).map((t) => t.row * map.W + t.col));
       this.drawMask(this.mask('deploy', keys, [179, 38, 30], 0.12), 'rgba(179, 38, 30, 0.8)', 2, [6, 5]);
+    }
+
+    // Bataille de rue : îlots tenus par chaque camp, liseré à sa couleur (les disputés en pointillé blanc).
+    if (state.blocks) {
+      for (const s of ['DE', 'SU']) {
+        const keys = new Set(state.blocks.filter((b) => b.owner === s && !b.contested).flatMap((b) => b.tiles));
+        if (keys.size) this.drawMask(this.mask(`blocks-${s}`, keys, C[s].zone, 0.1), `rgba(${C[s].zone.join(',')}, 0.85)`, 2);
+      }
+      const hot = new Set(state.blocks.filter((b) => b.contested).flatMap((b) => b.tiles));
+      if (hot.size) this.drawMask(this.mask('blocks-hot', hot, [240, 230, 200], 0.12), 'rgba(250, 240, 210, 0.9)', 2, [5, 4]);
     }
 
     if (!reveal) this.drawMask(this.mask('fog', vis.hexes, [34, 37, 24], 0.42, { invert: true }), null);
@@ -842,6 +991,20 @@ export class Renderer {
       }
     }
     if (view.preview) this.drawPreview(view.preview);
+    // Feux hors carte demandés pour ce tour : zone du barrage, croix du tir d'appui.
+    for (const c of (!view.anim && state.calls?.[side]) || []) {
+      const { x, y } = this.center(c);
+      ctx.strokeStyle = C.pencil;
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash(c.kind === 'barrage' ? [6, 4] : []);
+      ctx.beginPath();
+      ctx.arc(x, y, c.kind === 'barrage' ? HEX * 2.1 : HEX * 0.7, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(x - 9, y); ctx.lineTo(x + 9, y); ctx.moveTo(x, y - 9); ctx.lineTo(x, y + 9);
+      ctx.stroke();
+    }
 
     if (!reveal) {
       for (const [id, m] of Object.entries(state.memory[side])) {

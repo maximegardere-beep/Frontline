@@ -53,6 +53,11 @@
         <button class="dtool dtool-x" id="dir-clear" aria-label="Effacer les directives"><span class="lbl-long">Effacer</span><span class="lbl-short" aria-hidden="true">✕</span></button>
         <button class="dtool dtool-x" id="dir-off" aria-label="Reprendre le contrôle direct">Contrôle direct</button>
       </div>
+      <div class="directive-bar fire-bar" id="fire-bar" hidden>
+        <span class="directive-title">Feux</span>
+        <button class="dtool" data-call="barrage" aria-pressed="false" title="Barrage focalisé : l'hexagone et ses voisins, amis compris ; les maisons s'effondrent">Barrage <span class="call-n"></span></button>
+        <button class="dtool" data-call="support" aria-pressed="false" title="Tir d'appui sur une case que vous voyez">Appui <span class="call-n"></span></button>
+      </div>
       <p class="hint" id="hint" hidden></p>
     </section>
     <aside class="side">

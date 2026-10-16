@@ -1105,3 +1105,36 @@ et l'artillerie passe d'un barrage par groupe et par jour à un appui permanent 
   noirci ; l'obus d'une batterie invisible n'apparaît qu'en fin de course. Son : un sifflement et une explosion
   sourde de temps en temps (`shell`). Le barrage focalisé garde l'animation complète, depuis chaque groupe engagé.
 - Règles en jeu et README.
+
+### Étape 4 faite : ville tactique
+
+- `src/urbangen.js` (`generateUrbanMap`) : village, ville ou grande ville (`URBAN_SIZES`). Grand-rue d'ouest en est,
+  rues transversales tous les quatre hexagones, rues parallèles tous les trois rangs ; place au carrefour principal,
+  église sur la place (objectif de l'IA), maisons en pierre au centre, isbas et jardins autour et le long des routes
+  d'accès ; grande ville : usine. Rivière éventuelle (`river: 'east' | 'west'`) avec un pont sur la grand-rue.
+  `map.blocks` : îlots (composantes du bâti, rues exclues), pondérés (église 2, pierre 1,5, isbas 1) ; le pont est un
+  îlot.
+- Terrains (`terrain.js`) : rue, maisons en pierre (défense 3), isbas (1, brûlent), jardins, point fort (église, usine :
+  4). Chars : 8 points pour un pâté, 12 pour un point fort, ils restent dans les rues ; gravats (`rubble`) : la rue
+  est fermée aux chars, l'infanterie passe. Les maisons masquent la vue ; la grand-rue se voit d'un bout à l'autre.
+- Combat : infanterie au contact d'un char depuis un couvert urbain : pas de malus de blindage, −1 au seuil
+  (« embuscade en ville »). Moral : le couvert urbain compte.
+- Feux hors carte (`callFire`, `state.fire`, `state.calls`) : barrage focalisé (l'hexagone et ses six voisins, toutes
+  les unités, amies comprises, 6 dés sans couvert : les maisons s'effondrent ; ruine immédiate des maisons, gravats
+  dans les rues voisines à 40 %, isbas en feu) et tir d'appui (4 à 6 dés, une case vue). Un de chaque par tour, dans
+  la limite du stock de la bataille. Batterie fictive au bord de la carte (animation et sons des tirs indirects).
+- Îlots (`updateBlocks`) : l'infanterie ou les chars d'un seul camp sur l'îlot le prennent ; disputé, il ne change
+  pas de mains. Victoire au terme (10 tours) : l'attaquant gagne s'il tient au moins la moitié de la ville
+  (`cityShare`) ; anéantissement comme avant.
+- Déploiement : le défenseur dans toute la ville et ses abords (infanterie dans les maisons face à l'attaquant,
+  antichar sur la grand-rue), l'attaquant par son bord (chars sur la route).
+- IA (`planFire`) : tir d'appui sur l'ennemi vu qui vaut le plus, barrage sur la plus forte concentration connue sans
+  ses propres unités dedans, un tour sur trois au plus. Le reste de l'IA tactique est inchangé (étape 7).
+- Rendu : chaussées pavées, rues droites, masse de toits continue des pâtés avec cour, isbas dans leurs enclos,
+  jardins, église, halles de l'usine, gravats ; liseré des îlots à la couleur de leur détenteur (disputés en
+  pointillé). Interface : barre « Feux » (barrage, appui) en bas de la carte, croix et zone du feu demandé, bandeau
+  de la part de ville tenue, briefing et bilan propres à la bataille de rue ; essai depuis le menu (« bataille de rue
+  côté Wehrmacht / Armée rouge »).
+- `tools/urban-sim.mjs` : batailles de rue IA contre IA (armées d'essai : 6 sections, 3 chars et une reconnaissance
+  contre 7 sections et un antichar). Mesure (24 batailles) : attaquant 0 %, 10 % de la ville prise, 2,4 hexagones en
+  ruines et 0,8 rue encombrée par bataille. L'IA tactique n'attaque pas une ville : étape 7.

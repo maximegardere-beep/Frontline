@@ -367,7 +367,7 @@ export function executeTurn(state) {
     u.revealed = true;
     u.inCombat = true;
     target.inCombat = true;
-    res.fires.push({ attacker: u.id, target: target.id, from: { col: u.col, row: u.row }, to: { col: target.col, row: target.row }, indirect, ...r, threshold: odds.threshold, mods: odds.mods });
+    res.fires.push({ attacker: u.id, side: u.side, target: target.id, from: { col: u.col, row: u.row }, to: { col: target.col, row: target.row }, indirect, ...r, threshold: odds.threshold, mods: odds.mods });
     const modTxt = odds.mods.length ? ` (${odds.mods.map((m) => `${m.v > 0 ? '+' : ''}${m.v} ${m.why}`).join(', ')})` : '';
     log(state, 'fire', `${u.name} → ${target.name} : ${odds.dice}d6 [${r.rolls.join(' ')}] sur ${odds.threshold}+${modTxt} ⇒ ${r.damage} dégât${r.damage > 1 ? 's' : ''}.`, u.side);
   }
@@ -679,14 +679,14 @@ function resolveCalls(state, shots, res, vis) {
       if (c.kind === 'support') {
         const target = state.units.find((e) => e.side !== side && onMap(e) && sameHex(e, c));
         if (target) shots.push({ u: gun, target, indirect: true, observed: true });
-        else res.fires.push({ attacker: gun.id, from: { col: gun.col, row: gun.row }, to: { col: c.col, row: c.row }, empty: true, indirect: true });
+        else res.fires.push({ attacker: gun.id, side, from: { col: gun.col, row: gun.row }, to: { col: c.col, row: c.row }, empty: true, indirect: true });
         log(state, 'barrage', `${K.label} sur ${target ? target.name : 'une position vide'}.`, side);
         continue;
       }
       const zone = barrageZone(state, c);
       const hit = [];
       for (const h of zone) {
-        res.fires.push({ attacker: gun.id, from: { col: gun.col, row: gun.row }, to: { col: h.col, row: h.row }, empty: true, indirect: true, barrage: true, weight: K.shells });
+        res.fires.push({ attacker: gun.id, side, from: { col: gun.col, row: gun.row }, to: { col: h.col, row: h.row }, empty: true, indirect: true, barrage: true, weight: K.shells });
         const target = state.units.find((e) => onMap(e) && sameHex(e, h));
         if (target) { shots.push({ u: gun, target, indirect: true, observed: true, focal: true }); hit.push(target.name); }
       }
