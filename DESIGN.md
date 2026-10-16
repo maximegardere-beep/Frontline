@@ -987,3 +987,20 @@ Chaque étape laisse le jeu jouable : jusqu'à l'étape 7, le joueur reçoit ses
   beaucoup plus que le gagner ne lui rapporte. Sur 40 batailles (sans initiative), ciel à l'attaquant 25 fois (24 %
   de victoires), au défenseur 12 fois (aucune), disputé 3 fois (aucune). Le recul d'ensemble de l'attaquant (cible
   40 %) est pour l'étape 8.
+
+### Étape 6 faite : IA des atouts
+
+- Choix des cartes (`cardValue`, `frontatout.js`) selon la situation : carte de feu ×1,6 tant qu'on n'a ni artillerie ni
+  salve ; division blindée ×1,3 pour l'attaquant qui n'en a plus de valide ; aviation et chasseurs ×1,4 pour qui part
+  moins fort dans la bataille des airs (×1,3 de plus au 7e jour si l'on n'a pas le ciel) ; génie d'assaut rare (pont)
+  ×1,2 sur une carte à rivière ; point d'appui ×1,2 avec au moins 3 villes ★, ×0,85 sinon ; canons antichar ×1,3 au
+  7e jour si l'on en a perdu.
+- Préparation d'un assaut : sans barrage ni sortie disponibles, une salve de lance-roquettes (l'IA n'attaque sinon
+  qu'écrasante : c'était la cause principale de son recul avec moins d'artillerie). PC ennemi repéré : deux barrages
+  et une frappe aérienne sur lui, avant toute autre mission. Déjà en place : salves au départ de l'attaque
+  principale, parachutistes sur le PC repéré ou au-delà de l'objectif, génie d'assaut derrière l'attaque, bataillons
+  sur les secteurs menacés, canons antichar face aux blindés repérés, PC reculé ou avancé de nuit.
+- Usage mesuré (16 batailles IA contre IA) : 11 salves sur 11, 5 largages sur 5 ; un PC désorganisé par le feu ennemi,
+  aucun pris (il se tient à 9 cases du front, rarement repéré).
+- Mesure (72 / 48 batailles), après l'étape 5 → après l'étape 6 : sans année fixe attaquant 24 → 28 %, défenseur
+  72 → 67 % ; 1943 attaquant 27 → 23 %, défenseur 67 → 67 %, nuls 6 → 10 % (écart dans le bruit de mesure, ±6 points).
