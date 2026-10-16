@@ -14,6 +14,7 @@ export const FRONT_TRAITS = {
   refuel: [0.8, 0.6], // plein de carburant de la nuit (formations blindées)
   townHold: [1, 1.25], // défense des villes
   winter: [false, true], // la neige ne ralentit pas ses troupes à pied et moins ses chars
+  hqLoss: [0.6, 1], // malus d'un PC capturé (× le bonus) : commandement par objectifs allemand, moins dépendant du PC
 };
 
 const PZ = (name, tanks, exp) => ({ name, tanks, exp, gren: 120 });
@@ -24,7 +25,7 @@ export const SCENARIOS = {
     text: 'La Wehrmacht, rodée et mobile, enfonce une Armée rouge nombreuse mais désorganisée. L\'offensive allemande doit aller loin pour compter.',
     attacker: { DE: 85, SU: 15 },
     seasons: { 0: 40, 1: 35, 2: 25 },
-    setup: { quality: [1.45, 0.9], troops: [5600, 6400], reserve: [600, 900], reinforce: [220, 320], sorties: [3, 1], aaBatteries: [2, 1] },
+    setup: { quality: [1.45, 0.9], troops: [5600, 6400], reserve: [600, 900], reinforce: [220, 320], sorties: [3, 1], aaBatteries: [2, 1], hqRadius: [20, 14], hqLoss: [0.6, 1.3] },
     armor: [
       [PZ('7. Panzer-Division', 170, 2.0), PZ('10. Panzer-Division', 150, 1.8)],
       [PZ('6e corps mécanisé', 220, 0), PZ('8e corps mécanisé', 200, 0.1), PZ('15e corps mécanisé', 180, 0)],
@@ -72,7 +73,7 @@ export const SCENARIOS = {
     text: 'L\'Armée rouge, désormais maîtresse de l\'art opératif, frappe en masse un front allemand dégarni. Son offensive doit aller loin pour compter.',
     attacker: { DE: 10, SU: 90 },
     seasons: { 0: 50, 1: 35, 2: 15 },
-    setup: { quality: [1.3, 1.1], troops: [5200, 6800], reserve: [500, 1000], reinforce: [200, 340], sorties: [1, 3], aaBatteries: [3, 2] },
+    setup: { quality: [1.3, 1.1], troops: [5200, 6800], reserve: [500, 1000], reinforce: [200, 340], sorties: [1, 3], aaBatteries: [3, 2], hqRadius: [20, 24] },
     armor: [
       [PZ('5. Panzer-Division', 120, 2.0)],
       [PZ('3e corps blindé de la Garde', 190, 1.4), PZ('29e corps blindé', 180, 1.2), PZ('1er corps mécanisé', 170, 1.0)],

@@ -8,7 +8,7 @@ import { addAirMission } from '../src/frontair.js';
 
 // Temps clair forcé (WEATHER=rain… pour mesurer une météo) : le calibrage reste comparable d'une version à l'autre.
 const createFront = (o) => {
-  const f = baseCreate({ ...o, setup: { atouts: false, ...o.setup } }); // moyens placés d'office : mesures comparables
+  const f = baseCreate({ ...o, setup: { atouts: false, hq: false, ...o.setup } }); // moyens placés d'office : mesures comparables
   f.weather = o.weather ?? process.env.WEATHER ?? 'clear';
   applyWeather(f);
   f.rng.chance = () => true; // la météo garde le temps forcé d'un jour à l'autre

@@ -6,6 +6,7 @@
 // Le chemin de marche passe par nos propres cases (Dijkstra) ; une case de route coûte 4 fois moins qu'une case de
 // steppe, la forêt et le marais davantage.
 
+import { staffBlocked } from './fronthq.js';
 import { bfsDistance } from './path.js';
 
 export const NIGHT = {
@@ -132,7 +133,7 @@ export function staffNight(front) {
   front.nightMoves = [];
   for (const s of [0, 1]) {
     const n = NIGHT.auto[s === front.playerSide ? 0 : 1];
-    if (!n) continue;
+    if (!n || staffBlocked(front, s)) continue;
     const mem = front.memory?.[s];
     const contact = new Uint8Array(N);
     for (let i = 0; i < N; i++) {

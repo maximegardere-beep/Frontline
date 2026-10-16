@@ -4,7 +4,7 @@ import { createFront, runDay, beginDay, stepTick, addVector, troops, FRONT_SETUP
 import { generateFrontMap } from '../src/mapgen.js';
 import { MOUNTAIN, computeTerrain } from '../src/terrain.js';
 // Moyens placés d'office (sans tirage des atouts) : tests de physique sur des formations et des groupes connus.
-const LEGACY = { atouts: false };
+const LEGACY = { atouts: false, hq: false };
 const computeTerrainFor = (f) => computeTerrain(f.map, false);
 const cellAtPointOf = (f, p) => { let best = -1, bd = Infinity; for (let i = 0; i < f.map.N; i++) { const d = Math.hypot(f.centers.x[i] - p.x, f.centers.y[i] - p.y); if (d < bd) { bd = d; best = i; } } return best; };
 const applyWeatherOf = (f) => computeTerrain(f.map, false, f.ruin);

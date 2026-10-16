@@ -19,6 +19,7 @@ import { WORKS, initWorks, defenderBelt, barrageWorks, captureWorks, buildTick, 
 import { initScore, eveningScore, noteCapture, scoreBreakdown, GRADES } from './frontscore.js';
 import { createAA, airTick, updateAASightings, airNight } from './frontair.js';
 import { dealAtouts, reinforceAtouts, ATOUT_RULES } from './frontatout.js';
+import { createHQ, applyHQ, engageCapOf, ordersWait, hqDawn, hqTick, hqAfter, hqSightings, hqNight } from './fronthq.js';
 import { GUN_KINDS, GUN_RULES, createGuns, gunFor, gunPower, moveGuns, supportFire, gunsNight, updateGunSightings } from './frontguns.js';
 
 export const FRONT_SIDES = ['DE', 'SU'];
@@ -65,6 +66,8 @@ export const FRONT_SETUP = {
   // et remplacent guns, attackGuns, armor, aaBatteries et attackSorties. false : moyens placés d'office (banc de
   // calibrage, tests de physique).
   atouts: true,
+  // Poste de commandement (fronthq.js) : coordination autour de lui ; false : aucun PC (banc, tests de physique).
+  hq: true,
 };
 
 // Types de vecteurs. sigma : demi-largeur du couloir ; catch : rayon de ramassage autour de l'origine
@@ -218,6 +221,8 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
   updateSupply(front);
   updateMemory(front);
   front.armor = createArmor(front, cfg.armor ?? ARMOR_SETUP);
+  front.hq = cfg.hq ? createHQ(front) : null;
+  front.docs = [-1, -1]; // documents saisis sur un PC ennemi : lisibles jusqu'à ce tick (fronthq.js)
   updateGunSightings(front);
   updateAASightings(front);
   updateArmorSightings(front);
@@ -515,7 +520,7 @@ export function setLineLevel(front, s, id, level) {
 // Part des troupes du camp s engagée par ses ordres du matin (avant plafonnement), pour la jauge de l'interface.
 export function engagement(front, s) {
   rebuildFields(front, s);
-  return { share: front.engaged[s], cap: front.cfg.engageCap };
+  return { share: front.engaged[s], cap: engageCapOf(front, s) };
 }
 
 export function removeOrder(front, s, id) {
@@ -637,7 +642,9 @@ export function rebuildFields(front, s) {
     F.atk[i] += w * atk;
   };
   const W8 = FRONT_WEATHER[front.weather];
+  const wait = ordersWait(front, s); // PC désorganisé au matin : les vecteurs attendent midi
   for (const v of front.orders[s]) {
+    if (wait && !v.pocket) continue;
     const T0 = VECTOR_TYPES[v.type];
     // Camp aguerri à l'hiver : la neige ne ralentit pas son infanterie, à peine ses chars.
     const winter = W8.frozen && front.cfg.winter?.[s];
@@ -690,8 +697,9 @@ export function rebuildFields(front, s) {
   const share = total > 0 ? engaged / total : 0;
   front.engaged ??= [0, 0];
   front.engaged[s] = share;
-  if (share > front.cfg.engageCap) {
-    const k = front.cfg.engageCap / share;
+  const cap = engageCapOf(front, s);
+  if (share > cap) {
+    const k = cap / share;
     for (let i = 0; i < N; i++) if (F.w[i] > 0) F.w[i] *= k;
   }
   // Festung : la poche se contracte vers son centre, plus dense, plus meurtrière, mais cède du terrain.
@@ -705,6 +713,7 @@ export function rebuildFields(front, s) {
       F.skirm[i] = 2.5;
     }
   }
+  applyHQ(front, s, F); // coordination du poste de commandement
 }
 
 // ---------- Ravitaillement et poches ----------
@@ -802,6 +811,7 @@ export function beginDay(front) {
   }
   front.lineMask.fill(0);
   for (const s of [0, 1]) for (const l of front.lines[s]) for (const i of l.cells) front.lineMask[i] = 1;
+  hqDawn(front);
   front.phase = 'resolve';
   front.tick = 0;
   front.dayStart = { troops: [troops(front, 0), troops(front, 1)], territory: [territory(front, 0), territory(front, 1)], losses: front.stats.losses.slice(), pocket: front.stats.pocket.slice() };
@@ -814,6 +824,7 @@ export function stepTick(front) {
   updateSupplyK(front);
   applyWorks(front, early);
   airTick(front, early);
+  hqTick(front, early);
   if (front.terrainDirty) { front.terrainDirty = false; applyWeather(front); } // pont coulé par l'aviation
   rebuildFields(front, 0);
   rebuildFields(front, 1);
@@ -842,6 +853,7 @@ export function stepTick(front) {
     if (town) flog(front, 'town', `${FRONT_SIDES[e.side] === 'DE' ? 'La Wehrmacht' : 'L\'Armée rouge'} prend ${town.name}.`, e.side);
   }
   const fresh = updateSupply(front);
+  hqAfter(front, events);
   // Malus logistique immédiat : une poche perd chaque tick une part de sa densité.
   for (const s of [0, 1]) {
     for (const p of front.pockets[s]) {
@@ -865,6 +877,7 @@ export function stepTick(front) {
   updateGunSightings(front);
   updateAASightings(front);
   updateArmorSightings(front);
+  hqSightings(front);
   checkFrontVictory(front);
   if (front.phase === 'resolve' && front.tick >= front.cfg.ticks) endDay(front);
   return events;
@@ -959,7 +972,8 @@ function endDay(front) {
   advanceRails(front);
   restTroops(front);
   front.transfers = [[], []];
-  staffNight(front); // regroupement de nuit
+  staffNight(front); // regroupement de nuit (pas sans PC en état)
+  hqNight(front);
   buildPontoons(front);
   // Nuit : une part des pertes du jour rejoint (blessés légers, isolés), hors troupes perdues dans les poches.
   if (front.dayStart) {

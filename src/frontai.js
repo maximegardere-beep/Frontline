@@ -13,6 +13,7 @@
 // L'attaquant engage plus volontiers que le défenseur, qui contre-attaque surtout ce qui est faible.
 // Poches : tirage pondéré entre statu quo, Festung et percée d'évasion (troupes piégées, distance aux lignes amies).
 
+import { planHQ } from './fronthq.js';
 import { planAir, addAirMission } from './frontair.js';
 import { addVector, addLine, addBarrage, addPontoon, deployReserve, setPocketMode, edgeCol, cellAtPoint, waterOpen, FRONT_WEATHER, VECTOR_TYPES } from './front.js';
 import { bfsDistance, floodFill, components } from './path.js';
@@ -112,6 +113,7 @@ export function planFront(front, s) {
   const weather = FRONT_WEATHER[front.weather];
   const { sectors } = readFront(front, s);
   if (!sectors.length) return;
+  planHQ(front, s); // poste de commandement : sauts de nuit, loin de l'ennemi, pas trop loin du front
   const dirX = s === 0 ? 1 : -1;
   // ratio : rapport de forces pour attaquer (l'eau devant soi le dégrade) ; hold : pour tenir (l'eau protège).
   // Poches en devenir, lues avant tout déploiement de la journée (frontai : preEncirclement).

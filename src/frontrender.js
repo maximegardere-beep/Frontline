@@ -22,6 +22,7 @@ import { GUN_KINDS, visibleGuns, gunPower } from './frontguns.js';
 import { visibleArmor, armorRoute } from './frontarmor.js';
 import { AIR, airBase, visibleAA } from './frontair.js';
 import { railPoint } from './frontsupply.js';
+import { visibleHQ, hqState, HQ } from './fronthq.js';
 import { SPRITE_PAL, WRECK_PAL, piece, tank, wreck, howitzer, towed, mortar, rocket, nebelwerfer, pit, dust } from './frontsprites.js';
 
 export const CELL = 9; // rayon d'une case de la micro-grille, en pixels monde
@@ -778,6 +779,7 @@ export class FrontRenderer extends Renderer {
     this.drawGuns(view);
     if (f.phase === 'plan') this.drawTransfers(view.viewer ?? null);
     this.drawAA(view);
+    this.drawHQ(view);
     if (f.phase === 'plan') this.drawAirPlans(view.viewer ?? null);
     this.fx.drawArcs(ctx, now, 1 / cam.s);
     this.fx.drawPlanes(ctx, now, 1 / cam.s);
@@ -1628,6 +1630,83 @@ export class FrontRenderer extends Renderer {
         ctx.strokeText(a.name, c.x, c.y + 9 * k);
         ctx.fillStyle = SIDE_LINE[a.side];
         ctx.fillText(a.name, c.x, c.y + 9 * k);
+      }
+    }
+  }
+
+  // Postes de commandement : tente à antenne et fanion ; le matin, le rayon de coordination du sien et son
+  // déplacement prévu ; capturé, une croix.
+  drawHQ(view) {
+    const f = this.front;
+    if (!f.hq) return;
+    const viewer = view.viewer ?? null;
+    const { ctx, cam } = this;
+    const px = 1 / cam.s, k = SPRITE_K * Math.max(1, px);
+    const planning = f.phase === 'plan';
+    for (const { h, x, y, known, own } of visibleHQ(f, viewer)) {
+      const c = this.toWorld({ x, y });
+      const st = hqState(h);
+      const sel = own && view.hq;
+      ctx.save();
+      ctx.globalAlpha = own || known ? 1 : 0.55;
+      if (own && (planning || sel) && st !== 'captured') {
+        ctx.beginPath();
+        ctx.arc(c.x, c.y, h.radius * CELL, 0, Math.PI * 2);
+        ctx.setLineDash([5 * px, 5 * px]);
+        ctx.strokeStyle = sel ? ORDER_INK : 'rgba(38, 48, 61, 0.55)';
+        ctx.lineWidth = (sel ? 2 : 1.2) * px;
+        ctx.stroke();
+        ctx.setLineDash([]);
+        if (sel) {
+          ctx.beginPath();
+          ctx.arc(c.x, c.y, HQ.hop * CELL, 0, Math.PI * 2);
+          ctx.strokeStyle = 'rgba(38, 48, 61, 0.35)';
+          ctx.lineWidth = 1 * px;
+          ctx.stroke();
+        }
+      }
+      if (own && h.dest) {
+        const d = this.toWorld(h.dest);
+        ctx.beginPath();
+        ctx.moveTo(c.x, c.y);
+        ctx.lineTo(d.x, d.y);
+        ctx.setLineDash([4 * px, 4 * px]);
+        ctx.strokeStyle = ORDER_INK;
+        ctx.lineWidth = 2 * px;
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.arc(d.x, d.y, 5 * k, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      const P = SPRITE_PAL[h.side];
+      ctx.translate(c.x, c.y);
+      ctx.fillStyle = 'rgba(30, 24, 16, 0.3)';
+      ctx.beginPath(); ctx.ellipse(0.8 * k, 1.2 * k, 5.2 * k, 2.4 * k, 0, 0, Math.PI * 2); ctx.fill();
+      // Tente.
+      ctx.fillStyle = P.body; ctx.strokeStyle = P.dark; ctx.lineWidth = 0.7 * k;
+      ctx.beginPath(); ctx.moveTo(-5 * k, 1.5 * k); ctx.lineTo(0, -3.5 * k); ctx.lineTo(5 * k, 1.5 * k); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, -3.5 * k); ctx.lineTo(0, 1.5 * k); ctx.stroke();
+      // Antenne et fanion (gris quand le PC est désorganisé).
+      ctx.strokeStyle = P.dark; ctx.lineWidth = 0.6 * k;
+      ctx.beginPath(); ctx.moveTo(3 * k, -1 * k); ctx.lineTo(3 * k, -9 * k); ctx.stroke();
+      ctx.fillStyle = st === 'ok' ? SIDE_LINE[h.side] : 'rgba(120, 116, 104, 0.9)';
+      ctx.beginPath(); ctx.moveTo(3 * k, -9 * k); ctx.lineTo(7 * k, -7.8 * k); ctx.lineTo(3 * k, -6.6 * k); ctx.closePath(); ctx.fill();
+      if (st === 'captured') {
+        ctx.strokeStyle = 'rgba(193, 54, 36, 0.95)'; ctx.lineWidth = 1.4 * k;
+        ctx.beginPath(); ctx.moveTo(-5 * k, -5 * k); ctx.lineTo(5 * k, 3 * k); ctx.moveTo(5 * k, -5 * k); ctx.lineTo(-5 * k, 3 * k); ctx.stroke();
+      }
+      ctx.restore();
+      if (sel || cam.s > 1.2 || (own && planning)) {
+        ctx.font = `700 ${9 * px}px "IBM Plex Sans Condensed", "Arial Narrow", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.lineWidth = 3 * px;
+        ctx.strokeStyle = 'rgba(250, 240, 210, 0.85)';
+        const label = own ? `PC · liaison ${Math.round(h.link * 100)} %` : 'PC ennemi';
+        ctx.strokeText(label, c.x, c.y + 8 * k);
+        ctx.fillStyle = SIDE_LINE[h.side];
+        ctx.fillText(label, c.x, c.y + 8 * k);
       }
     }
   }

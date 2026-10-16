@@ -54,6 +54,13 @@ défenseur, est tiré de la graine et annoncé au briefing, avec l'objectif : le
   les chars lourds, Tiger, KV ou IS-2, sont des cartes d'élite). L'attaquant tire divisions blindées, artillerie
   lourde, soutien aérien et DCA ; le défenseur, artillerie divisionnaire et DCA. Pour l'instant, le choix et le
   placement sont automatiques ; le briefing liste vos cartes.
+- **Poste de commandement** : votre PC (tente à antenne) coordonne les troupes dans son rayon (une douzaine de
+  cases) : attaque, défense et vitesse y gagnent jusqu'à 10-15 %, selon la distance et la liaison. Touchez-le puis sa
+  nouvelle position : un saut court (10 cases) se fait de nuit, plus loin de jour, et il est désorganisé pour la
+  journée. Barrages et frappes aériennes sur lui coupent ses liaisons, la nuit les rétablit. Désorganisé : plus de
+  coordination, pas de regroupement de nuit par l'état-major, 45 % des troupes engagées au plus, vecteurs à midi.
+  Pris : malus autour de lui, 35 % engagés au plus, et l'ennemi lit vos documents (vos blindés, une journée) ;
+  reprenez sa case, sinon un PC de secours s'installe à l'arrière après deux nuits.
 - **Alerte « SOS »** : pendant la journée, quand l'un de vos secteurs craque (au moins quatre cases perdues en six
   heures), un officier au combiné apparaît au-dessus, son appel défile en morse (· · · — — — · · ·) et on l'entend
   à la radio. L'alerte s'estompe quelques heures après que le secteur s'est stabilisé.
