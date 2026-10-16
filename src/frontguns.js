@@ -1,7 +1,8 @@
 // Artillerie du front stratégique : quelques groupes nommés, placés derrière le front, avec une portée.
 // Leur puissance de feu dépend de leur posture, inverse de leur vitesse : en batterie (immobile, plein feu),
-// appui mobile (mi-vitesse, 40 %), déplacement (rapide, aucun tir). Chaque groupe peut tirer une mission de
-// barrage par jour dans sa portée ; sans mission, il appuie la défense en frappant les assaillants à sa portée.
+// appui mobile (mi-vitesse, 40 %), déplacement (rapide, aucun tir). Appui passif dans leur portée : attaque et
+// défense des troupes amies renforcées (applyArtillery), assaillants frappés (supportFire). Barrages focalisés :
+// quelques-uns par bataille (front.barrageStock), tous les groupes libres à portée y concourent.
 // Un groupe dont la case tombe est perdu ; un barrage ennemi sur sa position l'use (contre-batterie).
 // Distances en unités de grille (deux cases voisines sont à 1,73).
 
@@ -40,7 +41,19 @@ export const GUN_RULES = {
   flee: 0.12, // part des troupes d'une case pilonnée qui décroche vers l'arrière, par tick de barrage
   shock: 0.15, // choc infligé aux troupes ennemies d'une case pilonnée, par tick de barrage à pleine puissance (combat.js)
   spot: 5.5, // distance de repérage d'un groupe camouflé (unités de grille, ~3 cases)
+  // Appui passif (applyArtillery) : bonus d'attaque des poussées et de défense des cases couvertes, à pleine
+  // couverture. Couverture d'un groupe : sa puissance, pleine jusqu'à 70 % de sa portée puis décroissante ; plusieurs
+  // groupes se cumulent avec des rendements décroissants (stack : 1 groupe 1, 2 groupes 1,4, 3 groupes 1,56).
+  coverAtk: 0.12,
+  coverDef: 0.15,
+  coverFade: 0.3,
+  coverStack: 0.6,
+  focus: 1.2, // puissance d'un barrage focalisé (stock de barrages) par rapport à l'ancienne mission quotidienne
 };
+
+// Groupes engagés dans un barrage (un seul pour les barrages d'avant le stock).
+export const missionGuns = (b) => b.guns ?? [b.gun];
+export const onMission = (front, g) => front.barrages[g.side].some((b) => missionGuns(b).includes(g.id));
 
 const ORDINAL = (n) => `${n}${n === 1 ? 'er' : 'e'}`;
 
@@ -132,7 +145,11 @@ export function setGunOrder(front, s, id, { posture, dest } = {}) {
     if (posture === 'battery') g.dest = null;
   }
   // Un groupe qui ne tire plus perd sa mission du jour.
-  if (gunPower(g) <= 0) front.barrages[s] = front.barrages[s].filter((b) => b.gun !== g.id);
+  if (gunPower(g) <= 0) {
+    for (const b of front.barrages[s]) if (b.guns) b.guns = b.guns.filter((id) => id !== g.id);
+    front.barrages[s] = front.barrages[s].filter((b) => (b.guns ? b.guns.length > 0 : b.gun !== g.id));
+    for (const b of front.barrages[s]) if (b.guns && !b.guns.includes(b.gun)) b.gun = b.guns[0];
+  }
   return g;
 }
 
@@ -140,7 +157,7 @@ export function setGunOrder(front, s, id, { posture, dest } = {}) {
 export function gunFor(front, s, at) {
   let best = null;
   for (const g of front.guns) {
-    if (g.side !== s || GUN_KINDS[g.kind].at || gunPower(g) <= 0 || front.barrages[s].some((b) => b.gun === g.id)) continue;
+    if (g.side !== s || GUN_KINDS[g.kind].at || gunPower(g) <= 0 || onMission(front, g)) continue;
     if (Math.hypot(g.x - at.x, g.y - at.y) > GUN_KINDS[g.kind].range) continue;
     if (!best || gunPower(g) * GUN_KINDS[g.kind].rate > gunPower(best) * GUN_KINDS[best.kind].rate) best = g;
   }
@@ -178,7 +195,7 @@ export function supportFire(front, edges) {
   for (const g of front.guns) {
     const p = gunPower(g);
     if (p <= 0 || GUN_KINDS[g.kind].at) continue;
-    const busy = front.tick < front.cfg.barrageTicks && front.barrages[g.side].some((b) => b.gun === g.id);
+    const busy = front.tick < front.cfg.barrageTicks && onMission(front, g);
     if (busy) continue;
     const R = GUN_KINDS[g.kind].range;
     const hits = new Map();
@@ -199,6 +216,44 @@ export function supportFire(front, edges) {
       front.stats.losses[1 - g.side] += l;
     }
     g.fired = front.clock;
+  }
+}
+
+// Couverture d'artillerie du camp s, case par case (0 : aucune ; 1 : un groupe en batterie à bonne portée ; jusqu'à
+// 1/coverStack avec plusieurs groupes). weather : efficacité des feux du jour (brouillard : sans observation).
+export function artilleryCover(front, s, weather = 1) {
+  const { N } = front.map, cx = front.centers.x, cy = front.centers.y;
+  const miss = new Float32Array(N).fill(1);
+  let any = false;
+  for (const g of front.guns ?? []) {
+    if (g.side !== s || GUN_KINDS[g.kind].at) continue;
+    const p = gunPower(g) * weather;
+    if (p <= 0) continue;
+    any = true;
+    const R = GUN_KINDS[g.kind].range, fade = GUN_RULES.coverFade * R;
+    for (let i = 0; i < N; i++) {
+      if (Math.abs(cx[i] - g.x) >= R) continue;
+      const d = Math.hypot(cx[i] - g.x, cy[i] - g.y);
+      if (d >= R) continue;
+      miss[i] *= 1 - GUN_RULES.coverStack * p * Math.min(1, (R - d) / fade);
+    }
+  }
+  if (!any) return null;
+  for (let i = 0; i < N; i++) miss[i] = (1 - miss[i]) / GUN_RULES.coverStack;
+  return miss;
+}
+
+// Dans rebuildFields : appui passif. Les poussées parties d'une case couverte frappent plus fort, les cases
+// couvertes se défendent mieux.
+export function applyArtillery(front, s, F, weather = 1) {
+  if (front.cfg.artyCover === false) return;
+  const cov = artilleryCover(front, s, weather);
+  if (!cov) return;
+  for (let i = 0; i < front.map.N; i++) {
+    const c = cov[i];
+    if (!c || front.owner[i] !== s) continue;
+    F.atk[i] *= 1 + GUN_RULES.coverAtk * c;
+    F.fort[i] *= 1 + GUN_RULES.coverDef * c;
   }
 }
 

@@ -687,3 +687,50 @@ test('aviation : sorties par jour, la DCA sur la route émousse la mission et se
   assert.equal(sortiesToday(g, 0), 0);
   assert.ok(addAirMission(g, 0, { x: 10, y: 10 }).error);
 });
+
+test('artillerie : trois barrages par bataille, barrage concentré, appui passif', async () => {
+  const { addBarrage, removeOrder, barragesLeft, rebuildFields } = await import('../src/front.js');
+  const { artilleryCover, GUN_KINDS, GUN_RULES } = await import('../src/frontguns.js');
+  const f = createFront({ seed: 'ord', setup: LEGACY });
+  assert.deepEqual(f.barrageStock, [FRONT_SETUP.barrageStock, FRONT_SETUP.barrageStock]);
+  const guns = f.guns.filter((g) => g.side === 0 && !GUN_KINDS[g.kind].at);
+  // Point à portée du plus grand nombre de groupes : le barrage les engage tous.
+  const at = { x: guns.reduce((a, g) => a + g.x, 0) / guns.length + 4, y: guns.reduce((a, g) => a + g.y, 0) / guns.length };
+  const inRange = guns.filter((g) => Math.hypot(g.x - at.x, g.y - at.y) <= GUN_KINDS[g.kind].range);
+  assert.ok(inRange.length >= 2, 'plusieurs groupes à portée');
+  const b = addBarrage(f, 0, at);
+  assert.ok(!b.error && b.focus);
+  assert.deepEqual([...b.guns].sort(), inRange.map((g) => g.id).sort(), 'tous les groupes à portée concourent');
+  assert.ok(b.r > Math.min(...inRange.map((g) => GUN_KINDS[g.kind].r)), 'zone élargie');
+  // Le stock : deux au départ ; un barrage retiré le matin est rendu.
+  assert.equal(barragesLeft(f, 0), 1);
+  removeOrder(f, 0, b.id);
+  assert.equal(barragesLeft(f, 0), 2);
+  assert.ok(!addBarrage(f, 0, at).error);
+  assert.ok(addBarrage(f, 0, at).error, 'groupes déjà engagés');
+  // Le barrage consomme le stock au lancement de la journée.
+  runDay(f);
+  assert.equal(f.barrageStock[0], 1);
+  assert.equal(f.barrageStock[1], 2, 'sans ordre, rien de dépensé');
+  assert.ok(!addBarrage(f, 0, at).error);
+  assert.ok(addBarrage(f, 0, { x: at.x, y: at.y + 0.1 }).error, 'stock épuisé pour aujourd\'hui');
+  runDay(f);
+  assert.equal(f.barrageStock[0], 0);
+  // Le 7e jour en rend un.
+  while (f.day < 7 && !f.result) runDay(f);
+  if (!f.result) assert.equal(f.barrageStock[0], FRONT_SETUP.barrageRefill);
+  // Appui passif : couverture pleine au groupe, nulle hors de portée ; la défense des cases couvertes monte.
+  const g = createFront({ seed: 'ord', setup: LEGACY });
+  const gun = g.guns.find((x) => x.side === 1 && !GUN_KINDS[x.kind].at);
+  const cov = artilleryCover(g, 1);
+  const i = cellAtPointOf(g, gun);
+  assert.ok(cov[i] >= 0.99, `couverture au groupe ${cov[i]}`);
+  const out = cellAtPointOf(g, { x: gun.x - (GUN_KINDS[gun.kind].range + 40), y: gun.y });
+  assert.ok(cov[out] === 0 || g.guns.some((x) => x.side === 1 && Math.hypot(x.x - g.centers.x[out], x.y - g.centers.y[out]) < GUN_KINDS[x.kind].range));
+  rebuildFields(g, 1);
+  const withCover = g.field[1].fort[i];
+  g.cfg.artyCover = false;
+  rebuildFields(g, 1);
+  const without = g.field[1].fort[i];
+  assert.ok(withCover > without * (1 + GUN_RULES.coverDef * 0.99), `défense ${without.toFixed(3)} → ${withCover.toFixed(3)}`);
+});

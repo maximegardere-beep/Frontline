@@ -19,7 +19,7 @@ import { planHQ } from './fronthq.js';
 import { planAir, addAirMission } from './frontair.js';
 import { addVector, addLine, addBarrage, addPontoon, deployReserve, setPocketMode, edgeCol, cellAtPoint, waterOpen, FRONT_WEATHER, VECTOR_TYPES } from './front.js';
 import { bfsDistance, floodFill, components } from './path.js';
-import { GUN_KINDS, setGunOrder } from './frontguns.js';
+import { GUN_KINDS, setGunOrder, onMission } from './frontguns.js';
 import { setArmorOrder, visibleArmor } from './frontarmor.js';
 
 const SECTOR = 4; // un secteur toutes les 4 lignes
@@ -247,7 +247,7 @@ export function planFront(front, s) {
   if (chosen.length) {
     const main = chosen[0], h = point(front, main.head);
     for (const g of front.guns) {
-      if (g.side !== s || g.lost || g.dest || front.barrages[s].some((b) => b.gun === g.id)) continue;
+      if (g.side !== s || g.lost || g.dest || onMission(front, g)) continue;
       const R = GUN_KINDS[g.kind].range;
       if (Math.hypot(g.x - h.x, g.y - h.y) <= R * 0.75) continue;
       const want = { x: h.x - dirX * R * 0.45, y: h.y };

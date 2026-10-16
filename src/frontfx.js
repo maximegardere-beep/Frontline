@@ -10,6 +10,7 @@
 
 import { ARMOR_ATK } from './frontinput.js';
 import { AIR, airBase } from './frontair.js';
+import { missionGuns } from './frontguns.js';
 
 const TRACER = ['#fff27a', '#ff7a3c']; // Wehrmacht (jaune), Armée rouge (orange)
 // Obus en cloche par type de pièce (frontguns.js) : obus par tick de barrage, durée de vol (ms, + par pixel),
@@ -213,14 +214,17 @@ export class FrontFx {
           const bx = b.x * C, by = b.y * C, R = b.r * C;
           if (bx < rect.x0 - R || bx > rect.x1 + R || by < rect.y0 - R || by > rect.y1 + R) continue;
           if (viewer !== null && s !== viewer && !this.barrageSeen(front, viewer, b)) continue;
-          const g = (front.guns ?? []).find((x) => x.id === b.gun);
-          const A = ARC[g?.kind ?? b.kind] ?? ARC.div;
-          const gunSeen = g && (viewer === null || g.side === viewer || g.seen?.[viewer]?.clock === front.clock);
-          for (let q = 0; q < A.n; q++) {
-            const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * R;
-            const tx = bx + Math.cos(a) * r, ty = by + Math.sin(a) * r;
-            if (g) this.arc(g.x * C, g.y * C, tx, ty, at(), A, !gunSeen);
-            else this.blast(tx, ty, at(), A.r + Math.random() * A.r * 0.4);
+          // Barrage focalisé : chaque groupe engagé tire sa part, depuis sa position.
+          const guns = missionGuns(b).map((id) => (front.guns ?? []).find((x) => x.id === id)).filter(Boolean);
+          for (const g of guns.length ? guns : [null]) {
+            const A = ARC[g?.kind ?? b.kind] ?? ARC.div;
+            const gunSeen = g && (viewer === null || g.side === viewer || g.seen?.[viewer]?.clock === front.clock);
+            for (let q = 0; q < A.n; q++) {
+              const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * R;
+              const tx = bx + Math.cos(a) * r, ty = by + Math.sin(a) * r;
+              if (g) this.arc(g.x * C, g.y * C, tx, ty, at(), A, !gunSeen);
+              else this.blast(tx, ty, at(), A.r + Math.random() * A.r * 0.4);
+            }
           }
         }
       }
@@ -234,7 +238,7 @@ export class FrontFx {
       }
       const gx = g.x * C, gy = g.y * C;
       if (gx < rect.x0 - 30 || gx > rect.x1 + 30 || gy < rect.y0 - 30 || gy > rect.y1 + 30) continue;
-      const mission = front.barrages[g.side].find((b) => b.gun === g.id);
+      const mission = front.barrages[g.side].find((b) => missionGuns(b).includes(g.id));
       const salvo = front.tick <= front.cfg.barrageTicks && mission;
       for (let q = 0; q < (salvo ? 5 : 2); q++) this.blast(gx + (Math.random() - 0.5) * 10, gy + (Math.random() - 0.5) * 6, at(), 2.2, true);
     }

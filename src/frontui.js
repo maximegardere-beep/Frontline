@@ -19,7 +19,7 @@ import { HQ, moveHQ, hqState, HQ_STATE_LABEL } from './fronthq.js';
 import { SUPPORT, SUPPORT_LEVELS, moveSupport } from './frontbattalion.js';
 import { addSalvo, addDrop, SPECIAL } from './frontspecial.js';
 import { installAI } from './frontai.js';
-import { GUN_KINDS, GUN_POSTURES, gunPower, gunFor, setGunOrder } from './frontguns.js';
+import { GUN_KINDS, GUN_POSTURES, gunPower, gunFor, setGunOrder, onMission } from './frontguns.js';
 import { setArmorOrder, expLabel } from './frontarmor.js';
 import { scoreBreakdown, objectiveState, GRADES, SCORE } from './frontscore.js';
 import { FrontRenderer, CELL } from './frontrender.js';
@@ -1340,7 +1340,7 @@ function armorItem(f, a, planning) {
 // Un groupe d'artillerie dans le panneau : nom, état, mission ; le matin, sa posture.
 function gunItem(f, g, planning) {
   if (g.lost) return `<li class="f-gun lost"><p><b>${escHtml(g.name)}</b> · perdu</p></li>`;
-  const mission = f.barrages[g.side].some((b) => b.gun === g.id);
+  const mission = onMission(f, g);
   const state = gunPower(g) <= 0 ? 'en route, ne tire pas' : GUN_KINDS[g.kind].at ? 'tir antichar, face au front' : mission ? 'barrage au lever du jour' : 'appui défensif';
   const sel = fui.gun === g.id;
   return `<li class="f-gun${sel ? ' sel' : ''}">

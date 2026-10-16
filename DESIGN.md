@@ -1022,3 +1022,56 @@ Chaque étape laisse le jeu jouable : jusqu'à l'étape 7, le joueur reçoit ses
   manches et l'issue. Déploiement : bandeau des unités à placer (défilant sur téléphone), toucher une unité puis sa
   position ; le bouton du jour devient « Terminer le déploiement ». Même enchaînement au matin du 7e jour, après le
   bilan du soir 6.
+
+## Batailles de rue et artillerie (chantier)
+
+Deux chantiers liés, validés sur maquettes. Le front stratégique propose de jouer en tactique la bataille d'une ville,
+et l'artillerie passe d'un barrage par groupe et par jour à un appui permanent plus trois barrages par bataille.
+
+### Cahier des charges (validé)
+
+| Sujet | Décision |
+|---|---|
+| Fenêtre | Au lancement de la journée : une poussée vise une ville tenue, ou l'ennemi en menace une des nôtres. Anneau sur la ville, fenêtre au-dessus : rapport de force estimé (l'ennemi en fourchette), terrain, défenses, appui, barrages restants ; « Commander la bataille » ou « Résolution auto » |
+| Fréquence | Une bataille commandée par jour ; plusieurs villes : la plus disputée d'abord, « Résolution auto » ouvre la suivante |
+| Résultat | Décisif : les pâtés tenus en fin de bataille donnent les cases de la ville ; pertes reportées sur les densités, chars perdus retirés des formations, barrages dépensés retirés du stock. Les cases de la ville sont figées le reste de la journée |
+| Échelle | Hexagones d'environ 50 m ; la ville et ses abords. Environ 150 hommes par section, 8 à 14 unités par camp |
+| Ville tactique | Grands axes = routes stratégiques qui entrent dans la ville ; rivière et pont gardés ; centre en pierre (pâtés de maisons, place, église ; usine pour une grande ville), isbas en bois et jardins à la périphérie |
+| Règles urbaines | Infanterie dans un bâtiment : très couverte, invisible avant de tirer. Chars : rapides sur route, tir dans l'axe, vulnérables au contact d'un bâtiment tenu. Barrage : ruines, défenseurs décimés et cloués, gravats qui bloquent la rue aux chars, les ruines restent un abri. Isbas : faible couvert, inflammables |
+| Artillerie | Plus de barrage quotidien. Appui passif dans la portée de chaque groupe : attaque (au départ d'une poussée) et défense, rendements décroissants quand les zones se recoupent. Posture inchangée |
+| Barrage focalisé | 2 au départ, 1 de plus au 7e jour ; tous les groupes libres à portée y concourent ; utilisable en bataille de rue |
+| Lance-roquettes | Salve à part, hors du compte des barrages |
+| Animations | Appui passif : quelques obus épars là où l'on se bat, plafonnés ; le barrage garde l'animation complète |
+
+### Plan (une étape par commit)
+
+1. **Artillerie, moteur** : stock de barrages (`barrageStock`, +1 au 7e jour), barrage concentré, appui passif
+   (`applyArtillery` dans `rebuildFields`), tests ; banc de calibrage sans limite.
+2. **Artillerie, IA et mesure** : barrages gardés pour les moments décisifs (assaut principal, PC repéré, percée à
+   colmater) ; mesure IA contre IA, cible attaquant ≈ 40 %.
+3. **Artillerie, interface** : compteur sur l'outil Barrage, halo de couverture le matin, obus épars, règles, README.
+4. **Ville tactique** : générateur urbain (`urbangen.js`), terrains bâtiment, ruines, gravats ; règles urbaines dans le
+   moteur tactique ; jouable seule depuis un menu de développement. Tests.
+5. **Conversion** : d'une ville du front stratégique vers une bataille tactique (terrain, troupes, cartes, ouvrages,
+   appui, barrages). Tests.
+6. **Fenêtre et retour** : détection au lancement de la journée, fenêtre, bataille tactique dans le front, résultat
+   réinjecté, cases figées. Tests.
+7. **IA urbaine, équilibre, publication** : IA tactique en ville (tenir les bâtiments, chars accompagnés), mesures,
+   README, fichier unique.
+
+### Étape 1 faite : artillerie, moteur
+
+- Stock de barrages (`front.barrageStock`, `cfg.barrageStock` 2, `barrageRefill` +1 au 7e jour) : `addBarrage` refuse
+  au-delà du stock, le matin un barrage retiré est rendu ; le stock est débité au lancement de la journée
+  (`beginDay`). `barragesLeft` pour l'interface et l'IA. `barrageStock: null` garde l'ancienne règle (un barrage par
+  groupe et par jour) : banc de calibrage.
+- Barrage focalisé : le groupe libre le plus puissant à portée et tous les autres groupes libres à portée
+  (`b.guns`, `missionGuns`, `onMission`) ; zone du plus grand rayon + 0,5 ; puissance ×1,2 (`GUN_RULES.focus`). Effets,
+  cratères, contre-batterie et coupure des liaisons du PC additionnent les groupes engagés (PC : une fois et demie un
+  groupe au plus : un barrage focalisé suffit à le désorganiser).
+- Appui passif (`applyArtillery`, à la fin de `rebuildFields`, avant le PC) : couverture de chaque groupe = sa puissance
+  (× efficacité des feux du jour : brouillard 0,7), pleine jusqu'à 70 % de sa portée puis décroissante ; plusieurs
+  groupes se cumulent (1 ; 1,4 ; 1,56). Attaque des poussées +12 % et défense +15 % à pleine couverture. L'ancien tir
+  d'appui sur les assaillants (`supportFire`) reste.
+- Mesure IA contre IA (72 batailles), avant → après : attaquant 28 → 24 %, défenseur 67 → 69 %, nuls 6 → 7 %. L'IA
+  tire encore ses barrages comme avant et épuise le stock en deux jours : étape 2.

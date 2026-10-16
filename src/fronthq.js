@@ -8,7 +8,7 @@
 // Positions en unités de grille, comme les ordres (deux cases voisines sont à 1,73).
 
 import { pixelToHex } from './hex.js';
-import { gunPower } from './frontguns.js';
+import { gunPower, missionGuns, GUN_RULES } from './frontguns.js';
 import { AIR } from './frontair.js';
 
 export const HQ = {
@@ -179,8 +179,10 @@ export function hqTick(front, events) {
     const before = hqState(h);
     if (front.tick < front.cfg.barrageTicks) {
       for (const b of front.barrages[o]) {
-        const g = front.guns.find((x) => x.id === b.gun);
-        const p = g ? gunPower(g) : 0;
+        // Barrage focalisé : les groupes engagés s'additionnent (une fois et demie un groupe au plus).
+        let p = 0;
+        for (const id of missionGuns(b)) { const g = front.guns.find((x) => x.id === id); p += g ? gunPower(g) : 0; }
+        p = Math.min(1.5, p) * (b.focus ? GUN_RULES.focus : 1);
         if (p <= 0 || Math.hypot(b.x - h.x, b.y - h.y) > b.r + HQ.hit) continue;
         h.link = Math.max(0, h.link - (HQ.barrage * p) / front.cfg.barrageTicks);
         h.seen[o] = { x: h.x, y: h.y, clock: front.clock };

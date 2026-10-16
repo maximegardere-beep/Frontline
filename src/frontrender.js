@@ -18,7 +18,7 @@ import { FRONT_KINDS } from './terrain.js';
 import { FRONT_WEATHER, VECTOR_TYPES, cellAtPoint } from './front.js';
 import { MIN_POCKET, ARMOR_ATK } from './frontinput.js';
 import { FrontFx } from './frontfx.js';
-import { GUN_KINDS, AT_RULES, visibleGuns, gunPower } from './frontguns.js';
+import { GUN_KINDS, AT_RULES, visibleGuns, gunPower, missionGuns } from './frontguns.js';
 import { visibleSupport, SUPPORT, SUPPORT_LEVELS } from './frontbattalion.js';
 import { SPECIAL } from './frontspecial.js';
 import { visibleArmor, armorRoute } from './frontarmor.js';
@@ -958,8 +958,8 @@ export class FrontRenderer extends Renderer {
     const f = this.front;
     const rng = createRng(`craters:${f.seed}:${f.clock}`);
     for (const s of [0, 1]) {
-      for (const b of f.barrages[s]) {
-        const g = f.guns?.find((x) => x.id === b.gun);
+      for (const b of f.barrages[s]) for (const id of missionGuns(b)) {
+        const g = f.guns?.find((x) => x.id === id);
         if (!g || g.fired !== f.clock - 1) continue;
         const C = SCAR[g.kind] ?? SCAR.div;
         const n = Math.round(C.n * gunPower(g) * FRONT_WEATHER[f.weather].barrage);
@@ -2023,7 +2023,7 @@ export class FrontRenderer extends Renderer {
           ctx.fill();
         }
         for (const b of f.barrages[g.side]) {
-          if (b.gun !== g.id) continue;
+          if (!missionGuns(b).includes(g.id)) continue;
           const t = this.toWorld(b);
           ctx.strokeStyle = 'rgba(255, 210, 63, 0.6)';
           ctx.lineWidth = 1.2 * px;

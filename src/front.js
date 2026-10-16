@@ -23,7 +23,7 @@ import { createSupport, refreshZones, supportDawn, supportTick, supportNight, up
 import { fightAirWar } from './frontairwar.js';
 import { initSpecial, addSpecial, salvoTick, dropTick, applyStrong, removeSpecial, specialNight } from './frontspecial.js';
 import { createHQ, applyHQ, engageCapOf, ordersWait, hqDawn, hqTick, hqAfter, hqSightings, hqNight } from './fronthq.js';
-import { GUN_KINDS, GUN_RULES, createGuns, gunFor, gunPower, moveGuns, supportFire, gunsNight, updateGunSightings, atFire } from './frontguns.js';
+import { GUN_KINDS, GUN_RULES, createGuns, gunFor, gunPower, moveGuns, supportFire, gunsNight, updateGunSightings, atFire, onMission, missionGuns, applyArtillery } from './frontguns.js';
 
 export const FRONT_SIDES = ['DE', 'SU'];
 export const sideIndex = (s) => (s === 'DE' ? 0 : 1);
@@ -44,9 +44,12 @@ export const FRONT_SETUP = {
   maxLines: 2, // lignes de défense par jour
   lineLen: 30, // longueur maximale d'une ligne, en cases
   lineWidth: 1.8, // demi-largeur de la bande retranchée (unités de grille ; deux cases voisines sont à 1,73)
-  // Groupes d'artillerie (frontguns.js) : une mission de barrage par groupe et par jour, dans sa portée.
+  // Groupes d'artillerie (frontguns.js) : appui passif dans leur portée, et quelques barrages focalisés par bataille.
   guns: [['div', 'div', 'heavy'], ['div', 'mortar', 'rocket']],
   barrageTicks: 7, // le barrage martèle la zone pendant les premiers ticks de la journée
+  barrageStock: 2, // barrages focalisés au départ, par camp (null : un barrage par groupe et par jour, sans limite)
+  barrageRefill: 1, // barrages en plus au 7e jour
+  artyCover: true, // appui passif de l'artillerie (applyArtillery) ; false pour le banc de calibrage
   retreatCover: 0.33, // usure subie par les troupes qui décrochent en bon ordre
   chunk: 80, // densité déposée par clic de déploiement
   vision: 5, // portée de reconnaissance, en cases, depuis toute case occupée
@@ -144,6 +147,7 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
     lastOrders: [[], []],
     lines: [[], []], // lignes de défense du jour
     barrages: [[], []], // barrages de zone du jour
+    barrageStock: null, // barrages focalisés restants par camp (posé après la configuration)
     air: [[], []], // missions aériennes du jour (frontair.js)
     lineMask: new Uint8Array(N), // cases couvertes par une ligne de défense aujourd'hui
     deployments: [[], []],
@@ -202,6 +206,7 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
     cfg.sorties = cfg.sorties.map((n, s) => (s === attSide ? n + cfg.attackSorties : n));
   }
   front.guns = createGuns(front, cfg.guns);
+  front.barrageStock = cfg.barrageStock == null ? null : [cfg.barrageStock, cfg.barrageStock];
   front.aa = createAA(front, cfg.aaBatteries);
   // Rôles : l'attaquant reçoit plus de réserves ; le défenseur est retranché sur quelques cases derrière le front.
   const att = front.attacker, def = 1 - att;
@@ -507,18 +512,30 @@ export function addLine(front, s, a, b, level = 2) {
   return line;
 }
 
-// Barrage de zone : un cercle martelé pendant les premiers ticks de la journée, même dans le brouillard, par le groupe
-// d'artillerie disponible le plus puissant qui l'a à portée (gunId pour en imposer un).
+// Barrage de zone : un cercle martelé pendant les premiers ticks de la journée, même dans le brouillard. Avec le stock
+// de barrages (front.barrageStock), un barrage focalisé : le groupe disponible le plus puissant qui l'a à portée
+// (gunId pour en imposer un) et tous les autres groupes libres à portée. Sans stock : un groupe, une mission par jour.
 export function addBarrage(front, s, at, gunId = null) {
   if (front.phase !== 'plan') return { error: 'Les ordres se donnent le matin.' };
-  const free = front.guns.filter((g) => g.side === s && !GUN_KINDS[g.kind].at && gunPower(g) > 0 && !front.barrages[s].some((b) => b.gun === g.id));
+  if (front.barrageStock && front.barrages[s].length >= front.barrageStock[s]) return { error: barragesLeft(front, s) > 0 || front.barrages[s].length ? 'Plus de barrage disponible aujourd\'hui.' : 'Plus de barrage disponible : trois par bataille, le dernier arrive au 7e jour.' };
+  const free = front.guns.filter((g) => g.side === s && !GUN_KINDS[g.kind].at && gunPower(g) > 0 && !onMission(front, g));
   if (!free.length) return { error: 'Aucun groupe d\'artillerie disponible : tous ont leur mission, ou sont en déplacement.' };
   const g = gunId != null ? free.find((x) => x.id === gunId && Math.hypot(x.x - at.x, x.y - at.y) <= GUN_KINDS[x.kind].range) : gunFor(front, s, at);
   if (!g) return { error: 'Hors de portée de vos groupes d\'artillerie disponibles.' };
-  const K = GUN_KINDS[g.kind];
-  const b = { id: nextVectorId++, side: s, x: at.x, y: at.y, r: K.r, gun: g.id };
+  const b = { id: nextVectorId++, side: s, x: at.x, y: at.y, r: GUN_KINDS[g.kind].r, gun: g.id };
+  if (front.barrageStock) {
+    const all = [g, ...free.filter((x) => x !== g && Math.hypot(x.x - at.x, x.y - at.y) <= GUN_KINDS[x.kind].range)];
+    b.guns = all.map((x) => x.id);
+    b.r = Math.max(...all.map((x) => GUN_KINDS[x.kind].r)) + (all.length > 1 ? 0.5 : 0);
+    b.focus = true;
+  }
   front.barrages[s].push(b);
   return b;
+}
+
+// Barrages focalisés encore disponibles pour le camp s (ceux ordonnés ce matin compris ; Infinity sans stock).
+export function barragesLeft(front, s) {
+  return front.barrageStock ? Math.max(0, front.barrageStock[s] - (front.phase === 'plan' ? front.barrages[s].length : 0)) : Infinity;
 }
 
 // Niveau d'ouvrage d'un chantier : 1 tranchées, 2 + barbelés, 3 + antichar.
@@ -729,6 +746,7 @@ export function rebuildFields(front, s) {
   }
   applyStrong(front, s, F); // points d'appui
   applySappers(front, s, F); // génie d'assaut : avance plus rapide
+  applyArtillery(front, s, F, W8.barrage); // appui passif de l'artillerie
   applyHQ(front, s, F); // coordination du poste de commandement
 }
 
@@ -831,6 +849,7 @@ export function beginDay(front) {
   for (const s of [0, 1]) for (const l of front.lines[s]) for (const i of l.cells) front.lineMask[i] = 1;
   supportDawn(front);
   hqDawn(front);
+  if (front.barrageStock) for (const s of [0, 1]) front.barrageStock[s] = Math.max(0, front.barrageStock[s] - front.barrages[s].length);
   front.phase = 'resolve';
   front.tick = 0;
   front.dayStart = { troops: [troops(front, 0), troops(front, 1)], territory: [territory(front, 0), territory(front, 1)], losses: front.stats.losses.slice(), pocket: front.stats.pocket.slice() };
@@ -916,13 +935,13 @@ function applyWorks(front, events) {
   for (const s of [0, 1]) {
     buildTick(front, s);
     if (front.tick >= c.barrageTicks) continue;
-    for (const b of front.barrages[s]) {
-      const g = front.guns.find((x) => x.id === b.gun);
+    for (const b of front.barrages[s]) for (const id of missionGuns(b)) {
+      const g = front.guns.find((x) => x.id === id);
       const p = g ? gunPower(g) : 0;
       if (p <= 0) continue;
       const K = GUN_KINDS[g.kind];
       g.fired = front.clock;
-      const k = p * FRONT_WEATHER[front.weather].barrage;
+      const k = p * FRONT_WEATHER[front.weather].barrage * (b.focus ? GUN_RULES.focus : 1);
       for (let i = 0; i < front.map.N; i++) {
         if (front.owner[i] < 0) continue;
         if (Math.hypot(front.centers.x[i] - b.x, front.centers.y[i] - b.y) > b.r) continue;
@@ -1024,6 +1043,7 @@ function endDay(front) {
   front.tick = 0;
   rollWeather(front);
   flog(front, 'day', `— Jour ${front.day} : ${FRONT_WEATHER[front.weather].label} —`);
+  if (front.barrageStock && front.day === ATOUT_RULES.day) for (const s of [0, 1]) front.barrageStock[s] += c.barrageRefill;
   if (c.atouts && front.day === ATOUT_RULES.day) {
     reinforceAtouts(front);
     updateGunSightings(front);
