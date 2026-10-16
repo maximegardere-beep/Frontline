@@ -48,27 +48,17 @@ défenseur, est tiré de la graine et annoncé au briefing, avec l'objectif : le
 
 - **La carte** : chaque camp est une masse de troupes (bleue pour la Wehrmacht, rouge pour l'Armée rouge), plus
   sombre où elle est dense ; le trait noir est le front. Hors de vue, l'ennemi n'est qu'une estimation estompée.
-- **Atouts** : l'artillerie, les formations blindées, la DCA et les sorties aériennes en plus ne sont pas fixées
-  d'avance. Avant la bataille, chaque camp tire 5 cartes selon son rôle et l'année, et en garde 3 ; au matin du
-  7e jour, il en tire 4 (5 s'il est mené aux points) et en garde 2. Chaque carte a une rareté (commun, rare, élite :
-  les chars lourds, Tiger, KV ou IS-2, sont des cartes d'élite). L'attaquant tire divisions blindées, artillerie
-  lourde, soutien aérien, génie d'assaut, lance-roquettes, parachutistes et DCA ; le défenseur, artillerie
-  divisionnaire, canons antichar, bataillons de soutien, point d'appui, chasseurs et DCA.
-- **Bataille des airs** : avant le premier jour, et de nouveau au matin du 7e, trois manches de dés entre les
-  chasseurs des deux camps (force : sorties de l'année, cartes de chasseurs du défenseur et de soutien aérien de
-  l'attaquant ; touche sur 5+, le perdant d'une manche perd un avion). Le vainqueur a la suprématie aérienne et toutes
-  ses sorties ; le vaincu n'en a plus. À égalité, ciel disputé : la moitié des sorties de chacun. La DCA tire toujours.
-  Le briefing donne l'issue et les manches.
-- **Génie d'assaut** (attaquant) : posé juste derrière le contact, il rase les barbelés et obstacles antichar ennemis
-  dans son rayon (cercle en pointillé le matin), et vos troupes y avancent plus vite. Il se déplace de nuit.
-- **Lance-roquettes** (attaquant) : outil Salve (`R`), une zone large écrasée au lever du jour (pertes, choc), une ou
-  deux fois par bataille selon la carte.
-- **Parachutistes** (attaquant) : outil Paras (`L`), un largage au lever du jour jusqu'à 15 cases derrière les lignes
-  ennemies. L'îlot pris est coupé de ses arrières : il fond comme une poche tant que vous ne l'avez pas rejoint. Posé
-  sur un pont, il le tient ; sur le PC ennemi, il le prend.
-- **Point d'appui** (défenseur) : la ville ★ la plus exposée, retranchée d'avance (tranchées, barbelés, obstacles
-  selon la rareté), à la défense multipliée (×1,4 à ×2), avec une garnison à l'élite ; contournée, elle risque
-  l'encerclement.
+- **Atouts** : l'artillerie, les formations blindées, la DCA, le génie et l'aviation ne sont pas fixés d'avance.
+  Après le briefing, on tire 5 cartes du paquet de son rôle (selon l'année) et on en garde 3 (« Choix de
+  l'état-major » propose un choix) ; au matin du 7e jour, on en tire 4 (5 si l'on est mené aux points) et on en garde
+  2. Chaque carte a une rareté (commun, rare, élite : les chars lourds, Tiger, KV ou IS-2, sont des cartes d'élite).
+  L'attaquant tire divisions blindées, artillerie lourde, soutien aérien, génie d'assaut, lance-roquettes,
+  parachutistes et DCA ; le défenseur, artillerie divisionnaire, canons antichar, bataillons de soutien, point
+  d'appui, chasseurs et DCA. Les cartes de l'ennemi restent secrètes.
+- **Déploiement** : après le tirage (et la bataille des airs), un bandeau liste les unités à placer, et le PC avant
+  la bataille. Touchez une unité (sur la carte ou dans le bandeau), puis sa position dans vos lignes ; elles sont déjà
+  posées d'office, on peut s'en tenir là. Un point d'appui se place sur une de vos villes. « Terminer » (ou le bouton
+  du jour) clôt le déploiement.
 - **Canons antichar** (défenseur) : ils tirent dans un cône face au contact, sur les seuls blindés, qu'ils déciment et
   freinent (les chars lourds encaissent mieux) ; pas de barrage. Deux ou trois barrages ou chasses aériennes en
   viennent à bout ; débordés, ils sont perdus.

@@ -711,3 +711,35 @@ kbd {
   .tool-l[data-s] { font-size: 0; }
   .tool-l[data-s]::after { content: attr(data-s); font-size: 11px; }
 }
+
+/* Atouts : main tirée, bataille des airs, déploiement. */
+.deck { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin: 14px 0 10px; }
+.card {
+  display: flex; flex-direction: column; gap: 4px; min-height: 132px; padding: 10px 10px 12px; text-align: left;
+  font: inherit; color: var(--ink); background: var(--paper-2); border: 2px solid rgba(42, 36, 22, 0.55); border-radius: 4px;
+  cursor: pointer; transition: transform 0.12s, box-shadow 0.12s;
+}
+.card:hover { transform: translateY(-2px); }
+.card[aria-pressed="true"] { border-color: var(--pencil); box-shadow: 0 0 0 2px var(--pencil), 3px 5px 0 rgba(42, 36, 22, 0.35); transform: translateY(-3px); }
+.card:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+.card-top { display: flex; align-items: center; justify-content: space-between; }
+.card-top svg { width: 26px; height: 26px; }
+.card-rarity { font: 700 10px var(--f-mono); text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 6px; border-radius: 2px; background: rgba(42, 36, 22, 0.12); }
+.card-rare .card-rarity { background: #3d5a80; color: #f1ecda; }
+.card-elite .card-rarity { background: var(--brass); color: var(--ink); }
+.card-elite { background: linear-gradient(160deg, #eadba8, var(--paper-2) 60%); }
+.card-name { font: 800 17px/1.1 var(--f-display); text-transform: uppercase; letter-spacing: 0.02em; }
+.card-text { font-size: 13px; color: var(--ink-muted); }
+.dogfight { display: block; width: 100%; height: auto; margin: 12px 0 6px; border: 1.5px solid rgba(42, 36, 22, 0.5); border-radius: 3px; }
+.air-rounds { margin: 6px 0; padding-left: 20px; font-size: 14px; }
+.air-verdict { font-weight: 600; }
+.deploy-bar {
+  position: absolute; left: max(10px, env(safe-area-inset-left, 0px)); right: 10px; bottom: 10px; max-width: 640px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px;
+  background: rgba(27, 31, 22, 0.92); border: 1px solid rgba(0, 0, 0, 0.5); border-radius: 4px;
+}
+.deploy-title { font: 700 11px var(--f-mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--brass); }
+.deploy-list { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; min-width: 0; }
+.dchip { font: 600 12px var(--f-body); color: var(--text); background: var(--desk-3); border: 1px solid var(--line); border-radius: 3px; padding: 5px 8px; cursor: pointer; }
+.dchip[aria-pressed="true"] { border-color: var(--brass); color: var(--brass); }
+.deploy-bar:not([hidden]) ~ .hint { bottom: 70px; }

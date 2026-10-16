@@ -38,7 +38,9 @@ export function initSpecial(front) {
   front.strong ??= [[], []];
 }
 
-export function addSpecial(front, specs) {
+// defer : les points d'appui sont posés (ville choisie d'office) mais leurs ouvrages attendent la fin du déploiement
+// (buildStrongpoints), pour qu'on puisse encore changer de ville.
+export function addSpecial(front, specs, defer = [false, false]) {
   initSpecial(front);
   for (const s of [0, 1]) {
     const sp = specs[s];
@@ -46,6 +48,7 @@ export function addSpecial(front, specs) {
     if (sp.salvos?.n) { front.rockets[s].left += sp.salvos.n; front.rockets[s].r = Math.max(front.rockets[s].r, sp.salvos.r); }
     for (const dens of sp.paras ?? []) front.paras[s].push({ id: nextId++, dens, used: null });
     for (const st of sp.strong ?? []) placeStrongpoint(front, s, st);
+    if (!defer[s]) buildStrongpoints(front, s);
   }
 }
 
@@ -157,23 +160,53 @@ function placeStrongpoint(front, s, st) {
     if (d + star < bd) { bd = d + star; best = t.i; }
   }
   if (best < 0) return;
-  const cells = [];
-  for (let i = 0; i < front.map.N; i++) if (front.owner[i] === s && Math.hypot(cx[i] - cx[best], cy[i] - cy[best]) <= SPECIAL.strong.r) cells.push(i);
-  for (const i of cells) {
-    front.entrench[i] = Math.max(front.entrench[i], 1);
-    front.trenchSide[i] = s;
-    if (st.level >= 2) front.wire[i] = Math.max(front.wire[i], 1);
-    if (st.level >= 3) front.at[i] = Math.max(front.at[i], 1);
+  const p = { id: nextId++, i: -1, name: '', mul: st.mul, level: st.level, garrison: st.garrison ?? 0, cells: [], built: false };
+  front.strong[s].push(p);
+  setStrongTown(front, s, p, best);
+}
+
+function setStrongTown(front, s, p, i0) {
+  const cx = front.centers.x, cy = front.centers.y;
+  p.i = i0;
+  p.name = front.map.towns.find((t) => t.i === i0)?.name ?? '';
+  p.cells = [];
+  for (let i = 0; i < front.map.N; i++) if (front.owner[i] === s && Math.hypot(cx[i] - cx[i0], cy[i] - cy[i0]) <= SPECIAL.strong.r) p.cells.push(i);
+}
+
+// Déploiement : déplacer un point d'appui pas encore bâti sur une autre ville amie (p : point touché).
+export function moveStrongpoint(front, s, id, at) {
+  const p = front.strong?.[s].find((x) => x.id === id);
+  if (!p || p.built) return { error: 'Point d\'appui déjà établi.' };
+  let best = null, bd = 4;
+  for (const t of front.map.towns) {
+    if (front.owner[t.i] !== s || front.strong[s].some((o) => o !== p && o.i === t.i)) continue;
+    const d = Math.hypot(front.centers.x[t.i] - at.x, front.centers.y[t.i] - at.y);
+    if (d < bd) { bd = d; best = t; }
+  }
+  if (!best) return { error: 'Un point d\'appui s\'établit dans une de vos villes.' };
+  setStrongTown(front, s, p, best.i);
+  return p;
+}
+
+// Fin du déploiement : les points d'appui du camp s se retranchent (ouvrages posés d'avance, garnison).
+export function buildStrongpoints(front, s) {
+  for (const p of front.strong?.[s] ?? []) {
+    if (p.built) continue;
+    p.built = true;
+    for (const i of p.cells) {
+      front.entrench[i] = Math.max(front.entrench[i], 1);
+      front.trenchSide[i] = s;
+      if (p.level >= 2) front.wire[i] = Math.max(front.wire[i], 1);
+      if (p.level >= 3) front.at[i] = Math.max(front.at[i], 1);
+    }
+    if (p.garrison) front.dens[p.i] += p.garrison;
   }
   front.worksVersion = (front.worksVersion ?? 0) + 1;
-  if (st.garrison) front.dens[best] += st.garrison;
-  const town = front.map.towns.find((t) => t.i === best);
-  front.strong[s].push({ i: best, name: town?.name ?? '', mul: st.mul, level: st.level, cells });
 }
 
 // Dans rebuildFields : défense multipliée dans les cases du point d'appui encore tenues.
 export function applyStrong(front, s, F) {
-  for (const p of front.strong?.[s] ?? []) for (const i of p.cells) if (front.owner[i] === s) F.fort[i] *= p.mul;
+  for (const p of front.strong?.[s] ?? []) if (p.built) for (const i of p.cells) if (front.owner[i] === s) F.fort[i] *= p.mul;
 }
 
 // Au soir : ordres consommés.

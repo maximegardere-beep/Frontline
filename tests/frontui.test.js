@@ -106,7 +106,8 @@ test('interface : chaque élément cherché par le contrôleur existe dans la pa
     const src = readFileSync(`${root}src/${file}`, 'utf8');
     const ids = new Set([...src.matchAll(/(?:byId|\$)\('([\w-]+)'\)/g)].map((m) => m[1]));
     // Identifiants créés dans les dossiers (HTML injecté) : présents dans le source du contrôleur lui-même.
-    for (const id of ids) assert.ok(html.includes(`id="${id}"`) || src.includes(`id="${id}"`), `#${id} (${file})`);
+    const deck = readFileSync(`${root}src/frontdeck.js`, 'utf8'); // dossiers du tirage et de la bataille des airs
+    for (const id of ids) assert.ok(html.includes(`id="${id}"`) || src.includes(`id="${id}"`) || deck.includes(`id="${id}"`), `#${id} (${file})`);
   }
   for (const tool of ['infantry', 'armor', 'retreat', 'barrage', 'reserve']) assert.ok(html.includes(`data-tool="${tool}"`), tool);
   assert.ok(!html.includes('data-tool="line"'), 'plus d\'outil « Ligne » : les ouvrages viennent des bataillons de soutien');

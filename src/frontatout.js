@@ -13,7 +13,8 @@ import { createArmor, ARMOR_SETUP } from './frontarmor.js';
 import { createAA } from './frontair.js';
 import { createGuns, GUN_KINDS, nextName } from './frontguns.js';
 import { createSupport, refreshZones, SUPPORT_LEVELS } from './frontbattalion.js';
-import { addSpecial } from './frontspecial.js';
+import { addSpecial, moveStrongpoint, buildStrongpoints } from './frontspecial.js';
+import { pixelToHex } from './hex.js';
 import { fightAirWar } from './frontairwar.js';
 import { scoreBreakdown, SCORE } from './frontscore.js';
 
@@ -260,26 +261,133 @@ function armorLists(front, forces) {
 function logDeal(front, kept, round) {
   for (const s of [0, 1]) {
     if (front.playerSide != null && s !== front.playerSide) continue; // les cartes de l'ennemi restent secrètes
+    if (!kept[s].length) continue;
     const when = round ? `Renforts du ${ATOUT_RULES.day}e jour` : 'Atouts';
     front.log.push({ day: front.day, tick: 0, kind: 'atout', side: s, text: `${when} : ${kept[s].map(cardLabel).join(', ')}.` });
   }
 }
 
+// Tirage du joueur (cfg.atoutsManual) : sa main attend son choix (confirmAtouts) ; ses unités ne sont posées qu'après,
+// et la bataille des airs, qui dépend des cartes des deux camps, attend aussi.
+const manual = (front, s) => !!front.cfg.atoutsManual && front.playerSide === s;
+
 // Avant la bataille (createFront, avant la création des unités) : tirage, choix, et moyens qui en découlent.
 // Renvoie les listes à passer à createGuns, createArmor, createAA, et les sorties en plus par camp.
 export function dealAtouts(front) {
-  front.atouts = { round: 0, hands: [[], []], kept: [[], []], named: [[], []], assault: [1, 1] };
+  front.atouts = { round: 0, hands: [[], []], kept: [[], []], named: [[], []], assault: [1, 1], pending: [false, false], airBonus: [0, 0], airPending: false };
+  const A = front.atouts;
   const kept = [0, 1].map((s) => {
     const hand = drawHand(front, s, 0);
-    front.atouts.hands[s] = hand;
+    A.hands[s] = hand;
+    if (manual(front, s)) { A.pending[s] = true; return []; }
     return chooseCards(front, s, hand, ATOUT_RULES.keep[0]);
   });
-  front.atouts.kept = kept;
+  A.kept = kept;
   const forces = forcesOf(front, kept);
-  front.atouts.assault = forces.map((f) => f.assault);
+  A.assault = forces.map((f) => f.assault);
+  A.airBonus = forces.map((f) => f.air);
+  A.airPending = A.pending.some(Boolean);
   logDeal(front, kept, 0);
   for (const s of [0, 1]) front.pontoons[s] += forces[s].pontoons;
   return { guns: forces.map((f) => f.guns), armor: armorLists(front, forces), support: forces.map((f) => f.support), special: forces.map((f) => f.special), aa: forces.map((f) => f.aa), sorties: forces.map((f) => f.sorties), air: forces.map((f) => f.air) };
+}
+
+// Pose sur la carte les unités des cartes (forces par camp), derrière le front : numéros à la suite, noms distincts
+// de ceux déjà sur la carte (on avance le premier nombre du nom). Les unités portent le tirage qui les a amenées.
+function applyForces(front, forces, round, defer = [false, false]) {
+  const renumber = (list, old) => {
+    let id = Math.max(0, ...old.map((u) => u.id)) + 1;
+    const names = new Set(old.map((u) => u.name));
+    for (const u of list) {
+      u.id = id++;
+      u.round = round;
+      while (names.has(u.name)) u.name = nextName(u.name);
+      names.add(u.name);
+    }
+    return list;
+  };
+  front.guns.push(...renumber(createGuns(front, forces.map((f) => f.guns)), front.guns));
+  front.armor.push(...renumber(createArmor(front, armorLists(front, forces)), front.armor));
+  front.aa.push(...renumber(createAA(front, forces.map((f) => f.aa)), front.aa));
+  front.support.push(...renumber(createSupport(front, forces.map((f) => f.support)), front.support));
+  refreshZones(front);
+  addSpecial(front, forces.map((f) => f.special), defer);
+  for (const s of [0, 1]) front.pontoons[s] += forces[s].pontoons;
+  front.cfg.sorties = front.cfg.sorties.map((n, s) => n + forces[s].sorties);
+  front.atouts.assault = front.atouts.assault.map((v, s) => Math.max(v, forces[s].assault));
+}
+
+// Le joueur garde ces cartes (ids) de sa main : ses unités sont posées (il peut les déplacer pendant le déploiement :
+// placeUnit, endPlacement) ; puis, si l'autre camp a choisi aussi, la bataille des airs (renvoyée : l'interface l'anime).
+export function confirmAtouts(front, s, ids) {
+  const A = front.atouts;
+  if (!A?.pending[s]) return { error: 'Aucun tirage en attente.' };
+  const keep = ATOUT_RULES.keep[A.round];
+  const kept = ids.map((id) => A.hands[s].find((c) => c.id === id)).filter(Boolean);
+  if (new Set(kept).size !== keep) return { error: `Gardez ${keep} cartes.` };
+  A.pending[s] = false;
+  A.kept[s].push(...kept);
+  const pick = [0, 1].map((x) => (x === s ? kept : []));
+  const forces = forcesOf(front, pick);
+  applyForces(front, forces, A.round, [0, 1].map((x) => x === s));
+  A.airBonus[s] += forces[s].air;
+  logDeal(front, pick, A.round);
+  front.placing ??= [false, false];
+  front.placing[s] = true;
+  let airWar = null;
+  if (A.airPending && !A.pending.some(Boolean)) {
+    A.airPending = false;
+    if (front.cfg.airWar !== false) airWar = fightAirWar(front, A.airBonus, A.round);
+  }
+  return { kept, airWar };
+}
+
+// Sans interface (ou si le joueur lance la journée sans avoir choisi) : choix automatique.
+export function autoConfirm(front, s) {
+  const A = front.atouts;
+  if (!A?.pending[s]) return null;
+  return confirmAtouts(front, s, chooseCards(front, s, A.hands[s], ATOUT_RULES.keep[A.round]).map((c) => c.id));
+}
+
+// Unités que le camp s peut encore placer : celles du dernier tirage (et son PC avant la bataille).
+export function placeable(front, s) {
+  if (!front.placing?.[s]) return [];
+  const r = front.atouts?.round ?? 0;
+  const mine = (u) => u.side === s && !u.lost && (u.round ?? 0) === r;
+  const out = [];
+  if (r === 0 && front.hq?.[s]) out.push({ kind: 'hq', id: 0, u: front.hq[s], label: front.hq[s].name });
+  for (const a of front.armor) if (mine(a)) out.push({ kind: 'armor', id: a.id, u: a, label: a.name });
+  for (const g of front.guns) if (mine(g)) out.push({ kind: 'gun', id: g.id, u: g, label: g.name });
+  for (const a of front.aa) if (mine(a)) out.push({ kind: 'aa', id: a.id, u: a, label: a.name });
+  for (const b of front.support) if (mine(b)) out.push({ kind: 'support', id: b.id, u: b, label: b.name });
+  for (const p of front.strong?.[s] ?? []) if (!p.built) out.push({ kind: 'strong', id: p.id, u: p, label: `Point d'appui · ${p.name}` });
+  return out;
+}
+
+// Déploiement : poser une unité ailleurs dans ses lignes (ravitaillées), d'un coup, sans délai.
+export function placeUnit(front, s, kind, id, p) {
+  const item = placeable(front, s).find((x) => x.kind === kind && x.id === id);
+  if (!item) return { error: 'Cette unité ne se place plus.' };
+  if (kind === 'strong') return moveStrongpoint(front, s, id, p);
+  const h = pixelToHex(p.x, p.y, 1), { W, H } = front.map;
+  const i = h.col < 0 || h.row < 0 || h.col >= W || h.row >= H ? -1 : h.row * W + h.col;
+  if (i < 0 || front.owner[i] !== s || front.map.flow[i] <= 0 || !front.supplied[s][i]) return { error: 'Posez-la dans vos lignes, en terrain praticable.' };
+  if (kind === 'armor' && front.map.flowA[i] <= 0.3) return { error: 'Terrain impraticable pour des blindés.' };
+  const u = item.u;
+  u.x = front.centers.x[i]; u.y = front.centers.y[i];
+  if ('cell' in u) u.cell = i;
+  if (u.dest !== undefined) u.dest = null;
+  if (u.target !== undefined) u.target = null;
+  if (kind === 'support') refreshZones(front);
+  return u;
+}
+
+// Fin du déploiement du camp s : les points d'appui se retranchent.
+export function endPlacement(front, s) {
+  if (!front.placing?.[s]) return;
+  front.placing[s] = false;
+  buildStrongpoints(front, s);
+  refreshZones(front);
 }
 
 // Camp mené aux points au soir du 6e jour : l'attaquant en dessous d'une issue indécise, le défenseur quand
@@ -291,7 +399,8 @@ export function trailingSide(front) {
   return null;
 }
 
-// Au matin du 7e jour : nouveau tirage, et les unités des cartes gardées rejoignent derrière le front.
+// Au matin du 7e jour : nouveau tirage, et les unités des cartes gardées rejoignent derrière le front (le joueur
+// choisit d'abord les siennes, puis la bataille des airs reprend).
 export function reinforceAtouts(front) {
   const A = front.atouts;
   if (!A || A.round >= 1) return;
@@ -300,30 +409,14 @@ export function reinforceAtouts(front) {
   const kept = [0, 1].map((s) => {
     const hand = drawHand(front, s, 1, s === trail ? ATOUT_RULES.trailing : 0);
     A.hands[s] = hand;
+    if (manual(front, s)) { A.pending[s] = true; return []; }
     return chooseCards(front, s, hand, ATOUT_RULES.keep[1]);
   });
   A.kept = [0, 1].map((s) => [...A.kept[s], ...kept[s]]);
   const forces = forcesOf(front, kept);
-  // Numéros à la suite, et noms distincts de ceux déjà sur la carte (on avance le premier nombre du nom).
-  const renumber = (list, old) => {
-    let id = Math.max(0, ...old.map((u) => u.id)) + 1;
-    const names = new Set(old.map((u) => u.name));
-    for (const u of list) {
-      u.id = id++;
-      while (names.has(u.name)) u.name = nextName(u.name);
-      names.add(u.name);
-    }
-    return list;
-  };
-  front.guns.push(...renumber(createGuns(front, forces.map((f) => f.guns)), front.guns));
-  front.armor.push(...renumber(createArmor(front, armorLists(front, forces)), front.armor));
-  front.aa.push(...renumber(createAA(front, forces.map((f) => f.aa)), front.aa));
-  front.support.push(...renumber(createSupport(front, forces.map((f) => f.support)), front.support));
-  refreshZones(front);
-  addSpecial(front, forces.map((f) => f.special));
-  for (const s of [0, 1]) front.pontoons[s] += forces[s].pontoons;
-  front.cfg.sorties = front.cfg.sorties.map((n, s) => n + forces[s].sorties);
-  if (front.airWar) fightAirWar(front, forces.map((f) => f.air), 1); // la bataille des airs reprend
-  A.assault = A.assault.map((v, s) => Math.max(v, forces[s].assault));
+  applyForces(front, forces, 1);
+  A.airBonus = forces.map((f) => f.air);
+  if (A.pending.some(Boolean)) A.airPending = !!front.airWar;
+  else if (front.airWar) fightAirWar(front, A.airBonus, 1); // la bataille des airs reprend
   logDeal(front, kept, 1);
 }

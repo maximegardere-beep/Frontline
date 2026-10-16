@@ -18,7 +18,7 @@ import { createArmor, armorAfter, armorNight, updateArmorSightings, ARMOR_SETUP 
 import { WORKS, initWorks, defenderBelt, barrageWorks, captureWorks, buildTick, trenchFor } from './frontworks.js';
 import { initScore, eveningScore, noteCapture, scoreBreakdown, GRADES } from './frontscore.js';
 import { createAA, airTick, updateAASightings, airNight } from './frontair.js';
-import { dealAtouts, reinforceAtouts, ATOUT_RULES } from './frontatout.js';
+import { dealAtouts, reinforceAtouts, autoConfirm, endPlacement, ATOUT_RULES } from './frontatout.js';
 import { createSupport, refreshZones, supportDawn, supportTick, supportNight, updateSupportSightings, applySappers } from './frontbattalion.js';
 import { fightAirWar } from './frontairwar.js';
 import { initSpecial, addSpecial, salvoTick, dropTick, applyStrong, removeSpecial, specialNight } from './frontspecial.js';
@@ -192,7 +192,8 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
     cfg.special = deal.special;
     cfg.airBase = cfg.sorties.slice(); // sorties de l'année : force aérienne de base
     cfg.sorties = cfg.sorties.map((n, s) => n + deal.sorties[s]);
-    if (cfg.airWar !== false) fightAirWar(front, deal.air, 0); // bataille des airs (frontairwar.js)
+    // Bataille des airs (frontairwar.js) ; avec le tirage du joueur, après son choix (confirmAtouts).
+    if (cfg.airWar !== false && !front.atouts.airPending) fightAirWar(front, deal.air, 0);
   } else {
     // Moyens de rupture de l'attaquant : groupes d'artillerie et sorties aériennes en plus (la défense, renforcée, ne
     // cède qu'à des feux concentrés ; combat.js, choc).
@@ -818,6 +819,8 @@ function updateMemory(front) {
 // Fin du plan : l'IA donne ses ordres (en même temps que le joueur, sans les voir), puis la journée commence.
 export function beginDay(front) {
   if (front.phase !== 'plan') return;
+  // Tirage resté sans réponse, déploiement non terminé : choix automatique, unités en place.
+  for (const s of [0, 1]) { autoConfirm(front, s); endPlacement(front, s); }
   for (const s of [0, 1]) if (s !== front.playerSide) front.planAI?.(front, s);
   for (const s of [0, 1]) {
     for (const p of front.pockets[s]) {

@@ -5,7 +5,8 @@
 // pertinente autour du doigt (la plus garnie au contact pour un vecteur, la plus proche pour une ligne) : nul besoin
 // de viser une case précise. Sans outil, toucher la carte donne une estimation des forces dans la zone.
 
-import { ATOUTS, RARITY_LABEL, ATOUT_RULES, cardText } from './frontatout.js';
+import { ATOUTS, RARITY_LABEL, ATOUT_RULES, cardText, confirmAtouts, chooseCards, placeable, placeUnit, endPlacement } from './frontatout.js';
+import { drawHtml, airWarHtml as airWarDossier, playAirWar, roundText, verdictText } from './frontdeck.js';
 import { airStatus } from './frontairwar.js';
 import {
   createFront, beginDay, stepTick, addVector, engagement, addLine, setLineLevel, addBarrage, removeOrder, deployReserve, undoDeployment,
@@ -74,6 +75,8 @@ const fui = {
   aaSel: null, // id de la batterie de DCA sélectionnée (le prochain appui la déplace)
   hqSel: false, // poste de commandement sélectionné (le prochain appui fixe sa nouvelle position)
   supSel: null, // id du bataillon de soutien sélectionné (le prochain appui fixe sa nouvelle position)
+  placing: false, // déploiement des unités du tirage (avant le jour 1, au matin du 7e)
+  place: null, // unité à placer sélectionnée : { kind, id }
   armor: null, // id de la formation blindée sélectionnée (outil Blindés : le prochain appui fixe son objectif)
   hoverPoint: null,
   probe: null, // estimation au toucher : { x, y, r }
@@ -112,7 +115,7 @@ export function openFront(sideCode, seed, year = DEFAULT_YEAR) {
   const attacker = rng.weighted(sc.attacker);
   const biome = rng.weighted({ steppe: 22, bocage: 16, polesie: 12, bourg: 12, montagne: 12, foret: 12, fleuve: 14 });
   const season = rng.weighted(sc.seasons);
-  const front = createFront({ seed, playerSide: sideCode, attacker, biome, season: Number(season), year });
+  const front = createFront({ seed, playerSide: sideCode, attacker, biome, season: Number(season), year, setup: { atoutsManual: true } });
   installAI(front);
   Object.assign(fui, { front, seed, side: sideIndex(sideCode), tool: null, pending: null, breakout: null, probe: null, alerts: [], acc: 0, skip: false, ending: false, showAll: false, tab: 'orders', hoverPoint: null });
   fui.r.setMap(front);
@@ -220,12 +223,13 @@ function showFrontBriefing() {
       </section>
     </div>
     <div class="row-end"><button class="btn btn-primary" id="f-start">Prendre le commandement</button></div>
-  `, () => byId('f-start').addEventListener('click', () => { fui.hooks.hideDossier(); setHint(TOOLS_HELP()); refreshFront(); }));
+  `, () => byId('f-start').addEventListener('click', () => { fui.hooks.hideDossier(); setHint(TOOLS_HELP()); afterBriefing(); }));
 }
 
 // Cartes gardées du joueur (atouts tirés avant la bataille).
 function atoutsHtml(f, s) {
   if (!f.atouts) return '';
+  if (f.atouts.pending[s]) return `<h2>Vos atouts</h2><p>Après ce briefing, vous tirerez ${f.atouts.hands[s].length} cartes du paquet de l'${f.attacker === s ? 'attaquant' : 'défenseur'} et en garderez ${ATOUT_RULES.keep[0]} : artillerie, blindés, génie, aviation… Puis la bataille des airs, et vous placerez vos unités.</p>`;
   return `<h2>Vos atouts</h2>
     <ul class="atouts">${f.atouts.kept[s].map((c) => `<li><b>${escHtml(ATOUTS[c.key].label)}</b> <span class="muted">${RARITY_LABEL[c.rarity].toLowerCase()}</span> : ${escHtml(cardText(f, s, c))}</li>`).join('')}</ul>
     <p class="muted small">Tirés au sort selon votre rôle et l'année, déjà en place. Nouveau tirage au matin du ${ATOUT_RULES.day}e jour.</p>
@@ -236,11 +240,144 @@ function atoutsHtml(f, s) {
 function airWarHtml(f, s) {
   const w = f.airWar;
   if (!w) return '';
+  if (f.atouts?.airPending) return '';
   const st = airStatus(f, s);
   const verdict = st === 'sup' ? 'Vous avez la suprématie aérienne : toutes vos sorties volent.' : st === 'lost' ? 'Le ciel est à l\'ennemi : plus aucune sortie pour vous ; votre DCA tire toujours.' : 'Ciel disputé : chaque camp ne garde que la moitié de ses sorties.';
   return `<h2>Bataille des airs</h2>
     <p>${verdict}</p>
     <p class="muted small">Chasseurs engagés : ${w.start[s]} contre ${w.start[1 - s]}. Manches (touches) : ${w.rounds.map((r) => `${r.hits[s]}–${r.hits[1 - s]}`).join(', ')}. Elle reprend au matin du ${ATOUT_RULES.day}e jour.</p>`;
+}
+
+// ---------- Tirage, bataille des airs, déploiement ----------
+
+// Après le briefing (et au matin du 7e jour) : tirage s'il attend, sinon déploiement s'il reste à faire.
+function afterBriefing() {
+  const f = fui.front, s = fui.side;
+  if (f.atouts?.pending[s]) return showDraw();
+  if (placeable(f, s).length) return startPlacement();
+  refreshFront();
+}
+
+function showDraw() {
+  const f = fui.front, s = fui.side;
+  const keep = ATOUT_RULES.keep[f.atouts.round];
+  const chosen = new Set();
+  fui.hooks.showDossier(drawHtml(f, s), () => {
+    const sync = () => {
+      document.querySelectorAll('[data-card]').forEach((b) => b.setAttribute('aria-pressed', String(chosen.has(b.dataset.card))));
+      byId('f-deck-n').textContent = chosen.size;
+      byId('f-deck-ok').disabled = chosen.size !== keep;
+    };
+    document.querySelectorAll('[data-card]').forEach((b) => b.addEventListener('click', () => {
+      const id = b.dataset.card;
+      if (chosen.has(id)) chosen.delete(id);
+      else if (chosen.size < keep) chosen.add(id);
+      sound.ui('select');
+      sync();
+    }));
+    byId('f-deck-auto').addEventListener('click', () => {
+      chosen.clear();
+      for (const c of chooseCards(f, s, f.atouts.hands[s], keep)) chosen.add(c.id);
+      sound.ui('select');
+      sync();
+    });
+    byId('f-deck-ok').addEventListener('click', () => {
+      const r = confirmAtouts(f, s, [...chosen]);
+      if (r.error) return;
+      sound.ui('order');
+      resnap();
+      if (r.airWar) showAirWar(r.airWar);
+      else startPlacement();
+    });
+  });
+}
+
+function showAirWar(w) {
+  const s = fui.side;
+  fui.hooks.showDossier(airWarDossier(fui.front, s, w), () => {
+    const list = byId('f-air-rounds');
+    const anim = playAirWar(byId('f-dogfight'), w, s, {
+      sound,
+      still: stillMotion(),
+      onRound: (k) => { const li = document.createElement('li'); li.textContent = roundText(w.rounds[k], s, k); list.append(li); },
+      onEnd: () => {
+        const v = byId('f-air-verdict');
+        v.textContent = verdictText(w, s);
+        v.hidden = false;
+        byId('f-air-skip').hidden = true;
+        byId('f-air-ok').hidden = false;
+        sound.ui('bell');
+      },
+    });
+    byId('f-air-skip').addEventListener('click', () => anim.skip());
+    byId('f-air-ok').addEventListener('click', () => { anim.skip(); startPlacement(); });
+  });
+}
+
+// Déploiement : les unités du tirage (et le PC avant la bataille) se posent où l'on veut dans ses lignes.
+function startPlacement() {
+  const f = fui.front, s = fui.side;
+  fui.hooks.hideDossier();
+  if (!placeable(f, s).length) { endPlacement(f, s); fui.placing = false; return refreshFront(); }
+  fui.placing = true;
+  fui.place = null;
+  fui.tool = null;
+  setHint('Déploiement : touchez une unité (ou son nom dans le bandeau), puis sa position dans vos lignes.');
+  refreshFront();
+}
+
+function finishPlacement() {
+  const f = fui.front;
+  endPlacement(f, fui.side);
+  fui.placing = false;
+  fui.place = null;
+  fui.gun = null; fui.aaSel = null; fui.hqSel = false; fui.supSel = null; fui.armor = null;
+  resnap();
+  placed('Déploiement terminé : à vos ordres.');
+  refreshFront();
+}
+
+// Sélection d'une unité à placer : on réutilise la mise en valeur des sélections ordinaires (rayon, zone, cône).
+function selectPlace(item) {
+  fui.place = item ? { kind: item.kind, id: item.id } : null;
+  fui.gun = item?.kind === 'gun' ? item.id : null;
+  fui.armor = item?.kind === 'armor' ? item.id : null;
+  fui.aaSel = item?.kind === 'aa' ? item.id : null;
+  fui.supSel = item?.kind === 'support' ? item.id : null;
+  fui.hqSel = item?.kind === 'hq';
+  if (item) { sound.ui('select'); setHint(`${item.label} : touchez sa position.`); }
+  refreshFront();
+}
+
+function placingTap(p) {
+  const f = fui.front, s = fui.side;
+  const items = placeable(f, s);
+  const near = (it) => { const u = it.kind === 'strong' ? { x: f.centers.x[it.u.i], y: f.centers.y[it.u.i] } : it.u; return Math.hypot(u.x - p.x, u.y - p.y); };
+  const hit = items.filter((it) => near(it) < reach() * 1.4).sort((a, b) => near(a) - near(b))[0];
+  const same = (it) => it && fui.place && it.kind === fui.place.kind && it.id === fui.place.id;
+  if (!fui.place) { if (hit) selectPlace(hit); return; }
+  if (same(hit)) { selectPlace(null); setHint(TOOLS_HELP()); return; }
+  if (hit && near(hit) < reach() * 0.8) return selectPlace(hit); // tout près d'une autre unité : on la prend
+  let to = { x: p.x, y: p.y };
+  if (fui.place.kind !== 'strong' && f.owner[cellAtPoint(f, to)] !== s) { const j = pickNear(p, 'reserve'); if (j >= 0) to = cellPoint(j); }
+  const r = placeUnit(f, s, fui.place.kind, fui.place.id, to);
+  if (fail(r)) return refreshFront();
+  placed(`${items.find((it) => it.kind === fui.place.kind && it.id === fui.place.id)?.label ?? 'Unité'} : en place.`);
+  selectPlace(null);
+}
+
+function renderDeploy() {
+  const f = fui.front, s = fui.side;
+  const bar = byId('f-deploy');
+  bar.hidden = !(fui.placing && f.phase === 'plan');
+  if (bar.hidden) return;
+  byId('f-deploy-list').innerHTML = placeable(f, s).map((it) => `<button class="dchip" data-place="${it.kind}:${it.id}" aria-pressed="${fui.place?.kind === it.kind && fui.place?.id === it.id}">${escHtml(it.label)}</button>`).join('');
+  bar.querySelectorAll('[data-place]').forEach((b) => b.addEventListener('click', () => {
+    const [kind, id] = b.dataset.place.split(':');
+    const it = placeable(f, s).find((x) => x.kind === kind && x.id === Number(id));
+    if (fui.place?.kind === kind && fui.place?.id === Number(id)) selectPlace(null);
+    else selectPlace(it);
+  }));
 }
 
 // Barre d'aide muette par défaut : elle ne parle que pour une consigne courte, une erreur ou une estimation.
@@ -255,6 +392,7 @@ export function frontRules() {
         <li><b>Masses.</b> Plus d'unités : chaque camp est une masse de troupes, plus sombre où elle est dense. Le trait noir est le front. Hors de vue, l'ennemi n'est qu'une estimation estompée.</li>
         <li><b>Le matin.</b> Le jeu est en pause. Donnez autant de vecteurs d'infanterie ou de repli que vous voulez : les troupes autour du départ s'y engagent et poussent vers la cible. Un vecteur draine son voisinage : là où il prend, le front se dégarnit, et deux vecteurs proches se partagent les mêmes hommes. La jauge « Troupes engagées » plafonne à ${Math.round((fui.front?.cfg.engageCap ?? 0.6) * 100)} % : au-delà, tous vos vecteurs sont réduits d'autant.</li>
         <li><b>Outils.</b> Infanterie : large, lente, tenace. Blindés : vos formations (divisions de Panzer, corps blindés), visibles sur la carte ; touchez-en une puis son objectif. Elle rejoint le front par vos lignes (vite sur route, mal en forêt, jamais à travers une rivière sans pont), perce, dépose ses grenadiers dans les cases prises et exploite ; riposte, hérissons, villes et forêts lui coûtent des chars, elle consomme du carburant, se refait la nuit si elle est ravitaillée, et meurt encerclée. Repli ordonné : les troupes décrochent avec moins de pertes. Fixer : une bande large qui presse l'ennemi sans chercher à prendre, à pertes réduites de moitié ; toute case ennemie pressée (par une fixation ou une attaque) ne peut plus envoyer ses troupes ailleurs et appelle des renforts : fixez un secteur pour percer à côté. Bataillons de soutien (atout du défenseur) : posés en arrière, ils retranchent le secteur du front devant eux, d'autant plus qu'ils restent en place : tranchées le premier jour (défense de l'infanterie, à moitié pour qui les prend), barbelés ensuite (l'assaut d'infanterie qui les traverse s'use), puis hérissons antichar (les chars y perdent élan et vitesse), jusqu'au niveau de leur carte ; trois fois plus lent au contact de l'ennemi. Touchez-en un puis sa nouvelle position : il s'y rend de nuit et recommence par des tranchées ; les ouvrages faits restent. Barbelés et hérissons gênent quiconque les traverse, dans les deux sens. Canons antichar (atout du défenseur) : ils tirent dans un cône face au contact, sur les seuls blindés, qu'ils déciment et freinent ; deux ou trois barrages ou chasses aériennes en viennent à bout. Un barrage les détruit (l'artillerie lourde vient seule à bout des hérissons) et fait sauter les ponts ; les ruines restent sur la carte. Rivières : infranchissables hors des ponts (sauf gelées) ; Pont (G) : le génie jette un pont de bateaux la nuit depuis votre rive, deux par bataille, qu'un barrage ou une frappe aérienne coule. Ruisseaux : ils ralentissent et donnent +15 % au défenseur. Barrage : une zone pilonnée au début de la journée, même dans le brouillard, par un groupe d'artillerie qui l'a à portée (une mission par groupe et par jour). Sans feux, un assaut piétine et se paie cher : barrages et frappes aériennes ébranlent les défenseurs (défense, riposte et tenue fondent), d'autant plus qu'ils tombent au même endroit, puis l'effet s'efface en quelques heures. Préparez le point de départ de vos attaques au barrage (lever du jour) et à l'aviation (fin de matinée). Pendant la journée, un officier qui appelle « SOS » en morse signale un de vos secteurs qui craque. Artillerie : touchez un groupe puis sa destination ; en batterie il tire à 100 %, en appui mobile à 40 %, en déplacement pas du tout. Sans mission, il frappe les assaillants à sa portée ; un groupe dont la position tombe est perdu. Réserves : chaque appui fait monter des renforts en ligne.</li>
+        <li><b>Atouts et déploiement.</b> Après le briefing, tirez ${ATOUT_RULES.hand[0]} cartes du paquet de votre rôle et gardez-en ${ATOUT_RULES.keep[0]} ; au matin du ${ATOUT_RULES.day}e jour, ${ATOUT_RULES.hand[1]} (une de plus si vous êtes mené aux points), et gardez-en ${ATOUT_RULES.keep[1]}. Leurs unités sont posées d'office ; pendant le déploiement, touchez-en une (ou son nom dans le bandeau) puis sa position dans vos lignes, avec votre PC avant la bataille ; un point d'appui se place sur une de vos villes.</li>
         <li><b>Bataille des airs.</b> Avant le premier jour, et de nouveau au matin du ${ATOUT_RULES.day}e, les chasseurs des deux camps se disputent le ciel en trois manches de dés : la force de chaque camp (sorties de l'année, cartes de chasseurs et de soutien aérien) donne autant de dés, qui touchent sur 5+ ; qui touche le plus gagne la manche et abat un avion adverse. Deux manches gagnées : la suprématie, toutes vos sorties volent et l'ennemi n'en a plus. À égalité, ciel disputé : la moitié des sorties de chacun. La DCA tire quel que soit le ciel.</li>
         <li><b>Atouts ponctuels.</b> Génie d'assaut (attaquant) : posé juste derrière le contact, il rase les barbelés et obstacles antichar ennemis dans son rayon, et vos troupes y avancent plus vite ; il se déplace de nuit, comme un bataillon. Lance-roquettes (attaquant) : outil Salve (R), une zone large écrasée au lever du jour, une ou deux fois par bataille. Parachutistes (attaquant) : outil Paras (L), un largage au lever du jour jusqu'à ${Math.round(SPECIAL.drop.reach / 1.73)} cases derrière les lignes ennemies ; l'îlot pris est coupé de ses arrières et fond comme une poche tant que vous ne l'avez pas rejoint ; posé sur un pont, il le tient ; sur le PC ennemi, il le prend. Point d'appui (défenseur) : une ville ★ exposée, retranchée d'avance, à la défense multipliée ; contournée, elle risque l'encerclement.</li>
         <li><b>Poste de commandement.</b> Votre PC (tente à antenne) coordonne les troupes dans son rayon : attaque, défense et vitesse y gagnent jusqu'à 10-15 %, d'autant plus près de lui et que sa liaison est bonne. Touchez-le puis sa nouvelle position : un saut court se fait de nuit, un long déplacement de jour le désorganise. Barrages et frappes aériennes sur lui coupent ses liaisons (la nuit les rétablit) ; désorganisé, il ne coordonne plus, l'état-major ne regroupe plus la nuit, moins de troupes s'engagent et vos vecteurs ne partent qu'à midi. Pris, il devient un malus et l'ennemi lit vos documents (vos blindés, une journée) ; reprenez sa case pour le récupérer, sinon un PC de secours s'installe à l'arrière après deux nuits.</li>
@@ -325,7 +463,7 @@ function showDayReport() {
     if (f.phase === 'over') return showFrontDebrief();
     fui.hooks.hideDossier();
     sound.ui('select');
-    refreshFront();
+    afterBriefing(); // au matin du 7e jour : tirage des renforts, bataille des airs, déploiement
   }));
 }
 
@@ -431,6 +569,7 @@ function onTap(p) {
   const f = fui.front;
   if (!f || !byId('overlay').hidden) return;
   const s = fui.side;
+  if (fui.placing && f.phase === 'plan') return placingTap(p);
   if (f.phase === 'plan' && !fui.tool && !fui.breakout) {
     // Poste de commandement : le toucher le sélectionne ; l'appui suivant fixe sa nouvelle position.
     const hq = hqNear(p);
@@ -768,6 +907,7 @@ function launchDay() {
   if (!f || !byId('overlay').hidden) return;
   if (f.phase === 'over') return showFrontDebrief();
   if (f.phase === 'resolve') { fui.skip = true; return refreshFront(); }
+  if (fui.placing) return finishPlacement(); // le premier appui termine le déploiement
   fui.tool = null;
   fui.pending = null;
   fui.breakout = null;
@@ -1025,10 +1165,11 @@ function refreshFront() {
   fui.weather.set(f.weather, 'day');
   sound.setWeather(f.weather, f.season <= 1); // juillet, août : la steppe en été
   const go = byId('f-go');
-  byId('f-go-label').textContent = f.phase === 'plan' ? `Lancer le jour ${f.day}` : 'Rapport final';
+  byId('f-go-label').textContent = fui.placing && f.phase === 'plan' ? 'Terminer le déploiement' : f.phase === 'plan' ? `Lancer le jour ${f.day}` : 'Rapport final';
   go.title = f.phase === 'plan' ? `Lancer le jour ${f.day} (Entrée)` : 'Rapport final';
   go.setAttribute('aria-label', go.title);
   renderTools();
+  renderDeploy();
   renderClock();
   document.querySelectorAll('[data-ftab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.ftab === fui.tab)));
   document.querySelectorAll('[data-fpanel]').forEach((p) => p.classList.toggle('active', p.dataset.fpanel === fui.tab));
@@ -1070,7 +1211,7 @@ function used(tool) {
 function renderTools() {
   const f = fui.front;
   const bar = byId('f-tools');
-  bar.hidden = f.phase !== 'plan';
+  bar.hidden = f.phase !== 'plan' || fui.placing;
   if (bar.hidden) return;
   engagement(f, fui.side); // jauge des troupes engagées (compteur des outils Infanterie et Repli)
   for (const b of bar.querySelectorAll('[data-tool]')) {
@@ -1311,6 +1452,7 @@ function bind() {
   byId('f-skip').addEventListener('click', () => { fui.skip = true; renderClock(); });
   byId('f-help').addEventListener('click', showHelp);
   byId('f-menu').addEventListener('click', () => fui.hooks.showMenu());
+  byId('f-deploy-done').addEventListener('click', finishPlacement);
   document.querySelectorAll('[data-ftab]').forEach((b) => b.addEventListener('click', () => {
     // En portrait, toucher l'onglet déjà ouvert replie le tiroir.
     setCollapsed(fui.tab === b.dataset.ftab && !byId('f-side').classList.contains('collapsed'));
