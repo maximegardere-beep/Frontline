@@ -9,7 +9,21 @@ export const TERRAIN = {
   forest: { label: 'Forêt', cost: 4, def: 1, conceal: true },
   marsh: { label: 'Marais', cost: 6, def: 0, conceal: false },
   village: { label: 'Village', cost: 2, def: 2, conceal: true },
+  // Ville tactique (urbangen.js). urban : couvert de ville (corps à corps contre les chars, moral) ; wood : brûle.
+  street: { label: 'Rue', cost: 2, def: 0, conceal: false },
+  building: { label: 'Maisons en pierre', cost: 3, def: 3, conceal: true, urban: true },
+  isba: { label: 'Isbas', cost: 2, def: 1, conceal: true, urban: true, wood: true },
+  garden: { label: 'Jardins', cost: 2, def: 0, conceal: false },
+  strong: { label: 'Point fort', cost: 3, def: 4, conceal: true, urban: true },
 };
+
+// Chars en ville : ils ne traversent pas les pâtés de maisons (sinon au pas, en défonçant les murs), ni les gravats
+// qui bouchent une rue.
+const TANK_URBAN = { building: 8, isba: 4, strong: 12, garden: 3 };
+export const RUBBLE = { infantry: 2, tank: 12 }; // surcoût d'une rue encombrée de gravats
+
+// Couvert urbain : maisons, isbas, point fort, ou leurs ruines.
+export const isUrban = (t) => !!t && (TERRAIN[t.terrain].urban || (t.ruined && t.terrain !== 'village'));
 
 export const ELEV_LABELS = ['Bas-fond', 'Plaine', 'Collines', 'Hauteurs'];
 
@@ -28,9 +42,11 @@ export function roadEdgeKey(map, a, b) {
 export function moveCost(map, from, to, unitType) {
   const t = tileAt(map, to.col, to.row);
   const f = tileAt(map, from.col, from.row);
-  if (map.roadEdges.has(roadEdgeKey(map, from, to))) return 1;
+  if (map.roadEdges.has(roadEdgeKey(map, from, to)) && !t.rubble) return 1;
   let c = TERRAIN[t.terrain].cost;
-  if (t.ruined) c = unitType === 'tank' ? 6 : 4; // décombres
+  if (unitType === 'tank' && TANK_URBAN[t.terrain]) c = TANK_URBAN[t.terrain];
+  if (t.ruined) c = unitType === 'tank' ? Math.max(6, TANK_URBAN[t.terrain] ?? 0) : 4; // décombres
+  if (t.rubble) c += unitType === 'tank' ? RUBBLE.tank : RUBBLE.infantry;
   if (t.craters && (t.terrain === 'plain' || t.terrain === 'farm')) c += 1; // champ criblé de trous d'obus
   if (unitType === 'tank' && t.terrain === 'forest') c = 6;
   if (unitType === 'tank' && t.terrain === 'marsh') c = 8;
@@ -52,11 +68,12 @@ export function terrainDefense(tile, unitType = null) {
 }
 
 export function describeTile(tile) {
-  const parts = [TERRAIN[tile.terrain].label + (tile.frozen && tile.terrain === 'marsh' ? ' gelé' : '')];
+  const parts = [tile.label ? tile.label[0].toUpperCase() + tile.label.slice(1) : TERRAIN[tile.terrain].label + (tile.frozen && tile.terrain === 'marsh' ? ' gelé' : '')];
   if (tile.name) parts[0] += ` de ${tile.name}`;
+  if (tile.rubble) parts.push('gravats');
   if (tile.ruined) parts[0] += ' en ruines';
   if (tile.fire > 0) parts[0] += ' en feu';
-  if (tile.burnt) parts[0] = 'Forêt brûlée';
+  if (tile.burnt) parts[0] = tile.terrain === 'isba' ? 'Isbas incendiées' : 'Forêt brûlée';
   if (tile.craters && (tile.terrain === 'plain' || tile.terrain === 'farm')) parts.push('cratères');
   if (tile.river) parts.push(tile.road ? 'pont' : tile.frozen ? `${tile.stream ? 'ruisseau' : 'rivière'} gelé${tile.stream ? '' : 'e'}` : tile.ford ? 'gué' : tile.stream ? 'ruisseau' : 'rivière');
   else if (tile.road) parts.push('route');

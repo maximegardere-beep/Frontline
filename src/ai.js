@@ -1,11 +1,11 @@
 // IA de l'état-major adverse. Elle ne voit que ce que voient ses unités (brouillard + mémoire)
 // et anticipe les mouvements ennemis à partir des dernières observations.
 
-import { hexDistance, neighborCoords } from './hex.js';
+import { hexDistance, neighborCoords, sameHex } from './hex.js';
 import { tileAt, terrainDefense, TERRAIN } from './terrain.js';
 import { unitStats, other, UNIT_TYPES } from './units.js';
 import { reachable, pathFrom, hexKey, keyHex } from './path.js';
-import { active, onMap, predictPosition, retreatCol } from './game.js';
+import { active, onMap, predictPosition, retreatCol, callFire, fireLeft, barrageZone } from './game.js';
 
 const VALUE = { infantry: 2, recon: 1, artillery: 3, tank: 4, at: 3 };
 
@@ -195,5 +195,29 @@ export function planSide(state, side, { directives = null, fixed = null, rng = s
     if (best.col === u.col && best.row === u.row) u.orders.entrench = true;
     else u.orders.path = pathFrom(map, reach, best);
   }
+  if (side !== state.playerSide) planFire(state, side);
   return { assignment };
+}
+
+// Bataille de rue : feux hors carte de l'IA. Tir d'appui sur l'ennemi vu qui vaut le plus ; barrage focalisé sur la
+// plus forte concentration ennemie connue, jamais là où sont ses propres unités, un tour sur trois au plus.
+export function planFire(state, side) {
+  if (state.kind !== 'ville' || !state.fire) return;
+  const own = state.units.filter((u) => u.side === side && onMap(u));
+  const known = Object.values(state.memory[side]).filter((m) => state.turn - m.turn <= 1 && m.status !== 'routed');
+  const seen = known.filter((m) => m.turn === state.turn && state.visibility[side]?.hexes.has(m.row * state.map.W + m.col));
+  if (fireLeft(state, side, 'support') > 0 && seen.length) {
+    const best = seen.reduce((a, b) => (VALUE[b.type] > VALUE[a.type] ? b : a));
+    callFire(state, side, 'support', best);
+  }
+  state.lastBarrage ??= { DE: -9, SU: -9 };
+  if (fireLeft(state, side, 'barrage') <= 0 || state.turn - state.lastBarrage[side] < 3) return;
+  let best = null, bv = 0;
+  for (const k of known) {
+    const zone = barrageZone(state, k);
+    if (own.some((u) => zone.some((h) => sameHex(h, u)))) continue;
+    const v = known.filter((o) => zone.some((h) => sameHex(h, o))).reduce((a, o) => a + VALUE[o.type], 0);
+    if (v > bv) { bv = v; best = k; }
+  }
+  if (best && bv >= 5 && !callFire(state, side, 'barrage', best).error) state.lastBarrage[side] = state.turn;
 }

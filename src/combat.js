@@ -1,7 +1,7 @@
 // Résolution du feu aux dés (d6) et tests de moral ; et, pour le mode Frontline stratégique,
 // la physique du front : flux de densité et pression différentielle (voir frontTick en fin de fichier).
 
-import { tileAt, terrainDefense, edgeFlow, flowFor, TOWN } from './terrain.js';
+import { tileAt, terrainDefense, edgeFlow, flowFor, TOWN, isUrban, TERRAIN } from './terrain.js';
 import { WORKS } from './frontworks.js';
 import { armorPressure, armorRiposte, armorRemaining } from './frontarmor.js';
 import { FATIGUE } from './frontsupply.js';
@@ -10,7 +10,8 @@ import { hexDistance, DIR_VECTORS } from './hex.js';
 import { unitStats } from './units.js';
 
 // Calcule le seuil de réussite (« touche sur X+ ») et le nombre de dés, avec le détail des modificateurs.
-export function fireOdds(map, attacker, target, { indirect = false, observed = true, salvo = false } = {}) {
+// focal : barrage focalisé en ville (game.js, callFire) : les maisons s'effondrent, le couvert ne protège pas.
+export function fireOdds(map, attacker, target, { indirect = false, observed = true, salvo = false, focal = false } = {}) {
   const sa = unitStats(attacker), st = unitStats(target);
   const ta = tileAt(map, attacker.col, attacker.row), tt = tileAt(map, target.col, target.row);
   const dist = hexDistance(attacker, target);
@@ -18,7 +19,7 @@ export function fireOdds(map, attacker, target, { indirect = false, observed = t
   const add = (v, why) => { if (v) mods.push({ v, why }); };
 
   add(-sa.hitBonus, 'élite');
-  add(terrainDefense(tt, target.type), tt.river && !tt.road && !tt.frozen ? (tt.stream ? 'dans le ruisseau' : 'dans la rivière') : `couvert (${tt.terrain === 'village' ? (tt.ruined ? 'ruines' : 'village') : tt.terrain === 'forest' ? 'forêt' : tt.craters ? 'cratères' : 'terrain'})`);
+  if (!focal) add(terrainDefense(tt, target.type), tt.river && !tt.road && !tt.frozen ? (tt.stream ? 'dans le ruisseau' : 'dans la rivière') : `couvert (${tt.ruined ? 'ruines' : tt.terrain === 'village' ? 'village' : tt.terrain === 'forest' ? 'forêt' : TERRAIN[tt.terrain].urban ? TERRAIN[tt.terrain].label.toLowerCase() : tt.craters ? 'cratères' : 'terrain'})`);
   add(target.entrench, 'retranchée');
   if (!indirect) {
     if (tt.elev > ta.elev) add(1, 'cible en hauteur');
@@ -27,8 +28,10 @@ export function fireOdds(map, attacker, target, { indirect = false, observed = t
   if ((attacker.movedHexes ?? 0) * 2 > sa.move) add(1, 'tireur en mouvement');
   if ((target.movedHexes ?? 0) >= 3 && (tt.terrain === 'plain' || tt.terrain === 'farm')) add(-1, 'cible à découvert en mouvement');
   if (st.armored && (attacker.type === 'infantry' || attacker.type === 'recon')) {
-    const close = dist <= 1 && (tt.terrain === 'forest' || tt.terrain === 'village');
+    const close = dist <= 1 && (tt.terrain === 'forest' || tt.terrain === 'village' || isUrban(tt) || isUrban(ta));
     add(close ? 0 : 2 - sa.antiArmor, 'cible blindée'); // Panzergrenadiers, Gardes : armes antichars
+    // Embuscade en ville : grenades, mines magnétiques, cocktails Molotov (Panzerfaust en 1943) depuis les maisons.
+    if (dist <= 1 && attacker.type === 'infantry' && isUrban(ta)) add(-1, 'embuscade en ville');
   }
   if (st.heavyArmor) add(st.heavyArmor, 'blindage épais');
   if (st.armored && attacker.type === 'artillery') add(1, 'blindage');
@@ -42,6 +45,7 @@ export function fireOdds(map, attacker, target, { indirect = false, observed = t
   if (attacker.type === 'artillery' && dist <= 1) dice = Math.max(1, Math.ceil(dice / 2)); // autodéfense
   if (salvo) dice = Math.max(1, Math.ceil((dice * 2) / 3)); // Katioucha : saturation, moins de coups par case
   if (st.armored) dice += sa.antitank; // canon antichar, 85 mm : obus perforants
+  if (focal) dice = 6;
   const crits = !(st.armored && (attacker.type === 'infantry' || attacker.type === 'recon'));
   return { threshold, dice, mods, crits };
 }
@@ -70,7 +74,7 @@ export function moraleCheck(map, unit, hpBefore, rng, { forced = false, isolated
   const mods = [];
   const add = (v, why) => { if (v) mods.push({ v, why }); };
   add(unit.entrench > 0 ? 1 : 0, 'retranchée');
-  add(t.terrain === 'village' || t.terrain === 'forest' ? 1 : 0, 'à couvert');
+  add(t.terrain === 'village' || t.terrain === 'forest' || isUrban(t) ? 1 : 0, 'à couvert');
   add(support ? 1 : 0, 'soutien retranché');
   add(isolated ? -1 : 0, 'isolée');
   add(pincer ? -1 : 0, 'prise en tenaille');

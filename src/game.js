@@ -4,7 +4,7 @@ import { createRng } from './rng.js';
 import { DEFAULT_CONDITIONS, WEATHER, effectiveVision } from './conditions.js';
 import { generateMap, neighbors } from './mapgen.js';
 import { hexDistance, hexToPixel, toCube, fromCube, sameHex } from './hex.js';
-import { tileAt, moveCost, hasLOS, TERRAIN } from './terrain.js';
+import { tileAt, moveCost, hasLOS, TERRAIN, isUrban } from './terrain.js';
 import { unitStats, other, UNIT_TYPES, hpState } from './units.js';
 import { fireOdds, rollFire, moraleCheck } from './combat.js';
 import { reachable, pathFrom, hexKey } from './path.js';
@@ -19,6 +19,16 @@ export function deployZone(state, side) {
   return side === 'DE' ? [0, 1, 2] : [W - 3, W - 2, W - 1];
 }
 
+// Zone de déploiement : trois colonnes au bord de son camp ; en bataille de rue, le défenseur se poste dans toute la
+// ville (et sur ses abords, jusqu'à deux hexagones), l'attaquant arrive par son bord.
+export function inDeployZone(state, side, t) {
+  const town = state.map.town;
+  if (state.kind === 'ville' && town && side === state.defender) {
+    return t.col >= town.c0 - 2 && t.col <= town.c1 + 2 && t.row >= town.r0 - 1 && t.row <= town.r1 + 1;
+  }
+  return deployZone(state, side).includes(t.col);
+}
+
 export function unitAt(state, h) {
   return state.units.find((u) => onMap(u) && u.col === h.col && u.row === h.row) ?? null;
 }
@@ -27,8 +37,10 @@ function strength(units) {
   return units.filter(active).reduce((s, u) => s + UNIT_TYPES[u.type].cost * (u.hp / unitStats(u).maxHp), 0);
 }
 
-export function createBattle({ seed, playerSide, armies, kind = 'rencontre', maxTurns = 12, title = null, conditions = DEFAULT_CONDITIONS }) {
-  const map = generateMap(seed, { objective: kind === 'assaut', biome: conditions.biome });
+// Bataille de rue (kind 'ville') : map fournie (urbangen.js), attacker ('DE' ou 'SU'), fire : feux hors carte de chaque
+// camp { DE: { barrage, support }, SU: … } (barrages focalisés et tirs d'appui, voir callFire).
+export function createBattle({ seed, playerSide, armies, kind = 'rencontre', maxTurns = 12, title = null, conditions = DEFAULT_CONDITIONS, map: given = null, attacker = null, fire = null }) {
+  const map = given ?? generateMap(seed, { objective: kind === 'assaut', biome: conditions.biome });
   // Météo : terrain lourd hors route, eau et marais gelés par la neige.
   const weather = WEATHER[conditions.weather];
   map.mud = weather.mud;
@@ -52,6 +64,13 @@ export function createBattle({ seed, playerSide, armies, kind = 'rencontre', max
     result: null,
     log: [],
   };
+  if (kind === 'ville') {
+    state.attacker = attacker ?? 'DE';
+    state.defender = other(state.attacker);
+    state.blocks = (map.blocks ?? []).map((b) => ({ ...b, owner: state.defender, contested: false }));
+    state.fire = { DE: { barrage: 0, support: 0, ...(fire?.DE ?? {}) }, SU: { barrage: 0, support: 0, ...(fire?.SU ?? {}) } };
+    state.calls = { DE: [], SU: [] };
+  }
   for (const u of state.units) {
     u.status = 'ok';
     u.entrench = 0;
@@ -72,11 +91,12 @@ export function createBattle({ seed, playerSide, armies, kind = 'rencontre', max
 
 export function canDeployAt(state, side, h) {
   const t = tileAt(state.map, h.col, h.row);
-  return !!t && deployZone(state, side).includes(h.col) && !unitAt(state, h) && !(t.river && !t.road);
+  return !!t && inDeployZone(state, side, t) && !unitAt(state, h) && !(t.river && !t.road);
 }
 
 // Déploiement automatique : reconnaissance et blindés devant, artillerie derrière, en privilégiant le bon terrain.
 export function autoDeploy(state, side) {
+  if (state.kind === 'ville') return autoDeployUrban(state, side);
   const { map, rng } = state;
   const cols = deployZone(state, side);
   const front = side === 'DE' ? cols[2] : cols[0];
@@ -328,12 +348,14 @@ export function executeTurn(state) {
     shots.push({ u, target, indirect, observed: true });
   }
 
+  if (state.calls) resolveCalls(state, shots, res, vis);
+
   const hpBefore = new Map(alive.map((u) => [u.id, u.hp]));
   const damageTaken = new Map();
   // Ce que chaque cible a subi : touches, barrage, coup critique, positions des tireurs en tir direct.
   const pressure = new Map();
-  for (const { u, target, indirect, observed, salvo: inSalvo } of shots) {
-    const odds = fireOdds(map, u, target, { indirect, observed, salvo: inSalvo });
+  for (const { u, target, indirect, observed, salvo: inSalvo, focal } of shots) {
+    const odds = fireOdds(map, u, target, { indirect, observed, salvo: inSalvo, focal });
     const r = rollFire(rng, odds);
     damageTaken.set(target.id, (damageTaken.get(target.id) ?? 0) + r.damage);
     const p = pressure.get(target.id) ?? { hits: 0, barrage: false, crit: false, from: [] };
@@ -410,6 +432,7 @@ export function executeTurn(state) {
   }
   applyTerrainDamage(state, res);
   updateObjective(state);
+  updateBlocks(state);
   updateVisibility(state, state.turn + 1); // vue préparée pour le tour suivant, à sa lumière
   for (const u of state.units) { u.startPos = null; u.movedHexes = 0; }
   checkVictory(state);
@@ -446,11 +469,12 @@ function applyTerrainDamage(state, res) {
     if (!wet) {
       for (const n of neighbors(map, t)) {
         const nt = tileAt(map, n.col, n.row);
-        if (nt.terrain === 'forest' && !nt.fire && rng.chance(1 / 3)) ignite.add(nt);
+        if (flammable(nt) && !nt.fire && rng.chance(1 / 3)) ignite.add(nt);
       }
     }
     if (--t.fire === 0) {
-      t.terrain = 'plain';
+      if (t.terrain === 'isba') t.ruined = true; // isbas réduites en cendres : des cheminées et des décombres
+      else t.terrain = 'plain';
       t.burnt = true;
       t.burntTurn = state.turn;
       changes.push({ col: t.col, row: t.row, kind: 'burnt' });
@@ -460,24 +484,34 @@ function applyTerrainDamage(state, res) {
     if (!f.indirect) continue;
     const t = tileAt(map, f.to.col, f.to.row);
     if (!t) continue;
-    t.shelled = (t.shelled ?? 0) + 1;
-    if (t.terrain === 'village' && !t.ruined && t.shelled >= RUIN_AFTER) {
+    t.shelled = (t.shelled ?? 0) + (f.weight ?? 1);
+    if (TERRAIN[t.terrain].wood && !t.ruined && !t.fire && !wet && rng.chance(f.barrage ? 0.6 : 1 / 3)) ignite.add(t);
+    else if ((t.terrain === 'village' || TERRAIN[t.terrain].urban) && !t.ruined && t.shelled >= RUIN_AFTER) {
       t.ruined = true;
       changes.push({ col: t.col, row: t.row, kind: 'ruins' });
-      log(state, 'terrain', `${t.name ?? 'Un pâté de maisons'} n'est plus qu'un champ de ruines.`);
+      if (t.terrain === 'village') log(state, 'terrain', `${t.name ?? 'Un pâté de maisons'} n'est plus qu'un champ de ruines.`);
+      // Ville : les façades s'écroulent dans les rues voisines ; les gravats arrêtent les chars.
+      if (t.terrain === 'building' || t.terrain === 'strong') {
+        for (const n of neighbors(map, t)) {
+          const nt = tileAt(map, n.col, n.row);
+          if (nt.terrain === 'street' && !nt.bridge && !nt.rubble && rng.chance(0.4)) { nt.rubble = true; changes.push({ col: nt.col, row: nt.row, kind: 'rubble' }); }
+        }
+      }
     } else if ((t.terrain === 'plain' || t.terrain === 'farm') && !t.craters && !t.river) {
       t.craters = true;
       changes.push({ col: t.col, row: t.row, kind: 'craters' });
     } else if (t.terrain === 'forest' && !t.fire && !wet && rng.chance(1 / 3)) ignite.add(t);
   }
   for (const t of ignite) {
-    if (t.terrain !== 'forest' || t.fire > 0) continue;
+    if (!flammable(t) || t.fire > 0) continue;
     t.fire = FIRE_TURNS;
     changes.push({ col: t.col, row: t.row, kind: 'fire' });
   }
-  if (ignite.size) log(state, 'terrain', ignite.size > 1 ? `L'incendie gagne ${ignite.size} parcelles de forêt.` : 'Une forêt prend feu.');
+  if (ignite.size) log(state, 'terrain', [...ignite].some((t) => t.terrain === 'isba') ? 'Des isbas prennent feu.' : ignite.size > 1 ? `L'incendie gagne ${ignite.size} parcelles de forêt.` : 'Une forêt prend feu.');
   res.terrain = changes;
 }
+
+const flammable = (t) => t.terrain === 'forest' || (TERRAIN[t.terrain].wood && !t.ruined);
 
 // Tenaille : deux tireurs en tir direct venus de directions opposées (écart d'au moins 120°).
 function pincered(u, shooters) {
@@ -541,6 +575,14 @@ export function checkVictory(state) {
   if (!de && !su) return end(null, 'Les deux camps sont hors de combat : match nul.');
   if (!de) return end('SU', 'Toutes les unités allemandes sont détruites ou en déroute.');
   if (!su) return end('DE', 'Toutes les unités soviétiques sont détruites ou en déroute.');
+  if (state.kind === 'ville') {
+    if (state.turn < state.maxTurns) return;
+    const share = cityShare(state);
+    const pct = Math.round(share * 100);
+    return share >= 0.5
+      ? end(state.attacker, `Fin des combats : l'attaquant tient ${pct} % de la ville.`)
+      : end(state.defender, `Fin des combats : le défenseur tient encore ${100 - pct} % de la ville.`);
+  }
   const o = state.objective;
   if (o && o.owner && o.hold >= HOLD_TO_WIN) return end(o.owner, `La position stratégique est tenue depuis ${o.hold} tours.`);
   if (state.turn >= state.maxTurns) {
@@ -553,3 +595,128 @@ export function checkVictory(state) {
 }
 
 export { neighbors };
+
+// ---------- Bataille de rue ----------
+
+// Déploiement en ville. Défenseur : infanterie dans les maisons et les points forts, face à l'attaquant ; antichar sur
+// la grand-rue, avec une enfilade vers l'attaquant ; le reste en retrait. Attaquant : chars sur la route, infanterie
+// de part et d'autre.
+function autoDeployUrban(state, side) {
+  const { map, rng } = state;
+  const town = map.town;
+  const units = state.units.filter((u) => u.side === side);
+  for (const u of units) { u.col = -10; u.row = -10; }
+  const facing = state.attacker === 'DE' ? -1 : 1; // le défenseur fait face au bord de l'attaquant
+  const order = ['infantry', 'at', 'tank', 'recon', 'artillery'];
+  units.sort((a, b) => order.indexOf(a.type) - order.indexOf(b.type));
+  units.forEach((u, k) => {
+    const wantRow = town.cy + Math.round(((k % 5) - 2) * (town.hh / 2.5));
+    let best = null, bestScore = -Infinity;
+    for (const t of map.tiles) {
+      if (!canDeployAt(state, side, t) || t.terrain === 'marsh') continue;
+      let score = -Math.abs(t.row - wantRow) * 0.5 + rng.next() * 0.6;
+      if (side === state.defender) {
+        const forward = (t.col - town.cx) * facing; // vers l'attaquant
+        if (u.type === 'infantry') score += TERRAIN[t.terrain].def * 1.2 + (isUrban(t) ? 1 : 0) + forward * 0.35;
+        else if (u.type === 'at') score += (t.terrain === 'street' && Math.abs(t.row - town.cy) <= 1 ? 3 : 0) + forward * 0.2 + (isUrban(t) ? 1 : 0);
+        else score += -forward * 0.3 + (isUrban(t) ? 0.5 : 0);
+      } else {
+        const depth = side === 'DE' ? t.col : map.W - 1 - t.col;
+        if (u.type === 'tank') score += (t.road ? 3 : 0) - Math.abs(t.row - town.cy) * 0.4 + depth * 0.2;
+        else score += depth * 0.4 + TERRAIN[t.terrain].def * 0.5 - (t.road ? 0.5 : 0);
+      }
+      if (score > bestScore) { bestScore = score; best = t; }
+    }
+    u.col = best.col;
+    u.row = best.row;
+  });
+}
+
+// Feux hors carte, ordonnés le matin du tour : barrage focalisé (l'hexagone et ses six voisins, toutes les unités qui
+// s'y trouvent, amies comprises ; les maisons s'effondrent) ou tir d'appui (une case vue, comme une batterie). Un de
+// chaque par tour au plus, dans la limite du stock de la bataille.
+export const FIRE_CALLS = {
+  barrage: { label: 'Barrage focalisé', dice: 6, shells: 2 },
+  support: { label: 'Tir d\'appui', dice: 4, shells: 1 },
+};
+
+export function fireLeft(state, side, kind) {
+  if (!state.fire) return 0;
+  return Math.max(0, state.fire[side][kind] - state.calls[side].filter((c) => c.kind === kind).length);
+}
+
+export function callFire(state, side, kind, h) {
+  if (state.kind !== 'ville' || !FIRE_CALLS[kind]) return { error: 'Pas de feux hors carte dans cette bataille.' };
+  if (!tileAt(state.map, h.col, h.row)) return { error: 'Hors de la carte.' };
+  state.calls[side] = state.calls[side].filter((c) => c.kind !== kind);
+  if (fireLeft(state, side, kind) <= 0) return { error: kind === 'barrage' ? 'Plus de barrage disponible.' : 'Plus de tir d\'appui disponible.' };
+  if (kind === 'support' && !state.visibility[side]?.hexes.has(h.row * state.map.W + h.col)) return { error: 'Le tir d\'appui vise une case que vous voyez.' };
+  const c = { kind, col: h.col, row: h.row };
+  state.calls[side].push(c);
+  return c;
+}
+
+export function cancelFire(state, side, kind) {
+  if (state.calls) state.calls[side] = state.calls[side].filter((c) => c.kind !== kind);
+}
+
+export const barrageZone = (state, h) => [h, ...neighbors(state.map, h)].filter((x) => tileAt(state.map, x.col, x.row));
+
+// Batterie fictive qui tire les feux hors carte : depuis son bord de carte, à hauteur de la cible.
+function offMapGun(state, side, h) {
+  const u = { id: `feu-${side}`, name: side === 'DE' ? 'Artillerie de corps' : 'Artillerie d\'armée', side, type: 'artillery', level: 2, xp: 0, xpGained: 0, col: retreatCol(state, side), row: h.row, entrench: 0, pinned: false, movedHexes: 0, offMap: true };
+  u.hp = unitStats(u).maxHp;
+  return u;
+}
+
+// Phase de combat : les feux hors carte des deux camps s'ajoutent aux tirs du tour.
+function resolveCalls(state, shots, res, vis) {
+  for (const side of ['DE', 'SU']) {
+    for (const c of state.calls[side]) {
+      state.fire[side][c.kind]--;
+      const gun = offMapGun(state, side, c);
+      const K = FIRE_CALLS[c.kind];
+      if (c.kind === 'support') {
+        const target = state.units.find((e) => e.side !== side && onMap(e) && sameHex(e, c));
+        if (target) shots.push({ u: gun, target, indirect: true, observed: true });
+        else res.fires.push({ attacker: gun.id, from: { col: gun.col, row: gun.row }, to: { col: c.col, row: c.row }, empty: true, indirect: true });
+        log(state, 'barrage', `${K.label} sur ${target ? target.name : 'une position vide'}.`, side);
+        continue;
+      }
+      const zone = barrageZone(state, c);
+      const hit = [];
+      for (const h of zone) {
+        res.fires.push({ attacker: gun.id, from: { col: gun.col, row: gun.row }, to: { col: h.col, row: h.row }, empty: true, indirect: true, barrage: true, weight: K.shells });
+        const target = state.units.find((e) => onMap(e) && sameHex(e, h));
+        if (target) { shots.push({ u: gun, target, indirect: true, observed: true, focal: true }); hit.push(target.name); }
+      }
+      log(state, 'barrage', `${K.label} : ${zone.length} hexagones pilonnés${hit.length ? ` (${hit.join(', ')})` : ''}.`, side);
+    }
+    state.calls[side] = [];
+  }
+  void vis;
+}
+
+// Îlots tenus : l'infanterie ou les chars d'un seul camp sur l'îlot le prennent ; disputé, il ne change pas de mains.
+function updateBlocks(state) {
+  for (const b of state.blocks ?? []) {
+    const sides = new Set();
+    for (const i of b.tiles) {
+      const col = i % state.map.W, row = Math.floor(i / state.map.W);
+      const u = state.units.find((x) => onMap(x) && x.status === 'ok' && x.col === col && x.row === row && (x.type === 'infantry' || x.type === 'tank'));
+      if (u) sides.add(u.side);
+    }
+    b.contested = sides.size > 1;
+    if (sides.size === 1) {
+      const s = [...sides][0];
+      if (s !== b.owner) log(state, 'objective', `${s === 'DE' ? 'La Wehrmacht' : 'L\'Armée rouge'} prend ${b.label}.`, s);
+      b.owner = s;
+    }
+  }
+}
+
+// Part de la ville (îlots pondérés) que tient l'attaquant.
+export function cityShare(state) {
+  const total = (state.blocks ?? []).reduce((a, b) => a + b.weight, 0);
+  return total ? state.blocks.filter((b) => b.owner === state.attacker).reduce((a, b) => a + b.weight, 0) / total : 0;
+}
