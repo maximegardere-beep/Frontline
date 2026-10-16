@@ -216,7 +216,7 @@ function showFrontBriefing() {
 // Barre d'aide muette par défaut : elle ne parle que pour une consigne courte, une erreur ou une estimation.
 const TOOLS_HELP = () => '';
 
-function frontRules() {
+export function frontRules() {
   const c = fui.front?.cfg ?? { maxVectors: 4, maxArmor: 2, maxLines: 2, days: 10 };
   return `
     <details class="rules">

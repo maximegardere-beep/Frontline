@@ -13,7 +13,7 @@ import { unitStats, UNIT_TYPES, LEVELS, SIDES, other, hpState, resetIds, XP_FOR_
 import { tileAt, describeTile, terrainDefense } from './terrain.js';
 import { hexDistance, hexToPixel, sameHex } from './hex.js';
 import { newCampaign, battleSetup, concludeBattle, campaignOver, campaignVerdict, CAMPAIGN_LENGTH, KIND_LABELS } from './campaign.js';
-import { initFront, openFront, closeFront, frontActive, frontAmbient } from './frontui.js';
+import { initFront, openFront, closeFront, frontActive, frontAmbient, frontRules } from './frontui.js';
 import { SCENARIOS, DEFAULT_YEAR } from './frontscenario.js';
 
 // Année du front stratégique choisie au menu (mémorisée).
@@ -21,6 +21,10 @@ function frontYear() {
   try { const y = Number(localStorage.getItem('frontline.front.year')); if (SCENARIOS[y]) return y; } catch { /* stockage indisponible */ }
   return DEFAULT_YEAR;
 }
+
+// Mode tactique (campagne de cinq batailles sur hexagones) débranché pour l'instant : le front stratégique est le
+// mode principal. Le code tactique reste intact ; repasser à true rétablit le menu, la démo de fond et les raccourcis.
+const TACTICAL_ENABLED = false;
 
 const $ = (id) => document.getElementById(id);
 const SAVE_KEY = 'frontline.campaign.v1';
@@ -95,7 +99,44 @@ const FACTION_TEXT = {
   SU: 'La masse et le feu. Bataillons de fusiliers plus résistants, artillerie plus lourde, effectifs supérieurs.',
 };
 
+// Menu du front stratégique, mode principal tant que le tactique est débranché.
+function showFrontMenu() {
+  const seed = Math.random().toString(36).slice(2, 7).toUpperCase();
+  showDossier(`
+    <p class="eyebrow">Front de l'Est · 1941-1944</p>
+    <h1 class="title-xl">Frontline</h1>
+    <p class="lede">Commandez tout un secteur pendant une offensive : des masses de troupes et une ligne de front continue. Chaque matin, tracez vos poussées, fixations, lignes de défense et barrages, lancez vos blindés ; puis la journée se déroule seule.</p>
+    <div class="seg front-year" role="group" aria-label="Année">${Object.entries(SCENARIOS).map(([y, sc]) => `<button class="btn btn-sm ${Number(y) === frontYear() ? 'on' : ''}" data-year="${y}" title="${sc.text.replace(/"/g, '&quot;')}">${sc.label}</button>`).join('')}</div>
+    <p class="muted small" id="front-year-text">${SCENARIOS[frontYear()].text}</p>
+    <div class="factions">
+      ${['DE', 'SU'].map((s) => `
+        <button class="faction faction-${s}" data-front="${s}">
+          <span class="faction-flag"></span>
+          <span class="faction-name">${SIDES[s].name}</span>
+          <span class="faction-country">${SIDES[s].country}</span>
+        </button>`).join('')}
+    </div>
+    <div class="row-between">
+      <label class="seed" for="seed">Graine <input id="seed" value="${seed}" maxlength="12" autocomplete="off"></label>
+      ${frontActive() ? '<button class="btn btn-primary" id="back">Retour au front</button>' : ''}
+    </div>
+    ${frontRules()}
+  `, () => {
+    $('back')?.addEventListener('click', hideDossier);
+    document.querySelectorAll('[data-front]').forEach((b) => b.addEventListener('click', () => {
+      ui.weather.set('clear', 'day');
+      openFront(b.dataset.front, $('seed').value.trim() || seed, frontYear());
+    }));
+    document.querySelectorAll('[data-year]').forEach((b) => b.addEventListener('click', () => {
+      try { localStorage.setItem('frontline.front.year', b.dataset.year); } catch { /* stockage indisponible */ }
+      document.querySelectorAll('[data-year]').forEach((x) => x.classList.toggle('on', x === b));
+      $('front-year-text').textContent = SCENARIOS[b.dataset.year].text;
+    }));
+  });
+}
+
 function showMenu() {
+  if (!TACTICAL_ENABLED) return showFrontMenu();
   const saved = loadSave();
   const seed = Math.random().toString(36).slice(2, 7).toUpperCase();
   showDossier(`
@@ -975,7 +1016,7 @@ function start() {
   window.addEventListener('keydown', (e) => {
     if (!$('overlay').hidden || e.target.tagName === 'INPUT') return;
     if (e.key === 'm' || e.key === 'M') return setMuted(!sound.muted);
-    if (frontActive()) return; // le front stratégique a ses propres raccourcis
+    if (frontActive() || !TACTICAL_ENABLED) return; // le front stratégique a ses propres raccourcis
     if (e.key === 'Enter') endPhase();
     else if (e.key === 'Escape') { if (ui.dirTool) { ui.dirTool = null; refresh(); } else select(null); }
     else if (e.key === 'd' || e.key === 'D') setCommand(!ui.command);
@@ -985,6 +1026,12 @@ function start() {
     else if (e.key === 'h' || e.key === 'H') setOrder('hold');
     else if (e.key === 'g' || e.key === 'G') $('grid-toggle').click();
   });
+  if (!TACTICAL_ENABLED) {
+    // Pas de démo tactique : le cadre du front stratégique attend derrière le menu.
+    $('tac-app').hidden = true;
+    $('front-app').hidden = false;
+    return showMenu();
+  }
   // Partie de démonstration en fond derrière le menu.
   resetIds();
   ui.campaign = newCampaign('DE', 'DEMO');

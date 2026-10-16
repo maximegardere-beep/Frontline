@@ -1,17 +1,13 @@
 # Frontline
 
-Mini-jeu de stratégie au tour par tour sur le front de l'Est, été 1943. Vous incarnez un officier
-qui commande un petit groupement tactique (allemand ou soviétique) au fil d'une campagne de cinq batailles,
-chacune sur un champ de bataille généré procéduralement.
+Jeu de stratégie sur le front de l'Est, de 1941 à 1944. Le mode principal est le **Front stratégique** : quinze
+jours d'offensive sur tout un secteur, où les unités laissent place à des masses de troupes et à une ligne de front
+continue. Chaque matin, on trace ses poussées (infanterie, blindés), replis, lignes de défense et barrages, on fait
+monter les réserves et on décide du sort des poches ; puis la journée se déroule seule, en une vingtaine de secondes.
 
-Le cœur du jeu : **planifier en même temps que l'adversaire**. Chaque tour, les deux camps tracent leurs
-ordres sans voir ceux de l'autre, puis tout s'exécute simultanément sans qu'on puisse intervenir.
-Il faut donc anticiper où l'ennemi sera, pas seulement où il est.
-
-Un second mode, **Front stratégique**, se lance depuis le menu : dix jours d'offensive sur tout un secteur,
-où les unités laissent place à des masses de troupes et à une ligne de front continue. Chaque matin, on trace
-ses poussées (infanterie, blindés), replis, lignes de défense et barrages, on fait monter les réserves et on
-décide du sort des poches ; puis la journée se déroule seule, en une vingtaine de secondes.
+Le **mode tactique** (campagne de cinq batailles sur hexagones, ordres simultanés) est débranché pour l'instant :
+son code reste en place et testé, et `TACTICAL_ENABLED` dans `src/main.js` le rétablit au menu. Ses règles sont
+décrites plus bas.
 
 ## Lancer le jeu
 
@@ -47,7 +43,7 @@ Raccourcis clavier : `Tab` unité suivante, `E` retrancher, `B` barrage, `H` ann
 
 ## Front stratégique
 
-Depuis le menu (encadré « Front stratégique », ou le lien sous le titre), choisir son camp. Le rôle, attaquant ou
+Au menu, choisir l'année (1941 à 1944) puis son camp. Le rôle, attaquant ou
 défenseur, est tiré de la graine et annoncé au briefing, avec l'objectif : les villes marquées ★.
 
 - **La carte** : chaque camp est une masse de troupes (bleue pour la Wehrmacht, rouge pour l'Armée rouge), plus
