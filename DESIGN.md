@@ -890,3 +890,20 @@ météo et l'IA changent) : la main est reproductible d'après la graine.
 8. **Équilibrage** : `front-sim` et `front-pool` par année ; poids des cartes et des raretés, chiffres des cartes.
 
 Chaque étape laisse le jeu jouable : jusqu'à l'étape 7, le joueur reçoit ses cartes placées automatiquement.
+
+### Étape 1 faite : moteur des Atouts
+
+- `src/frontatout.js` : paquets par rôle (attaquant : division blindée, artillerie lourde, soutien aérien, DCA ;
+  défenseur : artillerie divisionnaire, DCA), raretés par année et par camp (`SCENARIOS[année].rarity`), chars lourds
+  d'élite (`SCENARIOS[année].heavy` : Tiger, KV, IS-2 ; 1941 allemand : division d'élite). Formations tirées d'après
+  la moyenne des formations historiques de l'année (`ARMOR_TIERS`). Chars lourds : choc ×1,5, pertes ×0,6, marche
+  ×0,75 (`ARMOR_RULES.heavy`). Soutien aérien d'élite : frappes ×1,5 contre les chars.
+- Choix automatique (valeur × rareté, une seconde carte du même genre vaut 0,55 de moins) et placement par les
+  fonctions existantes (`createGuns`, `createArmor`, `createAA`). Au 7e jour (`endDay`), 4 cartes (5 pour le camp mené
+  aux points : sous l'issue indécise pour l'attaquant, au-delà de la victoire pour le défenseur), 2 gardées, posées
+  derrière le front avec des numéros à la suite. Journal : seulement les cartes du joueur. Briefing : « Vos atouts ».
+- `setup.atouts: false` garde les moyens placés d'office : banc de calibrage et quatre tests de physique.
+- Mesure IA contre IA (`front-pool.sh`), avant → après : sans année fixe (72 batailles) attaquant 40 → 39 %,
+  défenseur 42 → 56 %, nuls 18 → 6 %, encerclements 3,5 → 2,5 ; 1943 (48 batailles) attaquant 33 → 40 %,
+  défenseur 60 → 56 %. Moins d'issues indécises et d'encerclements : le défenseur n'a plus de blindés et l'attaquant
+  en a moins. À reprendre à l'étape 8, une fois toutes les cartes en place.
