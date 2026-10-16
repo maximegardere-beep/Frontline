@@ -926,3 +926,25 @@ Chaque étape laisse le jeu jouable : jusqu'à l'étape 7, le joueur reçoit ses
   défenseur 56 → 58 % ; 1943 (48 batailles) attaquant 40 → 33 %, défenseur 56 → 67 %. Le défenseur, statique près de
   son PC, profite davantage de la coordination ; l'attaquant pousse souvent au-delà de son rayon. À reprendre à
   l'étape 8 (et quand l'IA visera le PC ennemi).
+
+### Étape 3 faite : canons antichar, bataillons de soutien
+
+- Canons antichar (`frontguns.js`, types `atLight`, `atMed`, `atHeavy`) : portée 6 / 7,5 / 10, placés 3 à 4,5 unités
+  derrière le contact, orientés vers la case ennemie la plus proche ; cône de ±50°. Par tick, une formation ennemie
+  dans le cône perd `kill` × proximité (1 au canon, 0,5 en bout de portée) × puissance chars (4 / 6 / 9 ; ×0,6 pour
+  les chars lourds), et jusqu'à 60 % de son choc au tick suivant. Exclus des barrages, de l'appui et des objectifs
+  « groupes d'artillerie ». Contre-batterie, chasse aérienne et débordement comme l'artillerie. Mesure (12 batailles
+  IA contre IA) : 6,9 % des chars de l'attaquant détruits par les canons antichar (3,5 % avec des pertes 2,5 fois
+  moindres, jugé trop peu) ; 11 canons sur 38 perdus.
+- Bataillons de soutien (`frontbattalion.js`) : zone = cases amies à 2 cases du contact au plus, ±9 unités autour de
+  sa hauteur, à 16 unités de lui au plus, devant lui. Le chantier (`buildSite`, mis en commun avec les lignes) monte
+  d'un niveau par nuit en place (tranchées, barbelés, obstacles antichar), jusqu'au niveau de la carte ; déplacé de
+  nuit (17 unités au plus), il repart au niveau 1, les ouvrages restent. Débordé : perdu. IA : il reste sur un secteur
+  menacé, sinon rejoint le plus menacé qu'aucun autre ne couvre.
+- Outil « Ligne » retiré de l'écran (bouton, raccourci `4`, règles) ; l'IA ne trace plus de lignes (ni dans les
+  secteurs menacés ni au goulot d'un saillant). `addLine` et `buildTick` restent dans le moteur.
+- Cartes : « Canons antichar » et « Bataillon de soutien » dans le paquet du défenseur ; sa main garantit l'une des
+  deux. Noms d'unités dédoublonnés (`nextName`), y compris pour les renforts du 7e jour.
+- Mesure IA contre IA, après l'étape 2 → après l'étape 3 : sans année fixe (72 batailles) attaquant 36 → 38 %,
+  défenseur 58 → 54 %, nuls 6 → 8 % ; 1943 (48 batailles) attaquant 33 → 33 %, défenseur 67 → 52 %, nuls 0 → 15 %.
+  La fin des lignes de défense tracées chaque jour par les deux camps compense les nouveaux atouts du défenseur.
