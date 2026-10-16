@@ -303,7 +303,7 @@ export function frontTick(front) {
   };
   for (let j = 0; j < N; j++) {
     const o = owner[j];
-    if (o < 0 || captured[j]) continue;
+    if (o < 0 || captured[j] || front.frozen?.[j]) continue; // ville jouée en bataille de rue : figée jusqu'au soir
     const s = 1 - o;
     if (push[j] > 0) {
       // Pression restante des assaillants encore en place (ils ont pu fondre sous la riposte).

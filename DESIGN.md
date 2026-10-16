@@ -1138,3 +1138,26 @@ et l'artillerie passe d'un barrage par groupe et par jour à un appui permanent 
 - `tools/urban-sim.mjs` : batailles de rue IA contre IA (armées d'essai : 6 sections, 3 chars et une reconnaissance
   contre 7 sections et un antichar). Mesure (24 batailles) : attaquant 0 %, 10 % de la ville prise, 2,4 hexagones en
   ruines et 0,8 rue encombrée par bataille. L'IA tactique n'attaque pas une ville : étape 7.
+
+### Étape 5 faite : conversion
+
+- `src/frontstreet.js`. `streetCandidates(front)` (phase du matin, ordres des deux camps donnés : `planOrders`
+  donne ceux de l'IA avant le lancement, `beginDay` ne les redonne pas) : villes qu'une poussée d'infanterie ou de
+  blindés, ou une formation blindée, traverse à 2,6 unités au plus, à 12 unités au plus de son départ, avec au moins
+  600 hommes engagés ; la plus disputée d'abord (hommes des deux camps, chars).
+- `streetBattle(front, candidat)` : ville tactique de la taille de la ville (grande ville : 19 cases ; village : 3 cases
+  ou moins), rivière du côté où elle coule, routes d'accès, ruines selon `front.ruin`. Troupes : les cases de
+  l'attaquant à 7 unités (60 % engagés) et celles du défenseur autour de la ville ; une section pour 150 hommes, de 3
+  à 12 (2 au moins pour le défenseur), au même rapport de force ; reconnaissance si 5 sections ou plus. Chars : les
+  formations qui visent la ville (attaquant) ou sont dessus (défenseur), une compagnie pour 20 chars, 4 au plus ;
+  chars lourds : élite. Antichars du défenseur à portée, 2 au plus. Retranchement de départ selon les ouvrages de la
+  ville (+1 avec un point d'appui). Feux : là où son artillerie couvre la ville (couverture ≥ 0,2), 1 à 4 tirs
+  d'appui et jusqu'à 2 barrages pris sur le stock de la bataille.
+- `applyStreetBattle(front, link, état)` : chaque case de la ville prend le détenteur de l'îlot le plus proche de sa
+  position relative ; pertes (hommes représentés par les unités à pied, au prorata de leurs PV perdus) retirées des
+  cases qui ont fourni les troupes ; le défenseur reflue des cases prises, l'attaquant y entre ; chars perdus retirés
+  des formations, barrages dépensés retirés du stock. Ville figée pour la journée (`front.frozen` : aucune prise dans
+  `frontTick`), libérée le soir.
+- `createBattle` : retranchement de départ (`u.startDig`).
+- Essai IA contre IA (6 batailles du front en grande ville, 90 journées) : 8 batailles de rue, de 2 à 14 unités par
+  camp ; l'IA tactique, qui attaque mal en ville, perd la plupart de ses assauts (étape 7).

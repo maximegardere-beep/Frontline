@@ -73,7 +73,8 @@ export function createBattle({ seed, playerSide, armies, kind = 'rencontre', max
   }
   for (const u of state.units) {
     u.status = 'ok';
-    u.entrench = 0;
+    // Retranchement de départ (bataille de rue : ouvrages de la ville sur le front stratégique).
+    u.entrench = Math.min(unitStats(u).entrenchMax, u.startDig ?? 0);
     u.pinned = false;
     u.xpGained = 0;
     // Munitions d'artillerie : stock plein au début de chaque bataille ; le tir à vue peut être coupé pour l'économiser.

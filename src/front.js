@@ -835,11 +835,19 @@ function updateMemory(front) {
 // ---------- Résolution (journée) ----------
 
 // Fin du plan : l'IA donne ses ordres (en même temps que le joueur, sans les voir), puis la journée commence.
-export function beginDay(front) {
-  if (front.phase !== 'plan') return;
+// Ordres de l'IA pour la journée, avant son lancement (la fenêtre des batailles de rue a besoin de les connaître) ;
+// beginDay ne les redonne pas.
+export function planOrders(front) {
+  if (front.phase !== 'plan' || front.aiPlanned === front.day) return;
   // Tirage resté sans réponse, déploiement non terminé : choix automatique, unités en place.
   for (const s of [0, 1]) { autoConfirm(front, s); endPlacement(front, s); }
   for (const s of [0, 1]) if (s !== front.playerSide) front.planAI?.(front, s);
+  front.aiPlanned = front.day;
+}
+
+export function beginDay(front) {
+  if (front.phase !== 'plan') return;
+  planOrders(front);
   for (const s of [0, 1]) {
     for (const p of front.pockets[s]) {
       if (p.info.mode === 'breakout' && p.info.target && !front.orders[s].some((v) => v.pocket === p.id)) front.orders[s].push(breakoutVector(front, p));
@@ -1009,6 +1017,7 @@ function endDay(front) {
     front.barrages[s] = [];
     front.deployments[s] = [];
   }
+  front.frozen = null; // villes jouées en bataille de rue : de nouveau disputées
   gunsNight(front);
   airNight(front);
   armorNight(front);
