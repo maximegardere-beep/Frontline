@@ -1,18 +1,20 @@
 // Batailles stratégiques IA contre IA : équilibre attaquant / défenseur et entre camps.
 // node tools/front-sim.mjs [batailles=40] [graine=sim]
-// Réglages par l'environnement : RULES, SETUP, AI, SCORE (JSON) ; SCORES=1 affiche le score de chaque bataille.
+// Réglages par l'environnement : RULES, SETUP, AI, SCORE, GUNS (JSON) ; SCORES=1 affiche le score de chaque bataille.
 import { createFront, runDay, FRONT_SETUP, townsHeld } from '../src/front.js';
 import { installAI, AI_TUNING } from '../src/frontai.js';
 import { FRONT_RULES } from '../src/combat.js';
 import { scoreBreakdown, GRADES, SCORE } from '../src/frontscore.js';
 import { scenarioOf } from '../src/frontscenario.js';
 import { createRng } from '../src/rng.js';
+import { GUN_RULES } from '../src/frontguns.js';
 const YEAR = process.env.YEAR ? Number(process.env.YEAR) : null;
 
 Object.assign(FRONT_RULES, JSON.parse(process.env.RULES ?? '{}'));
 Object.assign(FRONT_SETUP, JSON.parse(process.env.SETUP ?? '{}'));
 Object.assign(AI_TUNING, JSON.parse(process.env.AI ?? '{}'));
 Object.assign(SCORE, JSON.parse(process.env.SCORE ?? '{}'));
+Object.assign(GUN_RULES, JSON.parse(process.env.GUNS ?? '{}'));
 if (process.env.JSON) process.on('exit', () => {});
 const N = Number(process.argv[2] ?? 40), SEED = process.argv[3] ?? 'sim';
 const BIOMES = ['steppe', 'bocage', 'polesie', 'bourg', 'montagne', 'foret', 'fleuve'];

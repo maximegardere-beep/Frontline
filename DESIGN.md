@@ -1075,3 +1075,20 @@ et l'artillerie passe d'un barrage par groupe et par jour à un appui permanent 
   d'appui sur les assaillants (`supportFire`) reste.
 - Mesure IA contre IA (72 batailles), avant → après : attaquant 28 → 24 %, défenseur 67 → 69 %, nuls 6 → 7 %. L'IA
   tire encore ses barrages comme avant et épuise le stock en deux jours : étape 2.
+
+### Étape 2 faite : artillerie, IA et mesure
+
+- Barrages de l'IA (`mayBarrage`, `fireBarrage`) : espacés sur chaque moitié de la bataille (jusqu'au 7e jour, puis
+  jusqu'au terme), un par jour au plus, sur la première attaque du jour que l'artillerie a à portée ; hors calendrier
+  pour le PC ennemi repéré (un seul barrage focalisé suffit) et la contre-attaque d'un secteur qui craque (tenue
+  < 0,6). Plus de barrages sur les concentrations ennemies (ancienne règle seulement). Le défenseur garde les siens
+  pour les ponts menacés et les contre-attaques.
+- L'appui passif compte comme une préparation : un assaut parti d'une case couverte à 50 % s'engage même sans
+  barrage ni aviation (`AI_TUNING.coverPrep`).
+- Concentration de l'artillerie : un groupe ne rejoint l'axe principal que si celui-ci sort de 90 % de sa portée, et
+  en appui mobile. Avant, l'IA déplaçait ses groupes chaque jour en posture de déplacement : ils ne tiraient plus,
+  d'où 0,9 barrage par bataille pour l'attaquant ; désormais 2,2 (défenseur 1,6).
+- `tools/front-sim.mjs` et `front-pool.sh` acceptent `GUNS` (réglages de `GUN_RULES`).
+- Mesure (120 batailles) : attaquant 26 %, défenseur 67 %, nuls 8 % (avant le chantier, 72 batailles : 28 / 67 / 6).
+  Une artillerie plus forte (attaque +25 %, barrage ×1,5) profite autant au défenseur : attaquant 22 %. Réglages
+  gardés. La cible de 40 % reste à l'équilibrage des atouts (leur étape 8).

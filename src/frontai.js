@@ -17,9 +17,10 @@ import { planSupport, planSappers } from './frontbattalion.js';
 import { addSalvo, addDrop } from './frontspecial.js';
 import { planHQ } from './fronthq.js';
 import { planAir, addAirMission } from './frontair.js';
-import { addVector, addLine, addBarrage, addPontoon, deployReserve, setPocketMode, edgeCol, cellAtPoint, waterOpen, FRONT_WEATHER, VECTOR_TYPES } from './front.js';
+import { addVector, addLine, addBarrage, barragesLeft, addPontoon, deployReserve, setPocketMode, edgeCol, cellAtPoint, waterOpen, FRONT_WEATHER, VECTOR_TYPES } from './front.js';
 import { bfsDistance, floodFill, components } from './path.js';
-import { GUN_KINDS, setGunOrder, onMission } from './frontguns.js';
+import { GUN_KINDS, setGunOrder, onMission, artilleryCover } from './frontguns.js';
+import { ATOUT_RULES } from './frontatout.js';
 import { setArmorOrder, visibleArmor } from './frontarmor.js';
 
 const SECTOR = 4; // un secteur toutes les 4 lignes
@@ -37,6 +38,9 @@ export const AI_TUNING = {
   acute: 0.5, // … et seulement si l'ennemi qui le borde pèse au moins acute × ses troupes
   attAcute: 1.5, // l'attaquant, lui, ne lâche une tête de percée que devant une menace bien plus lourde
   retreatOdds: 0.85, // tendance au repli d'un saillant menacé (0,4 s'il couvre une ville que l'on défend)
+  coverPrep: 0.5, // couverture d'artillerie au départ d'un assaut qui vaut une préparation (appui passif)
+  gunReach: 0.9, // part de sa portée au-delà de laquelle un groupe d'artillerie rejoint l'axe d'attaque principal
+  urgentHold: 0.6, // tenue d'un secteur en dessous de laquelle la contre-attaque mérite un barrage hors calendrier
 };
 const REACH = 3; // rayon (en cases) pris en compte de part et d'autre du front
 
@@ -108,6 +112,26 @@ function targetTown(front, s, from) {
 }
 
 function point(front, i) { return { x: front.centers.x[i], y: front.centers.y[i] }; }
+
+// Barrages focalisés (stock de trois par bataille) : l'IA les espace sur chaque moitié de la bataille (jusqu'au
+// 7e jour, puis jusqu'au terme), un par jour au plus ; urgent (PC ennemi repéré, secteur qui craque) : dès qu'il en
+// reste. Sans stock (ancienne règle), tous les barrages sont permis.
+function mayBarrage(front, s, urgent) {
+  if (!front.barrageStock) return true;
+  const left = barragesLeft(front, s);
+  if (left <= 0) return false;
+  if (urgent) return true;
+  const end = front.day < ATOUT_RULES.day ? ATOUT_RULES.day - 1 : front.cfg.days;
+  const last = front.aiBarrageDay?.[s] ?? -99;
+  return front.day - last >= Math.max(1, Math.floor((end - front.day + 1) / left));
+}
+
+function fireBarrage(front, s, at, urgent = false) {
+  if (!mayBarrage(front, s, urgent)) return false;
+  if (addBarrage(front, s, at).error) return false;
+  (front.aiBarrageDay ??= [-99, -99])[s] = front.day;
+  return true;
+}
 
 export function planFront(front, s) {
   const { rng, cfg } = front;
@@ -192,6 +216,7 @@ export function planFront(front, s) {
   for (const a of front.armor ?? []) if (a.side === s && !a.lost) setArmorOrder(front, s, a.id, null);
   const dist = (a, i) => Math.hypot(a.x - front.centers.x[i], a.y - front.centers.y[i]);
   const armorOK = weather.armor >= 0.75; // sous la pluie, les blindés s'enlisent : l'infanterie mène
+  const cover = artilleryCover(front, s, weather.barrage); // appui passif : il compte comme une préparation
   for (const sec of chosen) {
     const town = targetTown(front, s, sec.head);
     const h = point(front, sec.head);
@@ -223,11 +248,14 @@ export function planFront(front, s) {
     // (le choc des deux se cumule, combat.js). Sans aucun feu, un assaut piétine : on ne l'engage qu'écrasant.
     const L = Math.hypot(to.x - h.x, to.y - h.y) || 1;
     const at = { x: h.x + ((to.x - h.x) / L) * 3, y: h.y + ((to.y - h.y) / L) * 3 };
-    const fired = !addBarrage(front, s, at).error;
+    // Barrage focalisé : un par jour au plus, pour la première attaque que l'artillerie a à portée (les autres se
+    // contentent de l'appui passif).
+    const fired = (!front.barrageStock || !front.barrages[s].length) && fireBarrage(front, s, at);
     const flown = !addAirMission(front, s, at).error;
     // Sans artillerie ni aviation disponibles : une salve de lance-roquettes, s'il en reste, prépare l'assaut.
     const salvo = !fired && !flown && front.rockets?.[s].left > front.salvos[s].length && !addSalvo(front, s, at).error;
-    if (!fired && !flown && !salvo && sec.ratio < engage * 2) continue;
+    const ai = cellAtPoint(front, at), covered = cover && ai >= 0 && cover[ai] >= AI_TUNING.coverPrep;
+    if (!fired && !flown && !salvo && !covered && sec.ratio < engage * 2) continue;
     // Fer de lance : la formation la plus proche mène l'attaque vers l'objectif ; l'infanterie pousse sur le même axe.
     if (armorOK && armorGround > 0.6 && free.length && sec.ratio > engage * 1.1) {
       const a = free.reduce((b, x) => (dist(x, sec.head) < dist(b, sec.head) ? x : b));
@@ -242,14 +270,15 @@ export function planFront(front, s) {
     feed(sec.head, attackBudgetShare);
   }
 
-  // Concentration : les groupes d'artillerie restés sans mission rejoignent l'axe d'attaque principal, à mi-portée
-  // derrière son départ, pour que demain leurs barrages tombent ensemble au même endroit.
+  // Concentration : les groupes d'artillerie restés sans mission dont l'axe d'attaque principal sort de la portée le
+  // rejoignent, à mi-portée derrière son départ, en appui mobile (ils appuient encore en route) : demain, ils
+  // concourront ensemble au même barrage. Sans stock (ancienne règle), dès qu'il sort des trois quarts de la portée.
   if (chosen.length) {
     const main = chosen[0], h = point(front, main.head);
     for (const g of front.guns) {
-      if (g.side !== s || g.lost || g.dest || onMission(front, g)) continue;
+      if (g.side !== s || g.lost || g.dest || onMission(front, g) || GUN_KINDS[g.kind].at) continue;
       const R = GUN_KINDS[g.kind].range;
-      if (Math.hypot(g.x - h.x, g.y - h.y) <= R * 0.75) continue;
+      if (Math.hypot(g.x - h.x, g.y - h.y) <= R * (front.barrageStock ? AI_TUNING.gunReach : 0.75)) continue;
       const want = { x: h.x - dirX * R * 0.45, y: h.y };
       let best = null, bd = Infinity;
       for (let i = 0; i < front.map.N; i++) {
@@ -257,7 +286,7 @@ export function planFront(front, s) {
         const d = Math.hypot(front.centers.x[i] - want.x, front.centers.y[i] - want.y);
         if (d < bd) { bd = d; best = point(front, i); }
       }
-      if (best) setGunOrder(front, s, g.id, { dest: best });
+      if (best) setGunOrder(front, s, g.id, front.barrageStock ? { dest: best, posture: 'mobile' } : { dest: best });
     }
   }
 
@@ -267,7 +296,7 @@ export function planFront(front, s) {
     if (wetSec && wetSec.own > wetSec.foe * 1.2) addPontoon(front, s, point(front, wetSec.head));
   }
   // Ponts : le défenseur fait sauter ceux que l'ennemi tient ou touche déjà.
-  if (!attacking) for (const i of threatenedBridges(front, s).slice(0, 1)) addBarrage(front, s, point(front, i));
+  if (!attacking) for (const i of threatenedBridges(front, s).slice(0, 1)) fireBarrage(front, s, point(front, i));
 
   // Fixations : sur les secteurs voisins de ses attaques (à 6 à 14 lignes), l'ennemi est pressé pour qu'il n'y
   // prélève pas ses renforts.
@@ -292,7 +321,7 @@ export function planFront(front, s) {
     if (armorOK && sec.hold < 0.85 && a.tanks > a.max * 0.5) {
       // Contre-attaque préparée elle aussi : barrage et aviation sur les cases ennemies devant le secteur.
       const at = { x: h.x + dirX * 3, y: h.y };
-      addBarrage(front, s, at);
+      fireBarrage(front, s, at, sec.hold < AI_TUNING.urgentHold);
       addAirMission(front, s, at);
       setArmorOrder(front, s, a.id, { x: h.x + dirX * 10, y: h.y });
     }
@@ -312,11 +341,13 @@ export function planFront(front, s) {
     }
     if (best >= 0) hot.push(best);
   }
-  // PC ennemi repéré : deux barrages s'il le faut pour le désorganiser (chacun coupe 40 % de ses liaisons).
+  // PC ennemi repéré : deux barrages s'il le faut pour le désorganiser (chacun coupe 40 % de ses liaisons) ; un seul
+  // barrage focalisé suffit, et il passe avant tout le reste.
   const hq = front.hq?.[1 - s];
   const seenHQ = hq && !hq.captured && hq.seen[s] && front.clock - hq.seen[s].clock <= front.cfg.ticks ? hq.seen[s] : null;
-  if (seenHQ) for (let k = 0; k < 2; k++) if (addBarrage(front, s, { x: seenHQ.x, y: seenHQ.y }).error) break;
-  for (const i of hot) addBarrage(front, s, point(front, i));
+  if (seenHQ && hq.link > 0.3) for (let k = 0; k < (front.barrageStock ? 1 : 2); k++) if (!fireBarrage(front, s, { x: seenHQ.x, y: seenHQ.y }, true)) break;
+  // Sans stock (ancienne règle) : les groupes restés libres pilonnent les concentrations ennemies.
+  if (!front.barrageStock) for (const i of hot) addBarrage(front, s, point(front, i));
   planSpecial(front, s, attacking, hot);
   planSappers(front, s);
 

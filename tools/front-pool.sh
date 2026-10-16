@@ -1,6 +1,6 @@
 #!/bin/sh
 # Trois séries de batailles IA contre IA en parallèle, mises en commun : sh tools/front-pool.sh [batailles par série=40]
-# Les réglages passent par l'environnement (SETUP, RULES, AI, SCORE), comme pour tools/front-sim.mjs.
+# Les réglages passent par l'environnement (SETUP, RULES, AI, SCORE, GUNS), comme pour tools/front-sim.mjs.
 N=${1:-40}
 cd "$(dirname "$0")/.."
 for s in ${POOL:-poolA poolB poolC}; do JSON=1 node tools/front-sim.mjs "$N" "$s" & done | node -e '
