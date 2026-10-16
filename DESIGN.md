@@ -1092,3 +1092,16 @@ et l'artillerie passe d'un barrage par groupe et par jour à un appui permanent 
 - Mesure (120 batailles) : attaquant 26 %, défenseur 67 %, nuls 8 % (avant le chantier, 72 batailles : 28 / 67 / 6).
   Une artillerie plus forte (attaque +25 %, barrage ×1,5) profite autant au défenseur : attaquant 22 %. Réglages
   gardés. La cible de 40 % reste à l'équilibrage des atouts (leur étape 8).
+
+### Étape 3 faite : artillerie, interface
+
+- Outil Barrage : compteur en pastilles (● restant, ○ dépensé ou à venir au 7e jour), désactivé sans stock ni groupe
+  en état de tirer ; message « Barrage focalisé : groupes engagés, à l'aube (reste n) » ; même libellé dans la liste
+  des ordres. Panneau Artillerie : « appui des troupes à sa portée ».
+- Halo de couverture le matin autour de chacun de ses groupes (laiton, plein jusqu'à 70 % de la portée, selon la
+  puissance), à la place du simple cercle de portée.
+- Appui passif à l'écran (`frontfx.js`, `ARC.passive`) : trois obus au plus par tick dans la vue, tirés au hasard par
+  les groupes des deux camps sur les cases ennemies au contact à leur portée ; petite gerbe sans panache ni sol
+  noirci ; l'obus d'une batterie invisible n'apparaît qu'en fin de course. Son : un sifflement et une explosion
+  sourde de temps en temps (`shell`). Le barrage focalisé garde l'animation complète, depuis chaque groupe engagé.
+- Règles en jeu et README.

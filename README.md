@@ -77,10 +77,14 @@ défenseur, est tiré de la graine et annoncé au briefing, avec l'objectif : le
 - **Alerte « SOS »** : pendant la journée, quand l'un de vos secteurs craque (au moins quatre cases perdues en six
   heures), un officier au combiné apparaît au-dessus, son appel défile en morse (· · · — — — · · ·) et on l'entend
   à la radio. L'alerte s'estompe quelques heures après que le secteur s'est stabilisé.
-- **Préparer ses attaques** : sans feux, un assaut piétine et se paie cher. Barrages (au lever du jour) et
-  frappes aériennes (fin de matinée) ébranlent les défenseurs : défense, riposte et tenue fondent, d'autant plus
-  que les deux tombent au même endroit, puis l'effet s'efface en quelques heures. Visez le point de départ de vos
-  poussées.
+- **Appui d'artillerie** : dans la portée de vos groupes d'artillerie (halo laiton le matin), vos poussées frappent
+  plus fort (jusqu'à +12 %) et vos cases se défendent mieux (jusqu'à +15 %), sans ordre à donner ; deux groupes qui
+  se recoupent ajoutent moins que le double. Pendant la journée, quelques obus épars tombent là où l'on se bat.
+- **Préparer ses attaques** : sans feux, un assaut piétine et se paie cher. Le barrage focalisé (trois par
+  bataille : deux au départ, un de plus au 7e jour ; ●●○ sur l'outil) engage tous vos groupes libres qui ont la
+  zone à portée. Barrages (au lever du jour) et frappes aériennes (fin de matinée) ébranlent les défenseurs :
+  défense, riposte et tenue fondent, d'autant plus que les deux tombent au même endroit, puis l'effet s'efface en
+  quelques heures. Gardez-les pour les assauts décisifs, au point de départ de vos poussées.
 - **Les cours d'eau** : une rivière ne se franchit que sur ses ponts (ou gelée) ; ses cases n'appartiennent à
   personne et le front s'arrête sur les rives. Un barrage fait sauter un pont. Les ruisseaux ralentissent la
   progression et donnent +15 % de défense à qui tient leurs berges.
@@ -94,7 +98,7 @@ défenseur, est tiré de la graine et annoncé au briefing, avec l'objectif : le
 | Infanterie (`1`) | départ, cible | couloir large, lent, tenace |
 | Blindés (`2`) | départ, cible | percée étroite, rapide et profonde ; s'enlise sous la pluie ; 2 par jour |
 | Repli (`3`) | secteur, point de repli | les troupes décrochent avec moins de pertes |
-| Barrage (`5`) | la zone | pilonnée au lever du jour, même dans le brouillard ; 12 cases au plus de vos lignes |
+| Barrage (`5`) | la zone | barrage focalisé, trois par bataille : pilonnée au lever du jour par tous vos groupes libres à portée, même dans le brouillard |
 | Réserves (`6`) | un appui par renfort | 800 hommes montent en ligne autour du point ; `U` annule le dernier |
 | Pont (`G`) | la rivière, au bord de vos lignes | le génie jette un pont de bateaux la nuit ; 2 par bataille ; un barrage ou une frappe aérienne le coule |
 

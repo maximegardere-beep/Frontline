@@ -10,7 +10,7 @@
 
 import { ARMOR_ATK } from './frontinput.js';
 import { AIR, airBase } from './frontair.js';
-import { missionGuns } from './frontguns.js';
+import { missionGuns, onMission, gunPower, GUN_KINDS } from './frontguns.js';
 
 const TRACER = ['#fff27a', '#ff7a3c']; // Wehrmacht (jaune), Armée rouge (orange)
 // Obus en cloche par type de pièce (frontguns.js) : obus par tick de barrage, durée de vol (ms, + par pixel),
@@ -21,7 +21,10 @@ const ARC = {
   mortar: { n: 14, life: 1000, perPx: 12, maxLife: 3000, h: 0.7, r: 5 },
   rocket: { n: 14, life: 700, perPx: 5, maxLife: 2000, h: 0.18, r: 6.5, rocket: true },
   nebel: { n: 12, life: 800, perPx: 6, maxLife: 2200, h: 0.24, r: 6, rocket: true },
+  // Appui passif : un obus isolé, petite gerbe sans panache ni sol noirci.
+  passive: { n: 1, life: 800, perPx: 7, maxLife: 2400, h: 0.32, r: 3.2, small: true },
 };
+const PASSIVE = { max: 3, odds: 0.45 }; // obus d'appui passif par tick dans la vue, au plus ; chance par groupe
 const MAX_PARTS = 2400;
 // Panaches de fumée : bouffées émises en continu par les foyers (incendies, combats intenses), poussées par le vent.
 const PLUME = { rate: 0.008, life: 5600, max: 1000, grow: 24, drift: 0.011 }; // bouffées par ms et par foyer à plein, vie (ms), …
@@ -229,6 +232,26 @@ export class FrontFx {
         }
       }
     }
+    // Appui passif : quelques obus épars sur les cases ennemies au contact, à portée des groupes, des deux camps.
+    // PASSIVE.max par tick au plus dans la vue ; l'obus d'une batterie qu'on ne voit pas n'apparaît qu'en fin de course.
+    if (front.phase === 'resolve' || front.tick > 0) {
+      let budget = PASSIVE.max;
+      const guns = (front.guns ?? []).filter((g) => !g.lost && !GUN_KINDS[g.kind].at && gunPower(g) > 0 && !(front.tick <= front.cfg.barrageTicks && onMission(front, g)));
+      for (let q = guns.length - 1; q > 0; q--) { const r = (Math.random() * (q + 1)) | 0; [guns[q], guns[r]] = [guns[r], guns[q]]; }
+      for (const g of guns) {
+        if (budget <= 0 || !e.length || Math.random() > PASSIVE.odds) continue;
+        const R = GUN_KINDS[g.kind].range;
+        for (let tries = 0; tries < 6; tries++) {
+          const k = ((Math.random() * e.length) / 3 | 0) * 3;
+          const t = front.owner[e[k]] === 1 - g.side ? e[k] : front.owner[e[k + 1]] === 1 - g.side ? e[k + 1] : -1;
+          if (t < 0 || Math.hypot(cx[t] - g.x, cy[t] - g.y) > R || !seen(t) || !shown(t)) continue;
+          const gunSeen = viewer === null || g.side === viewer || g.seen?.[viewer]?.clock === front.clock;
+          this.arc(g.x * C, g.y * C, jit(cx[t]) * C, jit(cy[t]) * C, at(), ARC.passive, !gunSeen);
+          budget--;
+          break;
+        }
+      }
+    }
     // Départs de coups : lueurs à la position des groupes d'artillerie qui ont tiré ce tick (barrage ou appui).
     for (const g of front.guns ?? []) {
       if (g.lost || g.fired !== front.clock - 1) continue;
@@ -345,7 +368,7 @@ export class FrontFx {
     const life = Math.min(A.maxLife, A.life + d * A.perPx);
     // Cloche haute même à courte portée (batteries juste derrière le front) : sinon on ne la voit pas.
     this.parts.push({ k: 'arc', t0, life, x0, y0, x1, y1, h: Math.max(d * A.h, A.rocket ? 18 : 40), u0: late ? 0.6 : 0, rocket: !!A.rocket });
-    this.blast(x1, y1, t0 + life, A.r + Math.random() * A.r * 0.4);
+    this.blast(x1, y1, t0 + life, A.r + Math.random() * A.r * 0.4, !!A.small);
   }
 
   shell(from, to, t0, side) {

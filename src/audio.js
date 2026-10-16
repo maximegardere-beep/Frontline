@@ -347,6 +347,7 @@ class AudioBoard {
         const play = { rocket: this.katyusha, nebel: this.nebel, mortar: this.mortars }[s.kind] ?? this.barrage;
         play.call(this, t0 + Math.random() * dur * 0.3, dest, guns, s.kind === 'heavy');
       }
+      else if (s.k === 'shell') { const t = at(0.7); this.whistle(t, 0.8, dest); this.blast(t + 0.8, 6, dest); }
       else if (s.k === 'town') this.blast(t0, 24, dest, true);
       else if (s.k === 'bridge') this.bridge(t0 + Math.random() * dur * 0.3, dest);
       else if (s.k === 'pocket') {

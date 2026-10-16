@@ -2001,10 +2001,22 @@ export class FrontRenderer extends Renderer {
           ctx.closePath();
           ctx.fillStyle = 'rgba(29, 26, 18, 0.08)';
           ctx.fill();
-        } else ctx.arc(c.x, c.y, K.range * CELL, 0, Math.PI * 2);
+        } else {
+          // Appui passif : halo laiton sur la portée, plein jusqu'à 70 % puis s'estompant, selon la puissance du groupe.
+          const R = K.range * CELL, p = gunPower(g);
+          ctx.arc(c.x, c.y, R, 0, Math.PI * 2);
+          if (p > 0 && f.cfg.artyCover !== false) {
+            const grad = ctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, R);
+            grad.addColorStop(0, `rgba(176, 128, 26, ${0.1 * p})`);
+            grad.addColorStop(0.7, `rgba(176, 128, 26, ${0.24 * p})`);
+            grad.addColorStop(1, `rgba(176, 128, 26, ${0.04 * p})`);
+            ctx.fillStyle = grad;
+            ctx.fill();
+          }
+        }
         ctx.setLineDash(sel ? [] : [3 * px, 5 * px]);
-        ctx.lineWidth = (sel ? 2 : 1) * px;
-        ctx.strokeStyle = sel ? ORDER_INK : 'rgba(29, 26, 18, 0.35)';
+        ctx.lineWidth = (sel ? 2 : K.at ? 1 : 1.5) * px;
+        ctx.strokeStyle = sel ? ORDER_INK : K.at ? 'rgba(29, 26, 18, 0.35)' : 'rgba(120, 84, 14, 0.8)';
         ctx.stroke();
         ctx.setLineDash([]);
         if (g.dest) {

@@ -9,7 +9,7 @@ import { ATOUTS, RARITY_LABEL, ATOUT_RULES, cardText, confirmAtouts, chooseCards
 import { drawHtml, airWarHtml as airWarDossier, playAirWar, roundText, verdictText } from './frontdeck.js';
 import { airStatus } from './frontairwar.js';
 import {
-  createFront, beginDay, stepTick, addVector, engagement, addLine, setLineLevel, addBarrage, removeOrder, deployReserve, undoDeployment,
+  createFront, beginDay, stepTick, addVector, engagement, addLine, setLineLevel, addBarrage, barragesLeft, removeOrder, deployReserve, undoDeployment,
   repeatOrders, setPocketMode, vectorCatchment, troops, territory, townsHeld, attackerTowns, pocketName,
   cellAtPoint, addPontoon, FRONT_WEATHER, POCKET_MODES, VECTOR_TYPES, sideIndex, windLabel,
 } from './front.js';
@@ -19,7 +19,7 @@ import { HQ, moveHQ, hqState, HQ_STATE_LABEL } from './fronthq.js';
 import { SUPPORT, SUPPORT_LEVELS, moveSupport } from './frontbattalion.js';
 import { addSalvo, addDrop, SPECIAL } from './frontspecial.js';
 import { installAI } from './frontai.js';
-import { GUN_KINDS, GUN_POSTURES, gunPower, gunFor, setGunOrder, onMission } from './frontguns.js';
+import { GUN_KINDS, GUN_POSTURES, gunPower, gunFor, setGunOrder, onMission, missionGuns } from './frontguns.js';
 import { setArmorOrder, expLabel } from './frontarmor.js';
 import { scoreBreakdown, objectiveState, GRADES, SCORE } from './frontscore.js';
 import { FrontRenderer, CELL } from './frontrender.js';
@@ -391,7 +391,7 @@ export function frontRules() {
       <ol>
         <li><b>Masses.</b> Plus d'unités : chaque camp est une masse de troupes, plus sombre où elle est dense. Le trait noir est le front. Hors de vue, l'ennemi n'est qu'une estimation estompée.</li>
         <li><b>Le matin.</b> Le jeu est en pause. Donnez autant de vecteurs d'infanterie ou de repli que vous voulez : les troupes autour du départ s'y engagent et poussent vers la cible. Un vecteur draine son voisinage : là où il prend, le front se dégarnit, et deux vecteurs proches se partagent les mêmes hommes. La jauge « Troupes engagées » plafonne à ${Math.round((fui.front?.cfg.engageCap ?? 0.6) * 100)} % : au-delà, tous vos vecteurs sont réduits d'autant.</li>
-        <li><b>Outils.</b> Infanterie : large, lente, tenace. Blindés : vos formations (divisions de Panzer, corps blindés), visibles sur la carte ; touchez-en une puis son objectif. Elle rejoint le front par vos lignes (vite sur route, mal en forêt, jamais à travers une rivière sans pont), perce, dépose ses grenadiers dans les cases prises et exploite ; riposte, hérissons, villes et forêts lui coûtent des chars, elle consomme du carburant, se refait la nuit si elle est ravitaillée, et meurt encerclée. Repli ordonné : les troupes décrochent avec moins de pertes. Fixer : une bande large qui presse l'ennemi sans chercher à prendre, à pertes réduites de moitié ; toute case ennemie pressée (par une fixation ou une attaque) ne peut plus envoyer ses troupes ailleurs et appelle des renforts : fixez un secteur pour percer à côté. Bataillons de soutien (atout du défenseur) : posés en arrière, ils retranchent le secteur du front devant eux, d'autant plus qu'ils restent en place : tranchées le premier jour (défense de l'infanterie, à moitié pour qui les prend), barbelés ensuite (l'assaut d'infanterie qui les traverse s'use), puis hérissons antichar (les chars y perdent élan et vitesse), jusqu'au niveau de leur carte ; trois fois plus lent au contact de l'ennemi. Touchez-en un puis sa nouvelle position : il s'y rend de nuit et recommence par des tranchées ; les ouvrages faits restent. Barbelés et hérissons gênent quiconque les traverse, dans les deux sens. Canons antichar (atout du défenseur) : ils tirent dans un cône face au contact, sur les seuls blindés, qu'ils déciment et freinent ; deux ou trois barrages ou chasses aériennes en viennent à bout. Un barrage les détruit (l'artillerie lourde vient seule à bout des hérissons) et fait sauter les ponts ; les ruines restent sur la carte. Rivières : infranchissables hors des ponts (sauf gelées) ; Pont (G) : le génie jette un pont de bateaux la nuit depuis votre rive, deux par bataille, qu'un barrage ou une frappe aérienne coule. Ruisseaux : ils ralentissent et donnent +15 % au défenseur. Barrage : une zone pilonnée au début de la journée, même dans le brouillard, par un groupe d'artillerie qui l'a à portée (une mission par groupe et par jour). Sans feux, un assaut piétine et se paie cher : barrages et frappes aériennes ébranlent les défenseurs (défense, riposte et tenue fondent), d'autant plus qu'ils tombent au même endroit, puis l'effet s'efface en quelques heures. Préparez le point de départ de vos attaques au barrage (lever du jour) et à l'aviation (fin de matinée). Pendant la journée, un officier qui appelle « SOS » en morse signale un de vos secteurs qui craque. Artillerie : touchez un groupe puis sa destination ; en batterie il tire à 100 %, en appui mobile à 40 %, en déplacement pas du tout. Sans mission, il frappe les assaillants à sa portée ; un groupe dont la position tombe est perdu. Réserves : chaque appui fait monter des renforts en ligne.</li>
+        <li><b>Outils.</b> Infanterie : large, lente, tenace. Blindés : vos formations (divisions de Panzer, corps blindés), visibles sur la carte ; touchez-en une puis son objectif. Elle rejoint le front par vos lignes (vite sur route, mal en forêt, jamais à travers une rivière sans pont), perce, dépose ses grenadiers dans les cases prises et exploite ; riposte, hérissons, villes et forêts lui coûtent des chars, elle consomme du carburant, se refait la nuit si elle est ravitaillée, et meurt encerclée. Repli ordonné : les troupes décrochent avec moins de pertes. Fixer : une bande large qui presse l'ennemi sans chercher à prendre, à pertes réduites de moitié ; toute case ennemie pressée (par une fixation ou une attaque) ne peut plus envoyer ses troupes ailleurs et appelle des renforts : fixez un secteur pour percer à côté. Bataillons de soutien (atout du défenseur) : posés en arrière, ils retranchent le secteur du front devant eux, d'autant plus qu'ils restent en place : tranchées le premier jour (défense de l'infanterie, à moitié pour qui les prend), barbelés ensuite (l'assaut d'infanterie qui les traverse s'use), puis hérissons antichar (les chars y perdent élan et vitesse), jusqu'au niveau de leur carte ; trois fois plus lent au contact de l'ennemi. Touchez-en un puis sa nouvelle position : il s'y rend de nuit et recommence par des tranchées ; les ouvrages faits restent. Barbelés et hérissons gênent quiconque les traverse, dans les deux sens. Canons antichar (atout du défenseur) : ils tirent dans un cône face au contact, sur les seuls blindés, qu'ils déciment et freinent ; deux ou trois barrages ou chasses aériennes en viennent à bout. Un barrage les détruit (l'artillerie lourde vient seule à bout des hérissons) et fait sauter les ponts ; les ruines restent sur la carte. Rivières : infranchissables hors des ponts (sauf gelées) ; Pont (G) : le génie jette un pont de bateaux la nuit depuis votre rive, deux par bataille, qu'un barrage ou une frappe aérienne coule. Ruisseaux : ils ralentissent et donnent +15 % au défenseur. Appui d'artillerie : dans la portée de vos groupes (halo le matin), vos poussées frappent plus fort (jusqu'à +12 %) et vos cases se défendent mieux (jusqu'à +15 %), sans ordre à donner ; deux groupes qui se recoupent ajoutent moins que le double. Barrage focalisé : trois par bataille (deux au départ, un de plus au 7e jour), une zone pilonnée au début de la journée, même dans le brouillard, par tous vos groupes libres qui l'ont à portée. Sans feux, un assaut piétine et se paie cher : barrages et frappes aériennes ébranlent les défenseurs (défense, riposte et tenue fondent), d'autant plus qu'ils tombent au même endroit, puis l'effet s'efface en quelques heures. Gardez vos barrages pour les assauts décisifs, au point de départ, avec l'aviation (fin de matinée). Pendant la journée, un officier qui appelle « SOS » en morse signale un de vos secteurs qui craque. Artillerie : touchez un groupe puis sa destination ; en batterie il tire à 100 %, en appui mobile à 40 %, en déplacement pas du tout. Il appuie vos troupes à sa portée et frappe les assaillants ; un groupe dont la position tombe est perdu. Réserves : chaque appui fait monter des renforts en ligne.</li>
         <li><b>Atouts et déploiement.</b> Après le briefing, tirez ${ATOUT_RULES.hand[0]} cartes du paquet de votre rôle et gardez-en ${ATOUT_RULES.keep[0]} ; au matin du ${ATOUT_RULES.day}e jour, ${ATOUT_RULES.hand[1]} (une de plus si vous êtes mené aux points), et gardez-en ${ATOUT_RULES.keep[1]}. Leurs unités sont posées d'office ; pendant le déploiement, touchez-en une (ou son nom dans le bandeau) puis sa position dans vos lignes, avec votre PC avant la bataille ; un point d'appui se place sur une de vos villes.</li>
         <li><b>Bataille des airs.</b> Avant le premier jour, et de nouveau au matin du ${ATOUT_RULES.day}e, les chasseurs des deux camps se disputent le ciel en trois manches de dés : la force de chaque camp (sorties de l'année, cartes de chasseurs et de soutien aérien) donne autant de dés, qui touchent sur 5+ ; qui touche le plus gagne la manche et abat un avion adverse. Deux manches gagnées : la suprématie, toutes vos sorties volent et l'ennemi n'en a plus. À égalité, ciel disputé : la moitié des sorties de chacun. La DCA tire quel que soit le ciel.</li>
         <li><b>Atouts ponctuels.</b> Génie d'assaut (attaquant) : posé juste derrière le contact, il rase les barbelés et obstacles antichar ennemis dans son rayon, et vos troupes y avancent plus vite ; il se déplace de nuit, comme un bataillon. Lance-roquettes (attaquant) : outil Salve (R), une zone large écrasée au lever du jour, une ou deux fois par bataille. Parachutistes (attaquant) : outil Paras (L), un largage au lever du jour jusqu'à ${Math.round(SPECIAL.drop.reach / 1.73)} cases derrière les lignes ennemies ; l'îlot pris est coupé de ses arrières et fond comme une poche tant que vous ne l'avez pas rejoint ; posé sur un pont, il le tient ; sur le PC ennemi, il le prend. Point d'appui (défenseur) : une ville ★ exposée, retranchée d'avance, à la défense multipliée ; contournée, elle risque l'encerclement.</li>
@@ -647,7 +647,11 @@ function onTap(p) {
   }
   if (tool === 'barrage') {
     const r = addBarrage(f, s, { x: p.x, y: p.y });
-    if (!fail(r)) { placed(`Barrage : ${f.guns.find((g) => g.id === r.gun).name}, à l'aube.`); fui.tool = null; }
+    if (!fail(r)) {
+      const left = barragesLeft(f, s);
+      placed(`Barrage${r.focus ? ' focalisé' : ''} : ${barrageGuns(f, r)}, à l'aube${left !== Infinity ? ` (reste ${left})` : ''}.`);
+      fui.tool = null;
+    }
     return refreshFront();
   }
   if (tool === 'salvo') {
@@ -1001,6 +1005,12 @@ function tickSounds(events, tick, T) {
       }
     }
   }
+  // Appui passif : de temps en temps, un obus isolé sur le front couvert par nos groupes.
+  if (f.phase === 'resolve' && Math.random() < 0.4) {
+    const guns = (f.guns ?? []).filter((x) => x.side === s && !x.lost && !GUN_KINDS[x.kind].at && gunPower(x) > 0);
+    const spot = combatSpots(f, s).find((sp) => guns.some((g) => Math.hypot(sp.x - g.x, sp.y - g.y) <= GUN_KINDS[g.kind].range));
+    if (spot) items.push({ k: 'shell', ...frontLocate(spot.x, spot.y) });
+  }
   // Aviation : escadrille en altitude au matin ; puis raid (approche, DCA, avions abattus, dégagement) et frappes,
   // calés sur frontfx. On entend ses propres sorties, et celles de l'ennemi qui frappent là où l'on voit.
   if (tick === 0 && f.air?.[s]?.length) items.push({ k: 'drone' });
@@ -1203,6 +1213,7 @@ function used(tool) {
   if (tool === 'transfer') return [f.transfers[s].filter((t) => !t.auto && t.day === f.day).length, NIGHT.perDay];
   if (tool === 'barrage') {
     const able = f.guns.filter((g) => g.side === s && !GUN_KINDS[g.kind].at && gunPower(g) > 0).length;
+    if (f.barrageStock) return [f.barrages[s].length, f.barrageStock[s], !able, 'pips'];
     return [f.barrages[s].length, able];
   }
   return [0, Infinity, f.reserve[s] < 1];
@@ -1221,7 +1232,9 @@ function renderTools() {
     b.disabled = (n >= max || full) && fui.tool !== t;
     if (t === 'pontoon') b.hidden = !f.map.rivers?.length;
     if (t === 'salvo' || t === 'drop') b.hidden = max <= 0;
-    const left = kind === 'engaged' ? `${Math.round((f.engaged?.[fui.side] ?? 0) * 100)} %` : kind === 'pontoon' ? `${f.pontoons[fui.side] - n}` : max === Infinity ? fmtMen(men(f.reserve[fui.side])).replace(' h', '') : `${max - n}`;
+    // Barrages focalisés : ● restant, ○ dépensé ou encore à venir (le 3e arrive au 7e jour).
+    const pips = (k) => '●'.repeat(k) + '○'.repeat(Math.max(0, f.cfg.barrageStock + f.cfg.barrageRefill - k));
+    const left = kind === 'engaged' ? `${Math.round((f.engaged?.[fui.side] ?? 0) * 100)} %` : kind === 'pips' ? pips(max - n) : kind === 'pontoon' ? `${f.pontoons[fui.side] - n}` : max === Infinity ? fmtMen(men(f.reserve[fui.side])).replace(' h', '') : `${max - n}`;
     b.querySelector('.tool-n').textContent = left;
   }
 }
@@ -1236,6 +1249,11 @@ function lineItem(f, l, planning) {
   return `<li class="f-order f-line"><span><b>Ligne de défense</b> <em>${l.cells.length} cases · ${prog}${since}</em></span>${planning ? `<button class="btn btn-sm btn-x" data-remove="${l.id}" aria-label="Retirer : ligne de défense">✕</button>` : ''}${seg}</li>`;
 }
 
+// Groupes engagés dans un barrage, pour les messages et la liste des ordres.
+function barrageGuns(f, b) {
+  return missionGuns(b).map((id) => f.guns.find((g) => g.id === id)?.name).filter(Boolean).join(', ');
+}
+
 function orderLine(label, detail, id) {
   return `<li class="f-order"><span><b>${label}</b>${detail ? ` <em>${detail}</em>` : ''}</span>${id != null ? `<button class="btn btn-sm btn-x" data-remove="${id}" aria-label="Retirer : ${label}">✕</button>` : ''}</li>`;
 }
@@ -1248,7 +1266,7 @@ function renderOrders() {
   const items = [
     ...vecs.map((v) => orderLine(VECTOR_TYPES[v.type].label, `≈ ${fmtMen(men(vectorCatchment(f, v)))}`, planning ? v.id : null)),
     ...f.lines[s].map((l) => lineItem(f, l, planning)),
-    ...f.barrages[s].map((b) => orderLine('Barrage', f.guns.find((g) => g.id === b.gun)?.name ?? '', planning ? b.id : null)),
+    ...f.barrages[s].map((b) => orderLine(b.focus ? 'Barrage focalisé' : 'Barrage', barrageGuns(f, b), planning ? b.id : null)),
     ...f.pontoonOrders[s].map((o) => orderLine('Pont de bateaux', 'cette nuit', planning ? o.id : null)),
     ...(f.salvos?.[s] ?? []).map((o) => orderLine('Salve de lance-roquettes', 'au lever du jour', planning ? o.id : null)),
     ...(f.drops?.[s] ?? []).map((o) => orderLine('Parachutistes', `${fmtMen(men(o.dens))} · au lever du jour`, planning ? o.id : null)),
@@ -1341,7 +1359,7 @@ function armorItem(f, a, planning) {
 function gunItem(f, g, planning) {
   if (g.lost) return `<li class="f-gun lost"><p><b>${escHtml(g.name)}</b> · perdu</p></li>`;
   const mission = onMission(f, g);
-  const state = gunPower(g) <= 0 ? 'en route, ne tire pas' : GUN_KINDS[g.kind].at ? 'tir antichar, face au front' : mission ? 'barrage au lever du jour' : 'appui défensif';
+  const state = gunPower(g) <= 0 ? 'en route, ne tire pas' : GUN_KINDS[g.kind].at ? 'tir antichar, face au front' : mission ? 'barrage au lever du jour' : 'appui des troupes à sa portée';
   const sel = fui.gun === g.id;
   return `<li class="f-gun${sel ? ' sel' : ''}">
     <p><button class="linkish" data-gun-sel="${g.id}" aria-pressed="${sel}"><b>${escHtml(g.name)}</b></button> · ${GUN_KINDS[g.kind].short} · ${Math.round(g.str * 100)} % · <em>${state}</em></p>
