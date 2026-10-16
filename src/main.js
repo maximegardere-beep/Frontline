@@ -1144,7 +1144,7 @@ function setMuted(m) {
 
 function start() {
   bindMapInput();
-  initFront({ showDossier, hideDossier, showMenu, syncAmbient, toggleSound: () => setMuted(!sound.muted) });
+  initFront({ showDossier, hideDossier, showMenu, syncAmbient, toggleSound: () => setMuted(!sound.muted), startUrban });
   sound.locate = locateSound;
   // Le navigateur (iOS surtout) n'ouvre le son qu'à la suite d'un geste.
   for (const ev of ['pointerdown', 'keydown']) window.addEventListener(ev, () => sound.unlock(), { capture: true });

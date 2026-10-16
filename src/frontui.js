@@ -9,9 +9,9 @@ import { ATOUTS, RARITY_LABEL, ATOUT_RULES, cardText, confirmAtouts, chooseCards
 import { drawHtml, airWarHtml as airWarDossier, playAirWar, roundText, verdictText } from './frontdeck.js';
 import { airStatus } from './frontairwar.js';
 import {
-  createFront, beginDay, stepTick, addVector, engagement, addLine, setLineLevel, addBarrage, barragesLeft, removeOrder, deployReserve, undoDeployment,
+  createFront, beginDay, planOrders, stepTick, addVector, engagement, addLine, setLineLevel, addBarrage, barragesLeft, removeOrder, deployReserve, undoDeployment,
   repeatOrders, setPocketMode, vectorCatchment, troops, territory, townsHeld, attackerTowns, pocketName,
-  cellAtPoint, addPontoon, FRONT_WEATHER, POCKET_MODES, VECTOR_TYPES, sideIndex, windLabel,
+  cellAtPoint, addPontoon, FRONT_WEATHER, POCKET_MODES, VECTOR_TYPES, sideIndex, windLabel, FRONT_SIDES,
 } from './front.js';
 import { addTransfer, NIGHT } from './frontnight.js';
 import { AIR, addAirMission, airBase, moveAA, sortiesToday } from './frontair.js';
@@ -33,6 +33,7 @@ import { describeCell } from './terrain.js';
 import { FRONT_RULES } from './combat.js';
 import { createRng } from './rng.js';
 import { sound } from './audio.js';
+import { streetCandidates, streetBattle, applyStreetBattle } from './frontstreet.js';
 
 const byId = (id) => document.getElementById(id);
 const escHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -916,6 +917,15 @@ function launchDay() {
   fui.pending = null;
   fui.breakout = null;
   fui.probe = null;
+  // Batailles de rue : une ville que vise une poussée (la vôtre, ou celle de l'ennemi sur l'une des vôtres) peut se
+  // jouer en tactique, une par jour. Les ordres de l'IA sont donnés d'abord, pour savoir où l'ennemi attaque.
+  if (!fui.streetDone && fui.hooks.startUrban && f.streetDay !== f.day) {
+    planOrders(f);
+    const queue = streetCandidates(f).filter((c) => c.attacker === fui.side || c.defender === fui.side);
+    if (queue.length) { fui.streetQueue = queue; return showStreetPrompt(0); }
+  }
+  fui.streetDone = false;
+  hideStreetPrompt();
   fui.dayStats = takeStats();
   fui.alerts = [];
   beginDay(f);
@@ -927,6 +937,88 @@ function launchDay() {
   setHint('');
   refreshFront();
   startLoop();
+}
+
+// Fenêtre au-dessus de la ville disputée : rapport de force estimé, terrain, défenses, appui ; commander la bataille
+// (bascule dans le cadre tactique) ou la laisser à la résolution automatique (ville suivante, puis la journée).
+function showStreetPrompt(k) {
+  const f = fui.front, c = fui.streetQueue?.[k];
+  if (!c) { fui.streetDone = true; return launchDay(); }
+  const b = streetBattle(f, c);
+  const s = fui.side, me = FRONT_SIDES[s], attacking = c.attacker === s;
+  const t = c.town, x = f.centers.x[t.i], y = f.centers.y[t.i];
+  // La ville au centre de la vue.
+  const cam = fui.r.cam;
+  cam.x = x * CELL - fui.r.vw / cam.s / 2;
+  cam.y = y * CELL - fui.r.vh / cam.s / 2;
+  fui.r.clampCam?.();
+  drawFront(1);
+  const own = b.link.men[s], foe = b.link.men[1 - s];
+  const total = own + foe * 1.3 || 1;
+  const sizeLabel = { village: 'Village', town: 'Ville', city: 'Grande ville' }[b.map.town.size];
+  const dig = c.cells.reduce((a, i) => a + (f.entrench?.[i] ?? 0), 0) / c.cells.length;
+  const works = dig > 0.5 ? 'retranchée' : dig > 0.1 ? 'tranchées en cours' : 'sans ouvrages';
+  const tanks = b.armies[me].filter((u) => u.type === 'tank').length, foeTanks = b.armies[FRONT_SIDES[1 - s]].filter((u) => u.type === 'tank').length;
+  const fire = b.fire[me];
+  const left = barragesLeft(f, s);
+  const pips = left === Infinity ? '' : '●'.repeat(Math.min(left, 3)) + '○'.repeat(Math.max(0, f.cfg.barrageStock + f.cfg.barrageRefill - Math.min(left, 3)));
+  const el = byId('f-street');
+  el.innerHTML = `
+    <div class="sp-tag"><span>Bataille de rue${fui.streetQueue.length > 1 ? ` · ${k + 1}/${fui.streetQueue.length}` : ''}</span><span>Jour ${f.day} · 6 h</span></div>
+    <h3 id="f-street-title">${escHtml(t.name)}</h3>
+    <p>${attacking ? `Votre poussée vise ${escHtml(t.name)}, tenue par l'ennemi.` : `L'ennemi attaque ${escHtml(t.name)}, que vous tenez.`}</p>
+    <div>
+      <div class="sp-bar" aria-label="Rapport de force estimé" style="--unc:${s === 0 ? '#a8402e' : '#5a6b82'}">
+        <i class="${s === 0 ? 'de' : 'su'}" style="width:${(own / total) * 100}%"></i><i class="${s === 0 ? 'su' : 'de'}" style="width:${((foe * 0.75) / total) * 100}%"></i><i class="unc" style="width:${((foe * 0.55) / total) * 100}%"></i>
+      </div>
+      <div class="sp-lab"><span>Vous ≈ ${fmtMen(own)}${tanks ? ` · ${tanks} cie${tanks > 1 ? 's' : ''} de chars` : ''}</span><span>Ennemi ${menRange(foe)}</span></div>
+    </div>
+    <dl class="sp-facts">
+      <dt>Terrain</dt><dd>${sizeLabel}, ${b.map.blocks.length} îlots${b.map.bridges?.length ? ', une rivière et son pont' : ''}</dd>
+      <dt>Défense</dt><dd>Ville ${works}${!attacking ? '' : foeTanks ? `, chars repérés` : ''}</dd>
+      <dt>Appui</dt><dd>${fire.support ? `${fire.support} tir${fire.support > 1 ? 's' : ''} d'appui` : 'Hors de portée de votre artillerie'}</dd>
+      <dt>Barrages</dt><dd>${fire.barrage ? `${pips} ${fire.barrage} utilisable${fire.barrage > 1 ? 's' : ''}` : 'aucun'}</dd>
+    </dl>
+    <div class="sp-actions">
+      <button class="btn btn-primary" id="f-street-go">Commander la bataille</button>
+      <button class="btn" id="f-street-auto">Résolution auto</button>
+    </div>
+    <p class="sp-foot">Le résultat décide du sort de la ville. Une bataille commandée par jour.</p>`;
+  el.hidden = false;
+  const ring = byId('f-street-ring');
+  const sx = (x * CELL - cam.x) * cam.s, sy = (y * CELL - cam.y) * cam.s;
+  ring.style.left = `${sx}px`;
+  ring.style.top = `${sy}px`;
+  ring.hidden = false;
+  const w = el.offsetWidth, h = el.offsetHeight;
+  el.style.left = `${Math.max(8, Math.min(fui.r.vw - w - 8, sx - w / 2))}px`;
+  el.style.top = `${sy - h - 48 >= 8 ? sy - h - 48 : Math.min(fui.r.vh - h - 8, sy + 44)}px`;
+  sound.ui('order');
+  byId('f-street-auto').addEventListener('click', () => showStreetPrompt(k + 1));
+  byId('f-street-go').addEventListener('click', () => {
+    hideStreetPrompt();
+    f.streetDay = f.day;
+    fui.hooks.startUrban({ ...b, playerSide: me, onEnd: (state) => afterStreet(b, state) });
+  });
+  byId('f-street-go').focus();
+}
+
+function hideStreetPrompt() {
+  byId('f-street').hidden = true;
+  byId('f-street-ring').hidden = true;
+}
+
+// Retour de la bataille de rue : résultat réinjecté, puis la journée part.
+function afterStreet(b, state) {
+  const f = fui.front;
+  applyStreetBattle(f, b.link, state);
+  byId('tac-app').hidden = true;
+  byId('front-app').hidden = false;
+  fui.r.resize();
+  resnap();
+  fui.streetDone = true;
+  refreshFront();
+  launchDay();
 }
 
 function tickMs() { return fui.skip || stillMotion() ? SKIP_MS : DAY_MS / fui.front.cfg.ticks; }

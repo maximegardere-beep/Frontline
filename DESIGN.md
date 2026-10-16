@@ -1161,3 +1161,15 @@ et l'artillerie passe d'un barrage par groupe et par jour à un appui permanent 
 - `createBattle` : retranchement de départ (`u.startDig`).
 - Essai IA contre IA (6 batailles du front en grande ville, 90 journées) : 8 batailles de rue, de 2 à 14 unités par
   camp ; l'IA tactique, qui attaque mal en ville, perd la plupart de ses assauts (étape 7).
+
+### Étape 6 faite : fenêtre et retour
+
+- Au lancement de la journée (`launchDay`, `frontui.js`) : ordres de l'IA donnés d'abord (`planOrders`), puis villes
+  disputées où le joueur attaque ou défend (`streetCandidates`). La vue se centre sur la ville, un anneau pulse
+  dessus et la fenêtre s'ouvre au-dessus (sous la carte sur téléphone) : rapport de force (le sien compté, l'ennemi en
+  fourchette hachurée), terrain (taille, îlots, rivière), défense (ouvrages), appui (tirs d'appui), barrages
+  utilisables (●●○ du stock). « Résolution auto » passe à la ville suivante, puis lance la journée ; « Commander la
+  bataille » bascule dans le cadre tactique (`startUrban`, crochet de `initFront`).
+- Une bataille commandée par jour (`front.streetDay`). Au bilan, « Retour au front » réinjecte le résultat
+  (`applyStreetBattle`, une ligne au journal), rend le cadre du front et lance la journée ; la ville reste figée
+  jusqu'au soir.

@@ -241,6 +241,8 @@ export function applyStreetBattle(front, link, state, events = []) {
   front.frozen ??= new Uint8Array(front.map.N);
   for (const i of cells) front.frozen[i] = 1;
   const share = cityShare(state);
+  const name = front.map.towns.find((t) => t.i === link.townI)?.name ?? 'la ville';
+  front.log.push({ day: front.day, tick: 0, kind: 'town', side: null, text: `Bataille de rue à ${name} : ${state.result?.winner === side(att) ? (side(att) === 'DE' ? 'la Wehrmacht' : 'l\'Armée rouge') + ' l\'emporte' : (side(def) === 'DE' ? 'la Wehrmacht' : 'l\'Armée rouge') + ' tient'} (${Math.round(share * 100)} % de la ville à l'attaquant ; ${taken.length} case${taken.length > 1 ? 's' : ''} prise${taken.length > 1 ? 's' : ''}).` });
   return { taken: taken.length, cells: cells.length, share, winner: state.result?.winner ?? null, lost: { [side(att)]: Math.round(lost[att] * front.cfg.men), [side(def)]: Math.round(lost[def] * front.cfg.men) } };
 }
 
