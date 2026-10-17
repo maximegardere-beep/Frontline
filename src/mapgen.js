@@ -277,7 +277,7 @@ export const FRONT_BIOMES = {
   foret: { label: 'Grande forêt (Briansk)', text: 'Forêt profonde et rares routes : un combat d\'infanterie.', forestQ: 0.38, marshQ: 0.88, marshElev: 0, mountains: 0.01, towns: [4, 6], river: 'meander', riverOdds: 0.6, streams: [1, 3] },
   // Métropole (metrogen.js) : riverOffset, colonnes entre le milieu de la carte et le fleuve ; cityDepth, profondeur
   // de la ville depuis la rive ; towns, villages dans la steppe de l'attaquant.
-  metropole: { label: 'Métropole (Stalingrad)', text: 'Une grande ville le long d\'un fleuve, dos à l\'eau pour le défenseur : quartiers, avenues et combats de rue.', forestQ: 0.9, marshQ: 0.93, marshElev: 0, mountains: 0, towns: [1, 2], metropole: true, river: 'big', riverOdds: 1, riverOffset: [29, 31], cityDepth: [30, 33], streams: [1, 2] },
+  metropole: { label: 'Métropole (Stalingrad)', text: 'Une grande ville le long d\'un fleuve, dos à l\'eau pour le défenseur : quartiers, avenues et combats de rue.', forestQ: 0.9, marshQ: 0.93, marshElev: 0, mountains: 0, towns: [1, 2], metropole: true, river: 'big', riverOdds: 1, riverOffset: [23, 25], cityDepth: [22, 25], streams: [1, 2] },
   fleuve: { label: 'Grand fleuve (Dniepr)', text: 'Un fleuve barre le secteur, quelques ponts seulement : têtes de pont et défense de rive.', forestQ: 0.86, marshQ: 0.86, marshElev: 0, mountains: 0.01, towns: [5, 7], river: 'big', riverOdds: 1, streams: [0, 2] },
 };
 

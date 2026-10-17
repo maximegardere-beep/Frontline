@@ -21,6 +21,7 @@ node tools/campaign-sim.mjs 200   # difficulté de la campagne, l'IA jouant le j
 node tools/front-sim.mjs 120      # front stratégique : 120 batailles IA contre IA (attaquant, camps)
 node tools/front-bench.mjs        # front stratégique : banc de calibrage (percée, attaque frontale, poches)
 node tools/urban-sim.mjs 48       # batailles de rue IA contre IA (ATT=6 : à forces égales)
+node tools/metro-sim.mjs 12       # métropole IA contre IA : progression dans la ville, quartiers pris, fleuve atteint
 node tools/bundle.mjs   # génère dist/frontline.html, un fichier unique jouable hors ligne
 ```
 

@@ -1,7 +1,7 @@
 // Résolution du feu aux dés (d6) et tests de moral ; et, pour le mode Frontline stratégique,
 // la physique du front : flux de densité et pression différentielle (voir frontTick en fin de fichier).
 
-import { tileAt, terrainDefense, edgeFlow, flowFor, TOWN, isUrban, TERRAIN } from './terrain.js';
+import { tileAt, terrainDefense, edgeFlow, flowFor, TOWN, isUrban, TERRAIN, flankFire } from './terrain.js';
 import { WORKS } from './frontworks.js';
 import { armorPressure, armorRiposte, armorRemaining } from './frontarmor.js';
 import { FATIGUE } from './frontsupply.js';
@@ -268,7 +268,13 @@ export function frontTick(front) {
     // Ténacité : des défenseurs à couvert encaissent l'assaut ; ébranlés par les feux de préparation, ils fondent.
     loss[j] += (R.ASSAULT * R.DEF_TOUGH * F * field[owner[j]].cover[j]) / (map.def[j] * field[owner[j]].fort[j] * shaken(j));
     const riposte = R.ASSAULT * R.DEF_FIRE * D * Math.sqrt(Math.min(1, F / Math.max(D, 1e-6))) * (1 + WORKS.wireCost * (front.wire?.[j] ?? 0));
-    for (let k = 0; k < edges.length; k += 3) if (edges[k + 1] === j) loss[edges[k]] += riposte * (edges[k + 2] / F);
+    // Avenue de métropole : les îlots tenus qui la bordent prennent de flanc la part blindée des assaillants.
+    const flank = flankFire(map, owner, j) - 1;
+    for (let k = 0; k < edges.length; k += 3) {
+      if (edges[k + 1] !== j) continue;
+      const i = edges[k], armored = flank ? Math.max(0, Math.min(1, (field[owner[i]].atk[i] - 1.2) / 0.6)) : 0;
+      loss[i] += riposte * (edges[k + 2] / F) * (1 + flank * armored);
+    }
     if (AR.hits.length) armorRiposte(front, AR.hits, j, riposte, F);
   }
 

@@ -165,6 +165,32 @@ export const RUINS = {
 export const ruinBonus = (r) => (r <= RUINS.troughAt
   ? RUINS.intact + (RUINS.trough - RUINS.intact) * (r / RUINS.troughAt)
   : RUINS.trough + (RUINS.rubble - RUINS.trough) * ((r - RUINS.troughAt) / (1 - RUINS.troughAt)));
+// Métropole (metrogen.js) : chaque type de quartier a son terrain. def : bonus défensif de l'îlot intact (la ville
+// générique : RUINS.intact), qui suit la même courbe de ruine ; flow, flowA : fluidités de l'infanterie et des blindés.
+export const DISTRICT_TERRAIN = {
+  centre: { def: 0.7, flow: 0.45, flowA: 0.25 }, // pierre dense
+  usine: { def: 0.9, flow: 0.4, flowA: 0.3 }, // halles, caves, cheminées : des citadelles
+  ouvrier: { def: 0.4, flow: 0.6, flowA: 0.45 }, // isbas et jardins
+  gare: { def: 0.2, flow: 0.7, flowA: 0.7 }, // faisceau de voies à découvert
+  hauteur: { def: 0.2, flow: 0.55, flowA: 0.4 }, // le relief (niveaux 2 et 3) fait le reste
+  parc: { def: 0.1, flow: 0.8, flowA: 0.9 },
+  quai: { def: 0.3, flow: 0.6, flowA: 0.4 },
+};
+// Avenues : rapides pour les chars, à découvert. flank : pertes en plus des blindés qui y poussent, à proportion des
+// îlots voisins tenus par l'ennemi (plein effet à partir de deux).
+export const AVENUE = { def: 0.1, flow: 1, flowA: 1.3, flank: 0.3 };
+
+// Tir de flanc sur une avenue j : multiplicateur des pertes des blindés qui l'assaillent (1 hors avenue).
+export function flankFire(map, owner, j) {
+  if (!map.avenue?.[j]) return 1;
+  let n = 0;
+  for (let d = 0; d < 6; d++) {
+    const k = map.nb[j * 6 + d];
+    if (k >= 0 && owner[k] === owner[j] && map.district[k] >= 0 && !map.avenue[k]) n++;
+  }
+  return 1 + AVENUE.flank * Math.min(1, n / 2);
+}
+
 // État affiché d'une case de ville selon sa ruine.
 export const ruinLabel = (r) => (r < 0.08 ? null : r < 0.35 ? 'endommagée' : r < 0.7 ? 'en flammes' : 'en ruines');
 
@@ -197,7 +223,10 @@ export function cellTerrain(map, i, frozen = false, ruin = 0) {
   }
   if (map.road?.[i] && k !== 'mountain' && water !== 'river') flowA = Math.min(ROAD_CAP, Math.max(flowA, 0.6) * ROAD_ARMOR);
   if (k === 'town' && !water) {
-    def = 1 + ruinBonus(ruin);
+    // Métropole : terrain du quartier, ou de l'avenue qui le traverse.
+    const D = map.district?.[i] >= 0 ? (map.avenue[i] ? AVENUE : DISTRICT_TERRAIN[map.districts[map.district[i]].type]) : null;
+    if (D) { flow = D.flow; flowA = D.flowA; }
+    def = 1 + ruinBonus(ruin) * (D ? D.def / RUINS.intact : 1);
     flow *= 1 - RUINS.flow * ruin;
     flowA *= 1 - RUINS.flowA * ruin;
     atkA *= 1 - RUINS.atkA * ruin;
@@ -220,7 +249,8 @@ export const flowFor = (map, j, armored = 0) => (armored > 0 && map.flowA ? map.
 export function describeCell(map, i, ruin = 0) {
   const k = FRONT_KINDS[map.kind[i]];
   const town = k === 'town' ? map.towns.find((t) => t.i === i) : null;
-  const parts = [town ? `${FRONT_TERRAIN[k].label} de ${town.name}` : FRONT_TERRAIN[k].label];
+  const district = map.district?.[i] >= 0 ? map.districts[map.district[i]] : null;
+  const parts = [town && !district ? `${FRONT_TERRAIN[k].label} de ${town.name}` : district ? `${district.name}${map.avenue[i] ? ', avenue' : ''}` : FRONT_TERRAIN[k].label];
   if (k === 'town' && ruinLabel(ruin)) parts[0] += ` ${ruinLabel(ruin)} (défense +${Math.round(ruinBonus(ruin) * 100)} %)`;
   if (map.river?.[i]) parts.push(map.bridge?.[i] === 1 ? (map.pontoon?.[i] ? 'pont de bateaux' : 'pont') : `${map.bridge?.[i] === 2 ? 'pont détruit · ' : ''}${map.river[i] === 2 ? 'gué' : map.bigRiver?.[i] ? 'fleuve' : 'rivière'}${map.river[i] === 2 ? '' : ' (infranchissable hors des ponts)'}`);
   else if (map.road?.[i]) parts.push(map.stream?.[i] ? 'route · ruisseau' : 'route');

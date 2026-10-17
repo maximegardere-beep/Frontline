@@ -1226,6 +1226,7 @@ Un nouveau biome du front stratégique où la ville n'est plus un point à prend
 - Fleuve : le fleuve du biome « fleuve », 29 à 31 colonnes du milieu vers le défenseur. La ville se mesure depuis la
   rive côté attaquant (profondeur u, en colonnes) : de 30 à 33 colonnes, qui ondulent, amincie aux extrémités nord et
   sud. Environ 30 % de la carte ; derrière le fleuve, une quinzaine de colonnes de steppe pour le défenseur.
+  (Resserré à l'étape 2.)
 - Quartiers (`map.districts`, `map.district[i]`, -1 hors de la ville) : germes posés par type (deux usines vers un bout,
   vieille ville vers l'autre, gare à mi-profondeur à côté, hauteur sur le point le plus haut entre les deux, un parc),
   puis cités ouvrières et faubourgs qui comblent les vides (écart 10). Pavage au germe le plus proche, pondéré par type,
@@ -1243,7 +1244,33 @@ Un nouveau biome du front stratégique où la ville n'est plus un point à prend
 - Objectifs : une ville du front par quartier, à son centre (`town.district`), en attendant les points de quartiers ;
   un ou deux villages dans la steppe de l'attaquant, sur une avenue.
 - Ligne de départ (`map.startLine`, lue par `createFront`) : l'attaquant tient la frange des faubourgs, 5 colonnes
-  (de 10 à 20 % de la ville) ; quais et vieille ville au défenseur.
+  (de 10 à 20 % de la ville) ; quais et vieille ville au défenseur. (8 colonnes à l'étape 2.)
 - Hors du tirage des biomes : on la voit dans l'aperçu (`front-preview.html?biome=metropole`). Une bataille IA contre
   IA tourne sans erreur, mais l'attaquant ne prend rien (la ville entière a la défense d'une ville) : étapes 2 à 4.
+
+### Étape 2 faite : terrain des quartiers, avenues, tir de flanc
+
+- Terrain par type de quartier (`terrain.js`, `DISTRICT_TERRAIN`) : bonus défensif de l'îlot intact (il suit la courbe
+  de ruine de la ville, mise à l'échelle), fluidités de l'infanterie et des blindés. Vieille ville +70 % (0,45 / 0,25),
+  usines +90 % (0,4 / 0,3), cités et faubourgs +40 % (0,6 / 0,45), gare +20 % (0,7 / 0,7), hauteur +20 % plus son relief
+  (0,55 / 0,4), parc +10 % (0,8 / 0,9), quais +30 % (0,6 / 0,4). Hors métropole, rien ne change (mêmes cartes, même
+  terrain).
+- Avenues (`AVENUE`) : défense +10 %, fluidité 1 / 1,3. Les ruines les encombrent comme le reste de la ville.
+- Tir de flanc (`flankFire`) : un assaut sur une avenue bordée d'îlots tenus par l'ennemi (hors avenue ; plein effet à
+  deux) coûte 30 % de pertes en plus à sa part blindée : la riposte des vecteurs (`frontTick`) et celle des formations
+  blindées (`armorRiposte`).
+- La case d'une métropole se décrit par son quartier (« Usine de tracteurs, avenue »).
+- Mesure (`tools/metro-sim.mjs`, IA contre IA, 20 batailles par réglage) : la ville de l'étape 1, trop profonde, ne se
+  traversait pas, quel que soit le terrain : même transparente (défense de steppe), l'attaquant n'en prenait que 12 %
+  en quinze jours. Le front avance d'ordinaire de 3,5 (steppe) à 6 colonnes (bourg, fleuve) en moyenne, ses pointes de
+  20 à 25. Géométrie resserrée : fleuve à 23-25 colonnes du milieu, ville de 22 à 25 colonnes, l'attaquant en tient
+  les 8 extérieures (le tiers de la ville) ; usines un peu plus loin du bout de la ville (moins amincie), où elles
+  étaient prises de flanc depuis la steppe.
+- Résultats (avance moyenne en colonnes · ville tenue par l'attaquant à la fin · fleuve atteint) : ville générique
+  1,0 · 34 % · 50 % ; terrain des quartiers 2,6 · 42 % · 85 % ; ville transparente 5,2 · 51 % · 100 %. Quartiers pris
+  par type : parc 6/20, cités 6/21, quais 4/40, usines 3/40, hauteur 1/11, vieille ville 1/20, gare 0/7. « Fleuve
+  atteint » : une case au moins, souvent par une percée le long d'une avenue.
+- Reste pour l'étape 4 : l'IA jette ses blindés dans la ville et en perd 75 à 85 % quel que soit le réglage ; le tir
+  de flanc n'y change rien de mesurable tant qu'elle ne les garde pas pour les avenues. Les victoires (70 % pour
+  l'attaquant) comptent encore les villes ★ des quartiers : étape 3.
 

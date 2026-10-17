@@ -406,7 +406,7 @@ test('métropole : ville le long du fleuve côté défenseur, quartiers d\'un se
         cityCells++;
         assert.ok(m.kind[i] === 3 && !m.river[i], 'la ville est en terre ferme');
       }
-      assert.ok(cityCells > N * 0.22 && cityCells < N * 0.4, `emprise ${cityCells}`);
+      assert.ok(cityCells > N * 0.17 && cityCells < N * 0.32, `emprise ${cityCells}`);
       for (const d of m.districts) {
         assert.equal(connected(m, d.cells).size, d.cells.length, `${d.name} d'un seul tenant`);
         assert.equal(m.district[d.center], d.id);
@@ -428,12 +428,46 @@ test('métropole : ville le long du fleuve côté défenseur, quartiers d\'un se
       assert.ok(m.rails[0][0] % W === attEdge && m.rails[0].some((i) => m.district[i] === gare.id), 'le train arrive à la gare');
     }
   }
-  // Départ : l'attaquant tient la frange des faubourgs, le défenseur le reste, quais et vieille ville compris.
+  // Départ : l'attaquant tient les faubourgs (le tiers extérieur), le défenseur le reste, quais et vieille ville compris.
   const f = createFront({ seed: 'metro-a', biome: 'metropole', attacker: 'SU' });
   const att = f.attacker, cells = f.map.districts.flatMap((d) => d.cells);
   const share = cells.filter((i) => f.owner[i] === att).length / cells.length;
-  assert.ok(share > 0.05 && share < 0.25, `faubourgs tenus par l'attaquant : ${share}`);
+  assert.ok(share > 0.2 && share < 0.45, `faubourgs tenus par l'attaquant : ${share}`);
   for (const d of f.map.districts.filter((x) => x.type === 'quai' || x.type === 'centre')) assert.ok(d.cells.every((i) => f.owner[i] === 1 - att), d.name);
+});
+
+test('métropole : terrain par quartier, avenues rapides et découvertes, tir de flanc sur les blindés', async () => {
+  const { DISTRICT_TERRAIN, AVENUE, flankFire } = await import('../src/terrain.js');
+  const { frontTick } = await import('../src/combat.js');
+  const { DIR_VECTORS } = await import('../src/hex.js');
+  const make = () => createFront({ seed: 'metro-t', biome: 'metropole', attacker: 'DE', setup: LEGACY });
+  const f = make(), m = f.map;
+  const cellOf = (type) => m.districts.find((d) => d.type === type).cells.find((i) => !m.avenue[i] && !m.stream[i] && m.elev[i] === 1);
+  const [usine, parc, ouvrier] = ['usine', 'parc', 'ouvrier'].map(cellOf);
+  assert.ok(m.def[usine] > m.def[ouvrier] && m.def[ouvrier] > m.def[parc], 'usines > cités > parc');
+  assert.ok(Math.abs(m.def[usine] - (1 + DISTRICT_TERRAIN.usine.def)) < 1e-6, 'usine intacte');
+  assert.ok(m.flowA[parc] > m.flowA[usine], 'les chars passent mieux au parc');
+  const avenue = m.districts.flatMap((d) => d.cells).find((i) => m.avenue[i] && m.elev[i] === 1 && !m.stream[i]);
+  assert.ok(m.flowA[avenue] > 1.2 && m.def[avenue] < m.def[ouvrier], 'avenue : rapide et découverte');
+  // Tir de flanc : un assaut blindé sur une avenue bordée d'îlots ennemis coûte plus cher que le même sans flanc.
+  let pick = null;
+  for (let j = 0; j < m.N && !pick; j++) {
+    if (!m.avenue[j] || m.district[j] < 0 || f.owner[j] !== 1 || flankFire(m, f.owner, j) < 1 + AVENUE.flank - 1e-9) continue;
+    for (let d = 0; d < 6; d++) { const i = m.nb[j * 6 + d]; if (i >= 0 && f.owner[i] === 0) { pick = { i, j, d: (d + 3) % 6 }; break; } }
+  }
+  assert.ok(pick, 'une avenue au contact, bordée d\'îlots ennemis');
+  const lossOf = (flank) => {
+    const g = make(), S = g.field[0], { i, j, d } = pick;
+    assert.equal(g.map.nb[i * 6 + d], j);
+    S.w[i] = 1; S.speed[i] = 0.1; S.atk[i] = 1.8; S.dx[i] = DIR_VECTORS[d].x; S.dy[i] = DIR_VECTORS[d].y;
+    g.dens[i] = 20;
+    const saved = AVENUE.flank;
+    AVENUE.flank = flank;
+    frontTick(g);
+    AVENUE.flank = saved;
+    return 20 - g.dens[i];
+  };
+  assert.ok(lossOf(AVENUE.flank) > lossOf(0) * 1.05, 'les blindés pris de flanc perdent davantage');
 });
 
 test('IA : ordres des deux rôles, sans tricher (le brouillard compte), bataille complète', async () => {

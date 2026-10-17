@@ -10,6 +10,8 @@
 // ravitaille plus ; si sa case tombe sans repli possible, elle est perdue.
 // Positions en unités de grille, comme les ordres.
 
+import { flankFire } from './terrain.js';
+
 export const ARMOR_SETUP = [
   [
     { name: '3. Panzer-Division', tanks: 160, exp: 1.4, gren: 130 },
@@ -166,7 +168,7 @@ export function armorRiposte(front, hits, j, riposte, F) {
   for (let k = 0; k < hits.length; k += 3) {
     if (hits[k + 1] !== j) continue;
     const a = front.armor.find((x) => x.id === hits[k]);
-    const harsh = (1 + 1.5 * (front.at?.[j] ?? 0)) * (2 - front.map.atkA[j]);
+    const harsh = (1 + 1.5 * (front.at?.[j] ?? 0)) * (2 - front.map.atkA[j]) * flankFire(front.map, front.owner, j);
     a.tanks = Math.max(0, a.tanks - riposte * (hits[k + 2] / F) * ARMOR_RULES.tankLoss * harsh * heavyK(a, 'loss') / expFactor(a.exp));
     a.fought = true;
   }

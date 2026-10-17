@@ -17,7 +17,7 @@ export const DISTRICT_TYPES = {
 };
 
 export const METRO = {
-  suburbs: 5, // profondeur des faubourgs tenus par l'attaquant au départ (colonnes)
+  suburbs: 8, // profondeur des faubourgs tenus par l'attaquant au départ (colonnes)
   taper: 8, // lignes aux extrémités nord et sud où la ville s'amincit
   spacing: 10, // écart minimal entre deux germes de quartier (cités ouvrières, parc)
   quayDepth: 3, // bande des quais (profondeur depuis la rive)
@@ -55,7 +55,7 @@ export function buildMetropole(map, { rng, hs, B, defender = 1, cheapestPath, ma
   const depth = new Float32Array(H);
   for (let r = 0; r < H; r++) {
     const end = Math.min(r, H - 1 - r);
-    depth[r] = (D + (edgeNoise(r * 0.15, 1.7, 2) - 0.5) * 8) * (end < METRO.taper ? 0.55 + (0.45 * end) / METRO.taper : 1);
+    depth[r] = (D + (edgeNoise(r * 0.15, 1.7, 2) - 0.5) * 8) * (end < METRO.taper ? 0.75 + (0.25 * end) / METRO.taper : 1);
   }
   const city = new Uint8Array(N);
   for (let i = 0; i < N; i++) { const u = uOf(i); if (!map.river[i] && u >= 0.5 && u <= depth[rowOf(i)]) city[i] = 1; }
@@ -72,13 +72,13 @@ export function buildMetropole(map, { rng, hs, B, defender = 1, cheapestPath, ma
   const add = (type, u, v) => { const s = { type, u, v: Math.max(1, Math.min(H - 2, v)) }; seeds.push(s); return s; };
   const north = rng.chance(0.5); // usines au nord ou au sud, la vieille ville vers l'autre bout
   const vAt = (f) => (north ? f : 1 - f) * (H - 1);
-  add('usine', 6, vAt(0.13));
-  add('usine', 6, vAt(0.33));
+  add('usine', 6, vAt(0.2));
+  add('usine', 6, vAt(0.38));
   const centre = add('centre', 7, vAt(0.62 + rng.next() * 0.08));
   const gare = add('gare', 16, centre.v + (rng.chance(0.5) ? 1 : -1) * rng.int(4, 7));
   // Hauteur : le point le plus haut entre les usines et le centre, à mi-profondeur.
   {
-    const [v0, v1] = [vAt(0.38), vAt(0.52)].sort((a, b) => a - b);
+    const [v0, v1] = [vAt(0.44), vAt(0.56)].sort((a, b) => a - b);
     let best = null, bv = -Infinity;
     for (let i = 0; i < N; i++) {
       const u = uOf(i), v = rowOf(i);
