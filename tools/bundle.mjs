@@ -37,11 +37,15 @@ if (process.argv.includes('--check')) {
 
 const html = await readFile(`${root}index.html`, 'utf8');
 const css = await readFile(`${root}style.css`, 'utf8');
+// Icônes en ligne : le fichier unique doit garder son icône hors ligne, ajouté à l'écran d'accueil.
+const svgIcon = (await readFile(`${root}icons/icon.svg`)).toString('base64');
+const touchIcon = (await readFile(`${root}icons/apple-touch-icon.png`)).toString('base64');
+const icons = `<meta name="apple-mobile-web-app-capable" content="yes">\n<meta name="apple-mobile-web-app-title" content="Frontline">\n<link rel="icon" href="data:image/svg+xml;base64,${svgIcon}" type="image/svg+xml">\n<link rel="apple-touch-icon" href="data:image/png;base64,${touchIcon}">\n`;
 const fonts = html.match(/<link rel="stylesheet" href="https:\/\/fonts[^>]*>/)[0];
 const app = html.slice(html.indexOf('<!--APP-->') + 10, html.indexOf('<!--/APP-->'));
 const fragment = process.argv.includes('--fragment');
 const body = `<title>Frontline</title>\n${fonts}\n<style>\n${css}\n</style>\n${app}\n<script type="module">\n${js}\n</script>\n`;
-const out = fragment ? body : `<!doctype html>\n<html lang="fr">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n${body.replace('</style>\n', '</style>\n</head>\n<body>\n')}</body>\n</html>\n`;
+const out = fragment ? body : `<!doctype html>\n<html lang="fr">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n${icons}${body.replace('</style>\n', '</style>\n</head>\n<body>\n')}</body>\n</html>\n`;
 await mkdir(`${root}dist`, { recursive: true });
 const file = `${root}dist/${fragment ? 'frontline.fragment.html' : 'frontline.html'}`;
 await writeFile(file, out);
