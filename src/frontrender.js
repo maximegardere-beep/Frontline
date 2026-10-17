@@ -8,14 +8,14 @@
 // - combats (frontfx.js) : lueurs au contact, tirs traçants, obus, barrages ;
 // - ordres à l'encre jaune, poches, villes.
 
-import { Renderer, splineTo, blobPath, contourSegments, strokeSegments, ELEV_STOPS, PALETTE } from './render.js';
+import { Renderer, splineTo, splineAt, blobPath, contourSegments, strokeSegments, ELEV_STOPS, PALETTE } from './render.js';
 import { hexToPixel, pixelToHex, SQRT3 } from './hex.js';
 import { ALERT } from './frontalert.js';
 import { bfsDistance } from './path.js';
 import { createRng } from './rng.js';
 import { makeNoise } from './mapgen.js';
 import { FRONT_KINDS } from './terrain.js';
-import { FRONT_WEATHER, VECTOR_TYPES, cellAtPoint } from './front.js';
+import { FRONT_WEATHER, VECTOR_TYPES, cellAtPoint, vectorMomentum } from './front.js';
 import { MIN_POCKET, ARMOR_ATK } from './frontinput.js';
 import { FrontFx } from './frontfx.js';
 import { GUN_KINDS, AT_RULES, visibleGuns, gunPower, missionGuns } from './frontguns.js';
@@ -40,6 +40,9 @@ const DOT_RGB = [['#1e2f4a', '#3a5a8e'], ['#5a170c', '#b0371f']];
 const DOTS = { per: 0.45, max: 14, depth0: 4, depth: 22, scale: 14, r: 1.1, rearCell: 6, group: 30 };
 const ORDER_INK = '#ffd23f'; // ordres du joueur
 const ORDER_HALO = 'rgba(24, 20, 10, 0.8)';
+// Élan d'une attaque en cours (vectorMomentum) : couleur et forme de la marque posée à la tête de l'avance.
+const ORDER_EMPTY = 'rgba(246, 238, 214, 0.78)'; // intérieur d'une flèche creuse : ce qui reste à prendre
+const MOMENTUM_INK = { start: ORDER_INK, wait: '#b9b29c', advance: '#4fc94a', breakthrough: '#b4ff3c', stall: '#ff8a1f', repulsed: '#ef3b2c' };
 const SPRITE_K = 1.7; // échelle des pièces vues de dessus (lisibles sans zoomer)
 // Chars : plus petits que les pièces d'artillerie (une formation ne doit pas couvrir le secteur qu'elle attaque) ;
 // échelle monde, et plancher à l'écran quand on dézoome.
@@ -802,6 +805,7 @@ export class FrontRenderer extends Renderer {
     if (f.phase === 'plan') this.drawAirPlans(view.viewer ?? null);
     this.fx.drawArcs(ctx, now, 1 / cam.s);
     this.fx.drawPlanes(ctx, now, 1 / cam.s);
+    this.orderClock = { now, t: Math.max(0, Math.min(1, view.t ?? 1)) };
     if (view.orders) this.drawFrontOrders(view.orders, view.viewer);
     if (view.preview) this.drawFrontOrders(view.preview, view.viewer, 0.55);
     if (view.alerts?.length) this.drawAlerts(view.alerts, view.viewer ?? 0, now);
@@ -2335,35 +2339,126 @@ export class FrontRenderer extends Renderer {
         ctx.stroke();
         continue;
       }
-      ctx.lineWidth = (armor ? 5 : 3) + extra;
-      ctx.setLineDash((retreat || v.pocket) && !halo ? [8, 5] : []);
+      // Attaque en cours : la flèche, creuse, se remplit d'encre à mesure que le front avance le long de son axe.
+      const m = this.front.phase === 'resolve' && !retreat ? vectorMomentum(this.front, v) : null;
+      const width = (armor ? 5 : 3) + extra;
       // Flèche légèrement courbe, comme tracée à main levée.
       const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
       const L = Math.hypot(b.x - a.x, b.y - a.y) || 1;
       const bend = Math.min(18, L * 0.08);
       const pts = [a, { x: mx - ((b.y - a.y) / L) * bend, y: my + ((b.x - a.x) / L) * bend }, b];
-      ctx.beginPath();
-      splineTo(ctx, pts);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      if (armor && !halo) {
-        // Double trait des blindés.
-        ctx.strokeStyle = ORDER_HALO;
-        ctx.lineWidth = 1.4;
+      // Avancement affiché : interpolé entre les deux derniers ticks, comme la masse des troupes.
+      const tr = v.track ?? [];
+      const p = m ? tr[Math.max(0, tr.length - 2)] + (m.p - tr[Math.max(0, tr.length - 2)]) * this.orderClock.t : 1;
+      const body = (u0, u1) => {
         ctx.beginPath();
-        splineTo(ctx, pts);
+        if (u0 === 0 && u1 === 1) { splineTo(ctx, pts); return; }
+        const n = Math.max(2, Math.ceil((u1 - u0) * 24));
+        for (let k = 0; k <= n; k++) { const q = splineAt(pts, 2 * (u0 + ((u1 - u0) * k) / n)); if (k) ctx.lineTo(q.x, q.y); else ctx.moveTo(q.x, q.y); }
+      };
+      const line = (u0, u1, dash) => {
+        ctx.lineWidth = width;
+        ctx.setLineDash(dash && !halo ? [8, 5] : []);
+        body(u0, u1);
         ctx.stroke();
+        ctx.setLineDash([]);
+        if (armor && !halo) {
+          // Double trait des blindés.
+          ctx.strokeStyle = ORDER_HALO;
+          ctx.lineWidth = 1.4;
+          body(u0, u1);
+          ctx.stroke();
+          ctx.strokeStyle = ink;
+        }
+      };
+      const dash = retreat || !!v.pocket;
+      if (m && !halo) {
+        ctx.strokeStyle = ORDER_EMPTY;
+        line(p, 1, dash);
         ctx.strokeStyle = ink;
-      }
+        if (p > 0.005) line(0, p, dash);
+      } else line(0, 1, dash);
       const ang = Math.atan2(b.y - pts[1].y, b.x - pts[1].x);
       const size = armor ? 16 : 12;
+      const empty = m && m.state !== 'done' && !halo;
+      if (empty) ctx.fillStyle = ORDER_EMPTY;
       ctx.beginPath();
       ctx.moveTo(b.x + Math.cos(ang) * 4, b.y + Math.sin(ang) * 4);
       ctx.lineTo(b.x + Math.cos(ang + 2.6) * size, b.y + Math.sin(ang + 2.6) * size);
       ctx.lineTo(b.x + Math.cos(ang - 2.6) * size, b.y + Math.sin(ang - 2.6) * size);
       ctx.closePath();
       fill();
+      ctx.fillStyle = ink;
+      if (m && m.state !== 'done') this.paintMomentum(pts, p, m, armor, ink, halo);
     }
+  }
+
+  // Tête d'une attaque en cours : marque à la couleur de son élan (forme redondante avec la couleur), et projection en
+  // pointillés jusqu'où elle arrivera ce soir à ce rythme.
+  paintMomentum(pts, p, m, armor, ink, halo) {
+    const { ctx } = this;
+    const base = ctx.globalAlpha;
+    const at = (u) => splineAt(pts, 2 * Math.max(0, Math.min(1, u)));
+    const dir = (u) => { const q0 = at(u - 0.02), q1 = at(u + 0.02); return Math.atan2(q1.y - q0.y, q1.x - q0.x); };
+    // Projection : trait fin pointillé de la tête à la position attendue au soir, chevron ouvert au bout.
+    if (m.proj > p + 0.03) {
+      const end = m.proj < 0.97; // au bout de l'axe, la pointe de la flèche suffit
+      ctx.strokeStyle = halo ? ink : ORDER_INK;
+      ctx.lineWidth = halo ? 3.6 : 1.6;
+      ctx.setLineDash([3, 4]);
+      ctx.beginPath();
+      const n = Math.max(2, Math.ceil((m.proj - p) * 24));
+      for (let k = 0; k <= n; k++) { const q = at(p + ((m.proj - p) * k) / n); if (k) ctx.lineTo(q.x, q.y); else ctx.moveTo(q.x, q.y); }
+      ctx.stroke();
+      ctx.setLineDash([]);
+      if (end) {
+        const e = at(m.proj), a = dir(m.proj), r = armor ? 8 : 6.5;
+        ctx.lineWidth = halo ? 4 : 1.8;
+        ctx.beginPath();
+        ctx.moveTo(e.x + Math.cos(a + 2.4) * r, e.y + Math.sin(a + 2.4) * r);
+        ctx.lineTo(e.x, e.y);
+        ctx.lineTo(e.x + Math.cos(a - 2.4) * r, e.y + Math.sin(a - 2.4) * r);
+        ctx.stroke();
+      }
+    }
+    const c = at(p), a = dir(p), ux = Math.cos(a), uy = Math.sin(a);
+    const r = armor ? 9 : 7.5;
+    ctx.strokeStyle = halo ? ink : MOMENTUM_INK[m.state];
+    ctx.fillStyle = ctx.strokeStyle;
+    if (m.state === 'breakthrough' && !halo) ctx.globalAlpha = base * (0.65 + 0.35 * Math.sin(this.orderClock.now / 140));
+    const chevron = (back, k = 1) => {
+      // Pointe pleine dans le sens de l'axe (ou à rebours, quand l'attaque recule).
+      const s = back ? -1 : 1, x = c.x + ux * s * r * (k - 1) * 0.9, y = c.y + uy * s * r * (k - 1) * 0.9;
+      ctx.beginPath();
+      ctx.moveTo(x + ux * s * r, y + uy * s * r);
+      ctx.lineTo(x + Math.cos(a + 2.5) * s * r, y + Math.sin(a + 2.5) * s * r);
+      ctx.lineTo(x - ux * s * r * 0.35, y - uy * s * r * 0.35);
+      ctx.lineTo(x + Math.cos(a - 2.5) * s * r, y + Math.sin(a - 2.5) * s * r);
+      ctx.closePath();
+      if (halo) { ctx.lineWidth = 2.6; ctx.stroke(); }
+      ctx.fill();
+    };
+    if (m.state === 'stall') {
+      // Piétinement : barre en travers de l'axe.
+      ctx.lineCap = 'butt';
+      ctx.lineWidth = halo ? 7 : 4;
+      ctx.beginPath();
+      ctx.moveTo(c.x - uy * r, c.y + ux * r);
+      ctx.lineTo(c.x + uy * r, c.y - ux * r);
+      ctx.stroke();
+      ctx.lineCap = 'round';
+    } else if (m.state === 'wait') {
+      // Ordre retenu par le PC : cercle creux (l'attaque partira à midi).
+      ctx.lineWidth = halo ? 4.4 : 2;
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, r * 0.6, 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (m.state === 'repulsed') chevron(true);
+    else if (m.state === 'breakthrough') { chevron(false, 1); chevron(false, 2); }
+    else chevron(false);
+    ctx.globalAlpha = base;
+    ctx.strokeStyle = ink;
+    ctx.fillStyle = ink;
   }
 }
 

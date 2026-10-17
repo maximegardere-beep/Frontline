@@ -1409,3 +1409,23 @@ Un nouveau biome du front stratégique où la ville n'est plus un point à prend
   bataille commandée en tactique, bilans du soir.
 - `tools/front-sim.mjs` compte la métropole parmi ses biomes.
 
+
+### Avancement des attaques sur les flèches
+
+- Mesure (`vectorProgress`, `front.js`) : jusqu'où nos lignes tiennent sans interruption le long de l'axe d'un vecteur
+  d'infanterie ou de blindés, depuis son origine (0 au départ, 1 à l'objectif) ; trois axes parallèles dans le couloir,
+  on garde le plus avancé, pour qu'un îlot ennemi sur l'axe ne fige pas la mesure. Relevée à l'aube puis à chaque tick
+  (`v.track`) ; un ordre retenu par le PC jusqu'à midi est marqué (`v.hold`) et son élan ne compte qu'à son départ.
+- Élan (`vectorMomentum`, réglages `MOMENTUM`) : rythme sur les 6 derniers ticks, en cases par tick. Percée au-delà
+  de 0,6, avance au-delà de 0,08, recul en dessous de −0,08, piétinement entre les deux. Sur 12 batailles IA contre IA
+  (8 jours) : piétinement 41 %, avance 43 %, percée 5 %, recul 1 %, objectif atteint 2 %.
+- Projection au soir : avancement + rythme × ticks restants, avec le plus prudent du rythme des 4 derniers ticks et de
+  celui depuis le départ. Comparée à quatre autres manières de la calculer, c'est la plus juste : écart moyen avec
+  l'avancement réel du soir de 0,16 de l'axe à 6 h de jeu, 0,10 à midi, 0,04 en fin d'après-midi. Ce n'est pas une
+  probabilité : on montre ce qu'on mesure, le brouillard du plan reste entier.
+- Rendu, pendant la journée seulement (le plan garde la flèche pleine) : la flèche est creuse (intérieur couleur papier)
+  et l'encre la remplit jusqu'à l'avancement, interpolé entre deux ticks ; la pointe ne se remplit qu'à l'objectif
+  atteint. À la tête de l'avance, une marque dont la forme double la couleur : chevron vert (avance), double chevron
+  vert vif qui pulse (percée), barre orange en travers (piétinement), chevron rouge à rebours (recul), cercle gris
+  (ordre retenu par le PC). Quand l'attaque progresse, un trait pointillé fin mène à un chevron ouvert : là où elle sera
+  ce soir à ce rythme. Repli et fixation, qui ne cherchent pas de terrain, gardent leur tracé.

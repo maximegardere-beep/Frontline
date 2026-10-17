@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createFront, runDay, beginDay, stepTick, addVector, troops, FRONT_SETUP, applyWeather } from '../src/front.js';
+import { createFront, runDay, beginDay, stepTick, addVector, troops, FRONT_SETUP, applyWeather, vectorProgress, vectorMomentum, cellAtPoint } from '../src/front.js';
 import { generateFrontMap } from '../src/mapgen.js';
 import { MOUNTAIN, computeTerrain } from '../src/terrain.js';
 // Moyens placés d'office (sans tirage des atouts) : tests de physique sur des formations et des groupes connus.
@@ -908,4 +908,39 @@ test('artillerie : trois barrages par bataille, barrage concentré, appui passif
   rebuildFields(g, 1);
   const without = g.field[1].fort[i];
   assert.ok(withCover > without * (1 + GUN_RULES.coverDef * 0.99), `défense ${without.toFixed(3)} → ${withCover.toFixed(3)}`);
+});
+
+test('avancement des attaques : mesuré le long de l\'axe, suivi par tick, élan et projection au soir', () => {
+  const f = createFront({ seed: 'fleches', attacker: 'DE', setup: LEGACY });
+  const from = sideFront(f, 0, 32);
+  const o = { x: f.centers.x[from], y: f.centers.y[from] };
+  assert.ok(!addVector(f, 0, 'infantry', from, { x: o.x + 20, y: o.y }).error);
+  const v = f.orders[0][0];
+  const p0 = vectorProgress(f, v);
+  assert.ok(p0 < 0.2, `au départ, l'attaque n'a pas avancé : ${p0}`);
+  // Le couloir pris jusqu'à mi-chemin : l'avancement suit.
+  for (let t = 0; t <= 10; t += 0.5) for (const dy of [-1, 0, 1]) { const i = cellAtPoint(f, { x: o.x + t, y: o.y + dy }); if (i >= 0) f.owner[i] = 0; }
+  const p1 = vectorProgress(f, v);
+  assert.ok(p1 > 0.45 && p1 <= 0.55, `mi-chemin : ${p1}`);
+  // Suivi : un relevé à l'aube, puis un par tick.
+  beginDay(f);
+  for (let k = 0; k < 5; k++) stepTick(f);
+  assert.equal(v.track.length, 6);
+  // États selon le rythme récent.
+  const lin = (a, b, n) => Array.from({ length: n }, (_, k) => a + ((b - a) * k) / (n - 1));
+  const state = (track, hold = false) => vectorMomentum(f, { ...v, track, hold, go: 0 });
+  assert.equal(state([0.1, 0.1]).state, 'start');
+  assert.equal(state(lin(0, 0, 8), true).state, 'wait');
+  assert.equal(state(lin(0.1, 0.25, 10)).state, 'advance');
+  assert.equal(state(lin(0.1, 0.9, 8)).state, 'breakthrough');
+  assert.equal(state([...lin(0.1, 0.4, 5), ...lin(0.4, 0.4, 7)]).state, 'stall');
+  assert.equal(state([...lin(0.1, 0.5, 5), ...lin(0.5, 0.3, 7)]).state, 'repulsed');
+  assert.equal(state(lin(0.5, 1, 6)).state, 'done');
+  // Projection : au-delà de l'avancement tant que l'attaque progresse, jamais au-delà de l'objectif.
+  const m = state(lin(0.1, 0.25, 10));
+  assert.ok(m.proj > m.p && m.proj <= 1, `projection ${m.proj} pour ${m.p}`);
+  assert.equal(state([...lin(0.1, 0.4, 5), ...lin(0.4, 0.4, 7)]).proj, 0.4);
+  // Le soir, les ordres partent avec leur relevé de la journée.
+  while (f.phase === 'resolve') stepTick(f);
+  assert.equal(f.lastOrders[0][0].track.length, f.cfg.ticks + 1);
 });

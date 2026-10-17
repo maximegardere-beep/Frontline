@@ -617,6 +617,70 @@ export function vectorCatchment(front, v) {
   return sum;
 }
 
+// Avancement d'un vecteur d'attaque (0 au départ, 1 à l'objectif) : jusqu'où nos lignes tiennent sans interruption le
+// long de son axe, depuis l'origine. Trois axes parallèles dans le couloir, on garde le plus avancé (un îlot ennemi sur
+// l'axe ne fige pas la mesure si le couloir le contourne).
+export function vectorProgress(front, v) {
+  const L = len(v.from, v.to);
+  const ux = (v.to.x - v.from.x) / L, uy = (v.to.y - v.from.y) / L;
+  const off = Math.min(1.2, VECTOR_TYPES[v.type].sigma * 0.4);
+  let best = 0;
+  for (const o of [0, -off, off]) {
+    let reach = 0;
+    for (let t = 0; t <= L; t += 0.5) {
+      const i = cellAtPoint(front, { x: v.from.x + ux * t - uy * o, y: v.from.y + uy * t + ux * o });
+      if (i < 0 || front.owner[i] !== v.side) break;
+      reach = t;
+    }
+    best = Math.max(best, reach / L);
+  }
+  return best;
+}
+
+// Suivi de la journée : avancement à chaque tick (v.track), et si les ordres attendaient le PC.
+function trackVectors(front) {
+  for (const s of [0, 1]) {
+    const hold = ordersWait(front, s);
+    for (const v of front.orders[s]) {
+      if (!PROGRESS_TYPES.has(v.type)) continue;
+      (v.track ??= []).push(vectorProgress(front, v));
+      v.hold = hold && !v.pocket;
+      if (v.hold) v.go = v.track.length; // l'élan se mesure à partir du moment où l'ordre part
+    }
+  }
+}
+
+const PROGRESS_TYPES = new Set(['infantry', 'armor']);
+// Élan d'une attaque, en cases par tick : fenêtre glissante et seuils de l'état affiché sur la flèche. La projection au
+// soir prend le plus prudent du rythme récent et du rythme depuis le départ (sur des batailles IA contre IA, c'est la
+// plus juste : écart moyen de 0,10 de l'axe à midi, 0,04 en fin d'après-midi).
+export const MOMENTUM = { window: 6, recent: 4, breakthrough: 0.6, advance: 0.08, done: 0.97, start: 3 };
+
+// État d'une attaque pendant la journée : avancement p, rythme (part de l'axe par tick), état et projection au soir.
+// state : 'start' (trop tôt pour juger), 'wait' (le PC retient l'ordre), 'done', 'breakthrough', 'advance', 'stall',
+// 'repulsed'.
+export function vectorMomentum(front, v) {
+  const tr = v.track;
+  if (!tr?.length) return null;
+  const n = tr.length - 1, p = tr[n];
+  const go = Math.min(v.go ?? 0, n);
+  const pace = (k) => (k > 0 ? (p - tr[n - k]) / k : 0);
+  const rate = pace(Math.min(MOMENTUM.window, n - go));
+  const cells = rate * len(v.from, v.to);
+  let state;
+  if (p >= MOMENTUM.done) state = 'done';
+  else if (v.hold) state = 'wait';
+  else if (n - go < MOMENTUM.start) state = 'start';
+  else if (cells >= MOMENTUM.breakthrough) state = 'breakthrough';
+  else if (cells >= MOMENTUM.advance) state = 'advance';
+  else if (cells <= -MOMENTUM.advance) state = 'repulsed';
+  else state = 'stall';
+  const left = Math.max(0, front.cfg.ticks - front.tick);
+  const sure = Math.max(0, Math.min(pace(Math.min(MOMENTUM.recent, n - go)), pace(n - go)));
+  const proj = state === 'advance' || state === 'breakthrough' ? Math.min(1, p + sure * left) : p;
+  return { p, rate, state, proj };
+}
+
 // Déploie des réserves du pool logistique autour de la case i (cases à soi et ravitaillées seulement).
 export function deployReserve(front, s, i, amount = front.cfg.chunk) {
   if (front.phase !== 'plan' && front.phase !== 'ai') return { error: 'Les réserves montent en ligne le matin.' };
@@ -875,6 +939,7 @@ export function beginDay(front) {
   if (front.barrageStock) for (const s of [0, 1]) front.barrageStock[s] = Math.max(0, front.barrageStock[s] - front.barrages[s].length);
   front.phase = 'resolve';
   front.tick = 0;
+  trackVectors(front);
   front.dayStart = { troops: [troops(front, 0), troops(front, 1)], territory: [territory(front, 0), territory(front, 1)], losses: front.stats.losses.slice(), pocket: front.stats.pocket.slice() };
 }
 
@@ -938,6 +1003,7 @@ export function stepTick(front) {
   }
   front.clock++;
   front.tick++;
+  trackVectors(front);
   updateMemory(front);
   updateGunSightings(front);
   updateAASightings(front);
