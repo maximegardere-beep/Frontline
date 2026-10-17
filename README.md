@@ -341,6 +341,8 @@ dernier mouvement observé : c'est la base pour anticiper et placer ses barrages
 | `src/terrain.js` | Coûts de mouvement, défense, ligne de vue |
 | `src/mapgen.js` | Génération procédurale : relief, forêts, marais, rivière, villages, fermes, routes |
 | `src/metrogen.js` | Biome métropole du front : ville le long du fleuve, quartiers, avenues, ponts, voie ferrée (en chantier, hors du tirage des biomes) |
+| `src/frontmetro.js` | Métropole en jeu : quartiers possédés, points gagnés, bacs de nuit, maisons-forteresses |
+| `src/frontcity.js` | Rendu de la métropole : îlots par quartier, avenues, front en escalier, noms de quartiers, repères |
 | `src/units.js` | Types d'unités, niveaux, armées aléatoires |
 | `src/path.js` | Hexagones atteignables (Dijkstra) |
 | `src/combat.js` | Jets de dés et moral |

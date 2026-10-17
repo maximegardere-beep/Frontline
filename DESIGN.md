@@ -1332,3 +1332,29 @@ Un nouveau biome du front stratégique où la ville n'est plus un point à prend
 - Non fait : une IA du défenseur propre à la ville (tenir les îlots qui bordent les avenues, garder ses accostages) ;
   il gagne déjà assez sans elle.
 
+### Étape 5 faite : rendu de la ville
+
+- `src/frontcity.js`, appelé par `frontrender.js` quand la carte a des quartiers ; hors métropole, rien ne change.
+- Calque de terrain : teinte de chaque type de quartier ; avenues en ruban large et clair, cerné, bordées d'arbres
+  (radiales et boulevard ; en ville seulement, la steppe garde sa route) ; voie ferrée (rail et traverses) et faisceau
+  de sept voies à la gare ; bosquets des parcs ; jardins des isbas.
+- Îlots : une trame par quartier, tournée selon son type (grille de la vieille ville, longues halles des usines et
+  entrepôts des quais alignés sur le fleuve, isbas éparses et un peu de travers, hangars de la gare dans l'axe des
+  voies), tirée sur l'emprise du quartier hors avenues, voies et eau : environ 4 500 îlots. Intacts, ils sont peints
+  une fois sur un calque à l'emprise de la ville (≈ 150 ms au chargement) ; chaque image recouvre les seuls îlots
+  touchés (selon la ruine de leur case, comme les maisons : éventrés et noircis, puis gravats ; isbas réduites à leur
+  poêle) et ajoute des tas de gravats en travers des avenues en ruines. Les incendies les font brûler comme les
+  maisons.
+- Front : en ville, il suit les bords des cases (tracé en escalier, le long des rues), recalculé à chaque tick
+  (`cityFrontEdges`) ; la courbe lissée ne garde que ses segments hors de la ville.
+- Noms des quartiers en capitales espacées, à la couleur du camp qui les possède (au sens de ce que l'on voit ;
+  brun : disputé), points en pastilles dessous ; un quartier qui change de mains s'éclaire de jaune 1,6 s.
+- Repères : maisons-forteresses (silo, grand magasin, maison d'angle, château d'eau ; nommées de près), gare, église de
+  la vieille ville, cheminées d'usine qui restent debout ; grisés et en pointillés quand leur case est en ruines.
+- Bacs de nuit, le matin : de la rive gauche à un accostage tenu de chaque quai ou usine, une barque glisse.
+- Crépuscule : à partir de 16 h 30, les quartiers en feu jettent une lueur orangée (sur l'eau aussi).
+- Coût (Chromium sans accélération, après 8 jours de combat) : 58 ms par image contre 51 (fleuve) et 48 (bourg) ; la
+  ville elle-même ≈ 2,5 ms. Le rendu n'a pas de test automatique (canvas) : vérifié sur captures.
+- Limites : deux noms de quartiers voisins peuvent se chevaucher ; la lueur du soir reste légère quand peu de
+  quartiers brûlent.
+

@@ -25,6 +25,7 @@ import { visibleArmor, armorRoute } from './frontarmor.js';
 import { AIR, airBase, visibleAA } from './frontair.js';
 import { railPoint } from './frontsupply.js';
 import { visibleHQ, hqState, HQ } from './fronthq.js';
+import { buildCity, drawCity, cityFrontEdges, inCity, drawDistricts, drawLandmarks, drawFerries, drawCityGlow } from './frontcity.js';
 import { SPRITE_PAL, WRECK_PAL, piece, tank, wreck, howitzer, towed, mortar, rocket, nebelwerfer, pit, dust } from './frontsprites.js';
 
 export const CELL = 9; // rayon d'une case de la micro-grille, en pixels monde
@@ -324,7 +325,7 @@ export class FrontRenderer extends Renderer {
           ctx.lineTo(mx + 1.5, my + 2);
           ctx.stroke();
         }
-      } else if (k === K.town) {
+      } else if (k === K.town && !(map.district?.[c] >= 0)) {
         // Maisons : dessinées à chaque image selon l'état de la ville (drawHouses). th : ordre d'effondrement.
         for (let t = 0; t < 4; t++) {
           const hx = p.x + (r.next() - 0.5) * CELL * 1.3, hy = p.y + (r.next() - 0.5) * CELL * 1.2;
@@ -333,8 +334,10 @@ export class FrontRenderer extends Renderer {
         }
       }
     }
+    if (map.districts) buildCity(this, ctx, CELL); // métropole : quartiers, îlots, avenues, voie ferrée (frontcity.js)
     ctx.textAlign = 'center';
     for (const t of map.towns) {
+      if (t.district != null) continue; // métropole : noms des quartiers dessinés au-dessus (drawDistricts)
       const p = this.center(t.i);
       ctx.font = `600 ${t.city ? 13 : 11}px "IBM Plex Sans Condensed", "Arial Narrow", sans-serif`;
       ctx.lineWidth = 3.5;
@@ -666,6 +669,7 @@ export class FrontRenderer extends Renderer {
       }
     }
     this.cur = { owner: own, open, dA, dB, vis: S.field(v.vis).data, viewer, conc, pockets };
+    if (this.map.districts) this.cityEdges = cityFrontEdges(this, v, CELL); // front en escalier, en ville
     this.dots = this.troopDots(viewer);
     if (!this.prev) this.prev = this.cur;
   }
@@ -758,7 +762,13 @@ export class FrontRenderer extends Renderer {
 
     // Ligne de front : partage des deux camps, épaisse et sombre. Elle s'interrompt sur l'eau infranchissable : là, c'est
     // la rivière qui sépare les camps.
-    const line = this.dryFront(contourSegments(fields.o, 0.5));
+    let line = this.dryFront(contourSegments(fields.o, 0.5));
+    if (this.cityEdges) {
+      // Métropole : en ville, le front suit les bords des cases (les rues) au lieu de la courbe lissée.
+      const out = [];
+      for (let k = 0; k < line.length; k += 4) if (!inCity(this, (line[k] + line[k + 2]) / 2, (line[k + 1] + line[k + 3]) / 2, CELL)) out.push(line[k], line[k + 1], line[k + 2], line[k + 3]);
+      line = out.concat(this.cityEdges);
+    }
     ctx.strokeStyle = 'rgba(250, 240, 210, 0.55)';
     ctx.lineWidth = 4.5;
     strokeSegments(ctx, line);
@@ -776,6 +786,11 @@ export class FrontRenderer extends Renderer {
     this.drawDaylight(Math.max(0, Math.min(1, view.t ?? 1)));
 
     this.drawTowns(view.viewer ?? null);
+    if (this.map.districts) {
+      drawLandmarks(this, view.viewer ?? null, CELL);
+      drawFerries(this, view.viewer ?? null, now, CELL);
+      drawDistricts(this, view.viewer ?? null, now, CELL);
+    }
     this.drawStrongpoints(view.viewer ?? null);
     this.drawObjectiveMarks();
     this.drawPockets(view.viewer ?? null);
@@ -1161,6 +1176,7 @@ export class FrontRenderer extends Renderer {
     if (h > 16.5) layer('255, 160, 104', Math.min(0.3, 0.3 * (h - 16.5) / 2.5));
     if (h > 18.5) layer('92, 104, 160', 0.28 * Math.min(1, (h - 18.5) / 1.5));
     ctx.restore();
+    drawCityGlow(this, this.lastViewer ?? null, Math.min(1, Math.max(0, (h - 16.5) / 3)), CELL); // métropole : la ville qui brûle
   }
 
   // Calque des cratères, au-dessus des masses (lisible dans les deux camps) : chaque impact ajoute une tache brune très légère (elles s'accumulent en
@@ -1295,6 +1311,7 @@ export class FrontRenderer extends Renderer {
         for (let k = 0; k < 3; k++) ctx.fillRect(h.x + (h.shape[k] - 0.95) * 5, h.y + (h.shape[k + 3] - 0.95) * 4, 1, 1);
       }
     }
+    drawCity(this, viewer, damaged); // métropole : îlots des quartiers (frontcity.js)
   }
 
   // Flammes des maisons qui brûlent (lueur vacillante) ; leur fumée part en panache (frontfx.js).
@@ -1306,7 +1323,7 @@ export class FrontRenderer extends Renderer {
     const sources = [], lit = new Set();
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    for (const h of this.houses) {
+    for (const h of this.blocks ? this.houses.concat(this.blocks) : this.houses) {
       const heat = this.fire[h.c];
       if (heat < FIRE.min || h.fire > heat * 1.4 || !seen(h.c)) continue;
       const u = this.houseRuin(h);
@@ -1340,6 +1357,7 @@ export class FrontRenderer extends Renderer {
     const { ctx } = this;
     const f = this.front;
     for (const t of this.map.towns) {
+      if (t.district != null) continue; // métropole : le quartier porte son nom (drawDistricts)
       const p = this.center(t.i);
       const owner = viewer === null || f.owner[t.i] === viewer ? f.owner[t.i] : f.memory[viewer].owner[t.i];
       const r = t.city ? 6 : 4.5;
