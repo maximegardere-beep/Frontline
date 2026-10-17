@@ -2,6 +2,7 @@
 // Les points de mouvement sont doublés (2 = un hexagone de plaine, 1 = sur route).
 
 import { hexLine, hexDistance } from './hex.js';
+import { METRO_RULES } from './frontmetro.js';
 
 export const TERRAIN = {
   plain: { label: 'Steppe', cost: 2, def: 0, conceal: false },
@@ -226,7 +227,7 @@ export function cellTerrain(map, i, frozen = false, ruin = 0) {
     // Métropole : terrain du quartier, ou de l'avenue qui le traverse.
     const D = map.district?.[i] >= 0 ? (map.avenue[i] ? AVENUE : DISTRICT_TERRAIN[map.districts[map.district[i]].type]) : null;
     if (D) { flow = D.flow; flowA = D.flowA; }
-    def = 1 + ruinBonus(ruin) * (D ? D.def / RUINS.intact : 1);
+    def = (1 + ruinBonus(ruin) * (D ? D.def / RUINS.intact : 1)) * (map.stronghold?.[i] === 2 ? METRO_RULES.strongDef : 1);
     flow *= 1 - RUINS.flow * ruin;
     flowA *= 1 - RUINS.flowA * ruin;
     atkA *= 1 - RUINS.atkA * ruin;

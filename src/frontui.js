@@ -22,6 +22,7 @@ import { installAI } from './frontai.js';
 import { GUN_KINDS, GUN_POSTURES, gunPower, gunFor, setGunOrder, onMission, missionGuns } from './frontguns.js';
 import { setArmorOrder, expLabel } from './frontarmor.js';
 import { scoreBreakdown, objectiveState, GRADES, SCORE } from './frontscore.js';
+import { METRO_RULES } from './frontmetro.js';
 import { FrontRenderer, CELL } from './frontrender.js';
 import { bigPockets, menRange, pickCell, areaReport, combatSpots } from './frontinput.js';
 import { noteLosses, updateAlerts } from './frontalert.js';
@@ -165,6 +166,9 @@ function goalText(f) {
 const signed = (n) => { const r = Math.round(n); return `${r >= 0 ? '+' : '−'}${Math.abs(r)}`; };
 
 // Issue vue du joueur : victoire, défaite ou indécis, et le libellé gradué.
+// Objectif de l'offensive : villes ★, ou quartiers en métropole ; prises (perdues) selon le camp.
+const objNoun = (f, taken) => (f.map.districts ? `quartiers ${taken ? 'pris' : 'perdus'}` : `villes ★ ${taken ? 'prises' : 'perdues'}`);
+
 function gradeFor(f, grade) {
   const G = GRADES[grade];
   const mine = G.att === null ? null : G.att === (f.attacker === fui.side);
@@ -452,7 +456,7 @@ function showDayReport() {
       ${stat(fmtMen(lost), 'vos pertes', 'bad')}
       ${stat(theirs < 50 ? '—' : menRange(theirs, 0.7, 1.35).replace(' à ', '–').replace(' hommes', ''), 'pertes ennemies (est.)')}
       ${stat(Math.abs(terr) < 0.5 ? '=' : pct(terr), `terrain · ${Math.round(territory(f, s) * 100)} %`, terr >= 0.5 ? 'good' : terr <= -0.5 ? 'bad' : '')}
-      ${stat(`${obj} / ${f.defTowns.length}`, `villes ★ ${att ? 'prises' : 'perdues'}`)}
+      ${stat(`${obj} / ${f.defTowns.length}`, objNoun(f, att))}
       ${stat(`${signed(sc.total)}`, `score · ${signed(sc.total - d.score)} auj.`)}
     </div>
     <p class="f-outlook">Issue en vue : <b>${g.label.toLowerCase()}</b>${g.mine === true ? ' en votre faveur' : g.mine === false ? ' pour l\'ennemi' : ''}.</p>
@@ -489,12 +493,14 @@ function showFrontDebrief() {
         <h2>Pertes</h2>
         <p>${SIDE_NAME[0]} : ${fmtMen(men(L[0]))}<br>${SIDE_NAME[1]} : ${fmtMen(men(L[1]))}</p>
         <h2>Terrain</h2>
-        <p>${SIDE_NAME[0]} ${Math.round(territory(f, 0) * 100)} % · ${SIDE_NAME[1]} ${Math.round(territory(f, 1) * 100)} %. Villes ★ prises par l'attaquant : ${attackerTowns(f)} sur ${f.defTowns.length}.</p>
+        <p>${SIDE_NAME[0]} ${Math.round(territory(f, 0) * 100)} % · ${SIDE_NAME[1]} ${Math.round(territory(f, 1) * 100)} %. ${f.map.districts ? 'Quartiers pris' : 'Villes ★ prises'} par l'attaquant : ${attackerTowns(f)} sur ${f.defTowns.length}.</p>
       </section>
       <section>
         <h2>Score de l'offensive : ${signed(sc.total)}</h2>
         <table class="score-table">${sc.rows.filter((r) => r.pts || r.objective).map((r) => `<tr class="${r.objective ? (r.ok ? 'ok' : 'ko') : ''}"><td>${escHtml(r.label)}</td><td>${signed(r.pts)}</td></tr>`).join('')}</table>
-        <p class="muted small">Seuils : victoire décisive de l'attaquant ≥ ${SCORE.attDecisive}, victoire ≥ ${SCORE.attWin}, indécis ≥ ${SCORE.draw}, victoire défensive ≥ ${SCORE.defWin}, au-dessous victoire défensive décisive.</p>
+        <p class="muted small">${f.map.districts
+          ? `Points de quartiers tenus par l'attaquant, sur ${sc.max} : victoire décisive ≥ ${Math.round(METRO_RULES.attDecisive * 100)} %, victoire ≥ ${Math.round(METRO_RULES.attWin * 100)} %, indécis ≥ ${Math.round(METRO_RULES.draw * 100)} %, victoire défensive ≥ ${Math.round(METRO_RULES.defWin * 100)} %, au-dessous victoire défensive décisive.`
+          : `Seuils : victoire décisive de l'attaquant ≥ ${SCORE.attDecisive}, victoire ≥ ${SCORE.attWin}, indécis ≥ ${SCORE.draw}, victoire défensive ≥ ${SCORE.defWin}, au-dessous victoire défensive décisive.`}</p>
         <h2>Après la bataille</h2>
         <p>Le brouillard est levé : la carte montre maintenant les forces réelles des deux camps.</p>
       </section>
@@ -1263,8 +1269,9 @@ function refreshFront() {
   byId('f-phase').dataset.phase = f.phase === 'resolve' ? 'execute' : f.phase;
   const obj = attackerTowns(f);
   const sc = scoreBreakdown(f);
-  byId('f-goal').innerHTML = `<span class="star">★</span> ${obj}/${f.defTowns.length}${compact ? '' : f.attacker === s ? ' prises' : ' perdues'} · ${signed(sc.total)}`;
-  byId('f-goal').title = `Villes ★ ${f.attacker === s ? 'prises' : 'perdues'} : ${obj} sur ${f.defTowns.length}. Score de l'offensive : ≈ ${signed(sc.total)} (${GRADES[sc.grade].label.toLowerCase()}).`;
+  const taken = f.attacker === s, noun = objNoun(f, taken);
+  byId('f-goal').innerHTML = `<span class="star">★</span> ${obj}/${f.defTowns.length}${compact ? '' : ` ${noun.split(' ').pop()}`} · ${signed(sc.total)}`;
+  byId('f-goal').title = `${noun[0].toUpperCase()}${noun.slice(1)} : ${obj} sur ${f.defTowns.length}. Score de l'offensive : ≈ ${signed(sc.total)}${sc.max ? ` points de quartiers sur ${sc.max}` : ''} (${GRADES[sc.grade].label.toLowerCase()}).`;
   fui.weather.set(f.weather, 'day');
   sound.setWeather(f.weather, f.season <= 1); // juillet, août : la steppe en été
   const go = byId('f-go');

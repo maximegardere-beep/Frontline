@@ -112,9 +112,9 @@ export function bfsDistance(nb, N, seeds, pass, maxD = 255) {
 // Encerclement : les cases d'un camp que l'on ne relie pas à son bord de carte par ses propres cases.
 // owner : Int8Array (0, 1 ; -1 infranchissable) ; edgeCol : colonne de ravitaillement du camp.
 // Renvoie { supplied, pockets: [{ cells, label }] }.
-export function findPockets(map, owner, side, edgeCol) {
+export function findPockets(map, owner, side, edgeCol, extra = []) {
   const { W, H, N, nb } = map;
-  const seeds = [];
+  const seeds = [...extra]; // autres sources de ravitaillement (métropole : accostages des bacs)
   for (let row = 0; row < H; row++) seeds.push(row * W + edgeCol);
   const supplied = floodFill(nb, N, seeds, (i) => owner[i] === side);
   const { list } = components(nb, N, (i) => owner[i] === side && !supplied[i]);

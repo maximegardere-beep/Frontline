@@ -16,7 +16,7 @@ import { createSupport, refreshZones, SUPPORT_LEVELS } from './frontbattalion.js
 import { addSpecial, moveStrongpoint, buildStrongpoints } from './frontspecial.js';
 import { pixelToHex } from './hex.js';
 import { fightAirWar } from './frontairwar.js';
-import { scoreBreakdown, SCORE } from './frontscore.js';
+import { scoreBreakdown } from './frontscore.js';
 
 export const ATOUT_RULES = {
   hand: [5, 4], // cartes tirées : avant la bataille, au 7e jour
@@ -393,9 +393,9 @@ export function endPlacement(front, s) {
 // Camp mené aux points au soir du 6e jour : l'attaquant en dessous d'une issue indécise, le défenseur quand
 // l'attaquant tient déjà une victoire ; sinon personne.
 export function trailingSide(front) {
-  const total = scoreBreakdown(front).total;
-  if (total < SCORE.draw) return front.attacker;
-  if (total >= SCORE.attWin) return 1 - front.attacker;
+  const { grade } = scoreBreakdown(front);
+  if (grade === 'defWin' || grade === 'defDecisive') return front.attacker;
+  if (grade === 'attWin' || grade === 'attDecisive') return 1 - front.attacker;
   return null;
 }
 

@@ -22,6 +22,9 @@ export const GUN_KINDS = {
   atHeavy: { label: 'Canons antichar lourds', short: 'Antichar lourd', range: 10, r: 0, rate: 0, works: 0, speed: 0.4, back: 4.5, at: { kill: 9, shock: 0.5 } },
 };
 
+// Métropole : distance des batteries du défenseur à la rive éloignée du fleuve (unités de grille).
+export const METRO_GUNS = { bank: 3 };
+
 // Cône de tir des canons antichar (demi-angle) ; les chars lourds encaissent mieux.
 export const AT_RULES = { cone: 0.87, heavy: 0.6, maxShock: 0.6 };
 
@@ -94,11 +97,22 @@ export function createGuns(front, kinds) {
         }
       }
     }
+    // Métropole : l'artillerie du défenseur tire de l'autre rive du fleuve, hors d'atteinte de l'assaut (rive la plus
+    // éloignée de l'ennemi, par ligne).
+    const farBank = new Float32Array(H).fill(NaN);
+    if (front.map.districts && s !== front.attacker) {
+      for (let i = 0; i < N; i++) {
+        if (!front.map.river[i]) continue;
+        const r = Math.floor(i / W);
+        farBank[r] = Number.isNaN(farBank[r]) ? cx[i] : s === 0 ? Math.min(farBank[r], cx[i]) : Math.max(farBank[r], cx[i]);
+      }
+    }
     list.forEach((kind, k) => {
       const K = GUN_KINDS[kind];
       let row = Math.round(((k + 0.5) / list.length) * H);
       while (Number.isNaN(frontX[row]) && row < H - 1) row++;
       const want = { x: frontX[row] - (s === 0 ? 1 : -1) * (K.back ?? Math.max(7, K.range * 0.5)), y: cy[row * W] };
+      if (!K.at && !Number.isNaN(farBank[row])) want.x = farBank[row] - (s === 0 ? 1 : -1) * METRO_GUNS.bank;
       // Case amie la plus proche du point voulu, hors montagne.
       let best = -1, bd = Infinity;
       for (let i = 0; i < N; i++) {

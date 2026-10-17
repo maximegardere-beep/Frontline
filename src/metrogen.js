@@ -224,8 +224,42 @@ export function buildMetropole(map, { rng, hs, B, defender = 1, cheapestPath, ma
   }
   map.towns.sort((a, b) => a.col - b.col);
   map.cityName = placeName(rng, usedNames).replace(/(ovka|ivka|anka|enka|aya)$/, '') + 'grad';
+
+  // Accostages des bacs de nuit (frontmetro.js) : les cases des quais et des usines au bord de l'eau.
+  map.landing = new Uint8Array(N);
+  for (const d of map.districts) {
+    if (d.type !== 'quai' && d.type !== 'usine') continue;
+    for (const i of d.cells) if (nbs(i).some((j) => map.river[j])) map.landing[i] = 1;
+  }
+  // Rive gauche : la terre ferme au-delà du fleuve, côté défenseur (ses batteries, frontguns.js et frontai.js).
+  map.farBank = new Uint8Array(N);
+  for (let i = 0; i < N; i++) if (!map.river[i] && uOf(i) < 0) map.farBank[i] = 1;
+  // Maisons-forteresses : un îlot remarquable par type voulu, côté défenseur (stronghold : 2 l'îlot, 1 ses abords).
+  map.stronghold = new Uint8Array(N);
+  map.strongholds = [];
+  const towns = new Set(map.towns.map((t) => t.i));
+  for (const F of FORTRESSES) {
+    const cands = map.districts.filter((d) => F.types.includes(d.type)).flatMap((d) => d.cells).filter((i) => {
+      const u = uOf(i);
+      return u >= F.u[0] && u <= F.u[1] && !map.avenue[i] && !towns.has(i) && !map.stronghold[i] && (!F.corner || nbs(i).some((j) => map.avenue[j])) && (!F.top || elev[i] === 3);
+    });
+    if (!cands.length) continue;
+    const i = cands[rng.int(0, cands.length - 1)];
+    map.strongholds.push({ i, name: F.name, district: map.district[i] });
+    map.stronghold[i] = 2;
+    for (const j of nbs(i)) if (map.district[j] >= 0 && !map.stronghold[j]) map.stronghold[j] = 1;
+  }
   return map;
 }
+
+// Maisons-forteresses : nom, types de quartier, profondeur depuis la rive ; corner : à l'angle d'une avenue ; top :
+// au sommet de la hauteur.
+const FORTRESSES = [
+  { name: 'Silo à grain', types: ['quai', 'usine'], u: [1, 4] },
+  { name: 'Grand magasin', types: ['centre'], u: [4, 11] },
+  { name: 'Maison d\'angle', types: ['ouvrier', 'gare', 'centre'], u: [8, 13], corner: true },
+  { name: 'Château d\'eau', types: ['hauteur'], u: [1, 30], top: true },
+];
 
 // Chaque quartier d'un seul tenant (les morceaux détachés rejoignent le voisin le plus présent), puis les trop petits
 // fondus dans le voisin avec lequel ils partagent le plus de bord.

@@ -10,6 +10,8 @@
 // une part. Une case prise hérite de la fatigue de ses assaillants : attaquer jour après jour au même endroit coûte
 // de plus en plus cher, il faut alterner les secteurs ou souffler.
 
+import { metroSupply } from './frontmetro.js';
+
 export const RAIL = {
   start: 6, // dépôts au départ : à cette distance derrière le front
   gap: 4, // jamais plus près du front
@@ -69,6 +71,7 @@ export function updateSupplyK(front) {
       if (!front.supplied[s][i]) K[i] = Math.min(K[i], 0.75); // encerclée : à court de tout
     }
   }
+  metroSupply(front); // métropole : bacs de nuit, maisons-forteresses
 }
 
 // Nuit : les dépôts avancent vers le front (plus vite le long d'une route), lissés d'une ligne à l'autre.

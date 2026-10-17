@@ -470,6 +470,67 @@ test('métropole : terrain par quartier, avenues rapides et découvertes, tir de
   assert.ok(lossOf(AVENUE.flank) > lossOf(0) * 1.05, 'les blindés pris de flanc perdent davantage');
 });
 
+test('métropole : points de quartiers, bacs de nuit par les quais, artillerie de la rive gauche, maisons-forteresses', async () => {
+  const M = await import('../src/frontmetro.js');
+  const { scoreBreakdown } = await import('../src/frontscore.js');
+  const { findPockets } = await import('../src/path.js');
+  const { GUN_KINDS, gunCell } = await import('../src/frontguns.js');
+  const f = createFront({ seed: 'metro-s', biome: 'metropole', attacker: 'DE', setup: LEGACY });
+  const m = f.map, att = f.attacker, def = 1 - att;
+  // Un quartier appartient à qui en tient plus de 60 % ; le score est la somme des points des quartiers de l'attaquant.
+  const d = m.districts.find((x) => M.districtOwner(f, x) === def && x.type !== 'quai');
+  const take = (n) => d.cells.forEach((i, k) => { f.owner[i] = k < n ? att : def; });
+  take(Math.floor(d.cells.length * 0.5));
+  assert.equal(M.districtOwner(f, d), null, 'disputé');
+  take(Math.ceil(d.cells.length * 0.65));
+  assert.equal(M.districtOwner(f, d), att, 'pris');
+  const sc = scoreBreakdown(f);
+  assert.equal(sc.max, m.districts.reduce((a, x) => a + x.value, 0));
+  assert.ok(sc.rows.some((r) => r.district === d && r.pts === d.value), 'le quartier pris compte ses points');
+  assert.equal(sc.grade, M.metroGrade(sc.total / sc.max));
+  assert.equal(M.metroGrade(0.5), 'attWin');
+  assert.equal(M.metroGrade(0.2), 'defDecisive');
+  take(0);
+  // Bacs : sans les ponts, la ville du défenseur ne tient que par ses accostages ; quais perdus, elle est encerclée.
+  for (let i = 0; i < m.N; i++) if (m.river[i]) f.owner[i] = -1;
+  const city = m.districts.flatMap((x) => x.cells).filter((i) => f.owner[i] === def);
+  const edge = att === 0 ? m.W - 1 : 0;
+  assert.ok(city.every((i) => !findPockets(m, f.owner, def, edge).supplied[i]), 'coupée de son bord sans les ponts');
+  const ferry = M.ferryLandings(f, def);
+  assert.ok(ferry.length > 20 && M.ferryLandings(f, att).length === 0, 'accostages du défenseur seulement');
+  const viaFerry = findPockets(m, f.owner, def, edge, ferry).supplied;
+  assert.ok(city.filter((i) => viaFerry[i]).length > city.length * 0.95, 'les bacs la ravitaillent');
+  const q = m.districts.find((x) => x.type === 'quai');
+  for (const i of q.cells) f.owner[i] = att;
+  for (const i of m.districts.filter((x) => x.type === 'usine').flatMap((x) => x.cells)) f.owner[i] = att;
+  const left = M.ferryLandings(f, def);
+  assert.ok(left.length < ferry.length && left.every((i) => m.district[i] !== q.id), 'les quais pris ne ravitaillent plus');
+  // Artillerie : les groupes du défenseur (hors antichars) partent de l'autre rive.
+  const guns = f.guns.filter((g) => g.side === def && !GUN_KINDS[g.kind].at);
+  assert.ok(guns.length > 0 && guns.every((g) => m.farBank[gunCell(f, g)]), 'batteries sur la rive gauche');
+  assert.ok(!M.gunSiteOk(f, def, d.cells[0]) && M.gunSiteOk(f, att, d.cells[0]), 'l\'IA du défenseur les y garde');
+  // Maisons-forteresses : quatre îlots côté défenseur, plus solides ; une poche y fond six fois moins vite.
+  const g = createFront({ seed: 'metro-s', biome: 'metropole', attacker: 'DE', setup: LEGACY });
+  assert.equal(g.map.strongholds.length, 4);
+  for (const s of g.map.strongholds) {
+    assert.equal(g.owner[s.i], def, s.name);
+    assert.ok(Math.abs(M.pocketDrainAt(g, s.i) - M.METRO_RULES.strongDrain) < 1e-9);
+  }
+  const s0 = g.map.strongholds[1], ref = g.map.districts[s0.district].cells.find((i) => !g.map.stronghold[i] && !g.map.avenue[i] && g.map.elev[i] === g.map.elev[s0.i] && !g.map.stream[i] && !g.map.stream[s0.i]);
+  if (ref != null) assert.ok(Math.abs(g.map.def[s0.i] / g.map.def[ref] - M.METRO_RULES.strongDef) < 1e-6, 'îlot renforcé');
+  assert.equal(M.pocketDrainAt(g, m.districts[0].cells.find((i) => !g.map.stronghold[i])), 1);
+  // En jeu : ponts détruits, la ville tient par les bacs, sans poche, mais ravitaillée à 85 % de jour.
+  const { syncWater } = await import('../src/front.js');
+  for (let i = 0; i < g.map.N; i++) if (g.map.river[i] && g.map.bridge[i] === 1) g.map.bridge[i] = 2;
+  syncWater(g);
+  beginDay(g);
+  stepTick(g);
+  stepTick(g);
+  const held = g.map.districts.flatMap((x) => x.cells).filter((i) => g.owner[i] === def);
+  assert.ok(held.every((i) => g.supplied[def][i] && g.ferried[i]), 'ravitaillée par les seuls bacs');
+  assert.ok(held.every((i) => g.supplyK[def][i] <= M.METRO_RULES.ferryDay + 1e-6));
+});
+
 test('IA : ordres des deux rôles, sans tricher (le brouillard compte), bataille complète', async () => {
   const { installAI, planFront } = await import('../src/frontai.js');
   const orders = (f, s) => JSON.stringify({ v: f.orders[s].map((v) => [v.type, v.fromI, Math.round(v.to.x), Math.round(v.to.y)]), l: f.lines[s].length, b: f.barrages[s].map((b) => [Math.round(b.x), Math.round(b.y)]), r: f.reserve[s] });

@@ -10,10 +10,14 @@
 // - objectifs secondaires (6 points chacun, pour ou contre l'attaquant).
 // Les seuils des cinq issues sont calés sur des batailles IA contre IA (tools/front-sim.mjs).
 //
+// Métropole (frontmetro.js) : le score est la somme des points des quartiers que possède l'attaquant, plus 1 point par
+// objectif secondaire rempli (pour ou contre lui) ; l'issue se lit à la part du total des points de quartiers.
+//
 // Ce module ne dépend pas de front.js (il est importé par lui) : il lit l'état du front directement.
 
 import { GUN_KINDS } from './frontguns.js';
 import { createRng } from './rng.js';
+import { isMetro, districtOwner, districtTotal, metroGrade, METRO_RULES } from './frontmetro.js';
 
 export const SCORE = {
   townEnd: 3, // par bourg ★ tenu au dernier soir (grande ville : × 3)
@@ -188,6 +192,7 @@ export function noteCapture(front, i, side) {
 
 // Soir : points de contrôle des villes ★.
 export function eveningScore(front) {
+  if (isMetro(front)) return; // métropole : seuls comptent les quartiers tenus au dernier soir
   for (const t of front.map.towns) {
     if (!front.defTowns.includes(t.i)) continue;
     if (front.owner[t.i] === front.attacker) front.score.daily += SCORE.townDay * scoreTownValue(t);
@@ -196,6 +201,7 @@ export function eveningScore(front) {
 
 // Décompte complet (à tout moment ; « final » : au dernier soir, les objectifs encore ouverts sont jugés).
 export function scoreBreakdown(front, final = false) {
+  if (isMetro(front)) return metroBreakdown(front, final);
   const att = front.attacker, def = 1 - att;
   const rows = [];
   let townEnd = 0;
@@ -223,6 +229,21 @@ export function scoreBreakdown(front, final = false) {
   }
   const total = rows.reduce((a, r) => a + r.pts, 0);
   return { rows, total, grade: gradeOf(total) };
+}
+
+// Métropole : une ligne par quartier que possède l'attaquant, puis les objectifs secondaires.
+function metroBreakdown(front, final) {
+  const att = front.attacker;
+  const rows = [];
+  for (const d of front.map.districts) if (districtOwner(front, d) === att) rows.push({ key: `d${d.id}`, label: `${d.name} (quartier tenu par l'attaquant)`, pts: d.value, district: d });
+  for (const o of front.objectives) {
+    const st = objectiveState(front, o);
+    const ok = st.final ?? (final ? st.done : null);
+    const sign = o.side === att ? 1 : -1;
+    rows.push({ key: `obj${o.id}`, label: `${o.side === att ? 'Attaquant' : 'Défenseur'} : ${o.label}`, pts: ok ? sign * METRO_RULES.objective : 0, objective: o, state: st, ok });
+  }
+  const total = rows.reduce((a, r) => a + r.pts, 0), max = districtTotal(front);
+  return { rows, total, max, share: total / max, grade: metroGrade(total / max) };
 }
 
 export function initScore(front) {

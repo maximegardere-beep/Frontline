@@ -22,6 +22,7 @@ import { bfsDistance, floodFill, components } from './path.js';
 import { GUN_KINDS, setGunOrder, onMission, artilleryCover } from './frontguns.js';
 import { ATOUT_RULES } from './frontatout.js';
 import { setArmorOrder, visibleArmor } from './frontarmor.js';
+import { gunSiteOk } from './frontmetro.js';
 
 const SECTOR = 4; // un secteur toutes les 4 lignes
 
@@ -282,7 +283,7 @@ export function planFront(front, s) {
       const want = { x: h.x - dirX * R * 0.45, y: h.y };
       let best = null, bd = Infinity;
       for (let i = 0; i < front.map.N; i++) {
-        if (front.owner[i] !== s || front.map.flow[i] <= 0) continue;
+        if (front.owner[i] !== s || front.map.flow[i] <= 0 || !gunSiteOk(front, s, i)) continue;
         const d = Math.hypot(front.centers.x[i] - want.x, front.centers.y[i] - want.y);
         if (d < bd) { bd = d; best = point(front, i); }
       }
@@ -560,10 +561,10 @@ function planGuns(front, s) {
     if (near < 4) want = { x: g.x - dirX * (R * 0.5 - near), y: g.y };
     else if (near > R * 0.8) want = { x: nx - dirX * R * 0.5, y: ny };
     if (!want) continue;
-    // Point d'arrivée : la case amie la plus proche du point voulu.
+    // Point d'arrivée : la case amie la plus proche du point voulu (métropole : rive gauche pour le défenseur).
     let best = null, bd = Infinity;
     for (let i = 0; i < map.N; i++) {
-      if (front.owner[i] !== s || map.flow[i] <= 0) continue;
+      if (front.owner[i] !== s || map.flow[i] <= 0 || !gunSiteOk(front, s, i)) continue;
       const d = Math.hypot(centers.x[i] - want.x, centers.y[i] - want.y);
       if (d < bd) { bd = d; best = { x: centers.x[i], y: centers.y[i] }; }
     }

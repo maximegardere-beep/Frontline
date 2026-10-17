@@ -1274,3 +1274,34 @@ Un nouveau biome du front stratégique où la ville n'est plus un point à prend
   de flanc n'y change rien de mesurable tant qu'elle ne les garde pas pour les avenues. Les victoires (70 % pour
   l'attaquant) comptent encore les villes ★ des quartiers : étape 3.
 
+### Étape 3 faite : points de quartiers, bacs de nuit, rive gauche, maisons-forteresses
+
+- `src/frontmetro.js` (sans dépendance, lu par le score, le ravitaillement, le terrain et le front) : `METRO_RULES`,
+  contrôle des quartiers (`districtOwner` : plus de 60 % des cases, sinon disputé, à personne), points, issue.
+- Victoire (`frontscore.js`, `metroBreakdown`) : le score d'une métropole est la somme des points des quartiers que
+  possède l'attaquant (1 à 3 : vieille ville et quais 3, usines, gare et hauteur 2, cités, faubourgs et parc 1), plus
+  1 point par objectif secondaire rempli (pour ou contre lui) ; pas de points du soir. L'issue se lit à la part du
+  total : victoire décisive ≥ 65 %, victoire ≥ 50 %, indécis ≥ 40 %, victoire défensive ≥ 30 %, en dessous défensive
+  décisive. « Villes ★ » : les quartiers que possède le défenseur au départ (`defTowns`, par leur centre) ; renforts
+  de 25 hommes par quartier possédé au lieu de par ville. Le camp mené au 7e jour se lit à l'issue en vue
+  (`trailingSide`), ce qui ne change rien hors métropole. Libellés de l'interface : « quartiers pris / perdus »,
+  seuils en pourcentage au rapport final.
+- Bacs de nuit : les accostages (`map.landing` : cases des quais et des usines au bord de l'eau) que tient le défenseur
+  sont des sources de ravitaillement, comme son bord de carte (`findPockets`, graines en plus). Les cases qui ne
+  tiennent que par eux (`front.ferried`) sont ravitaillées à 85 % de jour. Un quartier coupé des ponts et de ses quais
+  devient une poche.
+- Rive gauche : les groupes d'artillerie du défenseur (hors antichars) se posent à 3 unités au-delà du fleuve, au
+  départ comme pour les renforts du 7e jour (`createGuns`) ; l'IA du défenseur les y garde (`gunSiteOk`, `map.farBank`).
+  Hors d'atteinte des barrages ennemis, ils couvrent la moitié de la ville côté fleuve, pas les faubourgs.
+- Maisons-forteresses (`map.strongholds`, `map.stronghold`) : silo à grain (quais ou usines, au bord de l'eau), grand
+  magasin (vieille ville), maison d'angle (sur une avenue, vers le front), château d'eau (sommet de la hauteur). Îlot
+  à défense × 1,3 ; une poche fond six fois moins vite sur l'îlot et ses abords (~5 % par jour) ; tant que le
+  défenseur le tient, le ravitaillement de l'attaquant baisse de 15 % à deux cases autour. Le point d'appui du
+  défenseur peut s'y poser, et l'IA l'y pose d'abord.
+- Mesure (`tools/metro-sim.mjs`, 20 batailles) : l'attaquant passe de 21 % des points au départ à 24 % au dernier soir
+  (avance 1,5 colonne, contre 2,6 à l'étape 2) ; 18 victoires défensives décisives, 2 victoires défensives. Essais un
+  par un : sans les maisons-forteresses ou sans la rive gauche, rien ne change ; avec les anciens renforts (par ville),
+  27 % ; sans les bacs, 27 % et le défenseur encerclé dans 60 % des batailles (10 % avec). Les bacs sont la bouée
+  voulue du défenseur ; reste à l'IA de l'attaquant à viser les quais et à l'équilibre de remonter l'attaquant vers
+  40 % : étape 4.
+

@@ -147,16 +147,21 @@ export function dropTick(front, events) {
 
 // ---------- Point d'appui ----------
 
-// Sur la ville ★ du défenseur la plus exposée qui n'en a pas encore (la plus proche de l'ennemi).
+// Sites d'un point d'appui : les villes, et en métropole les maisons-forteresses (metrogen.js).
+const strongSites = (front) => [...front.map.towns, ...(front.map.strongholds ?? []).map((f) => ({ ...f, fortress: true }))];
+
+// Sur la ville ★ du défenseur la plus exposée qui n'en a pas encore (la plus proche de l'ennemi) ; en métropole, sur
+// une maison-forteresse d'abord.
 function placeStrongpoint(front, s, st) {
   const cx = front.centers.x, cy = front.centers.y;
   const taken = new Set(front.strong[s].map((p) => p.i));
   let best = -1, bd = Infinity;
-  for (const t of front.map.towns) {
+  const fortresses = !!front.map.strongholds?.length;
+  for (const t of strongSites(front)) {
     if (front.owner[t.i] !== s || taken.has(t.i)) continue;
     let d = Infinity;
     for (let i = 0; i < front.map.N; i++) if (front.owner[i] === 1 - s) d = Math.min(d, Math.hypot(cx[i] - cx[t.i], cy[i] - cy[t.i]));
-    const star = front.defTowns?.includes(t.i) ? 0 : 20; // les villes ★ d'abord
+    const star = (fortresses ? t.fortress : front.defTowns?.includes(t.i)) ? 0 : 20; // les villes ★ (forteresses) d'abord
     if (d + star < bd) { bd = d + star; best = t.i; }
   }
   if (best < 0) return;
@@ -168,7 +173,7 @@ function placeStrongpoint(front, s, st) {
 function setStrongTown(front, s, p, i0) {
   const cx = front.centers.x, cy = front.centers.y;
   p.i = i0;
-  p.name = front.map.towns.find((t) => t.i === i0)?.name ?? '';
+  p.name = strongSites(front).find((t) => t.i === i0)?.name ?? '';
   p.cells = [];
   for (let i = 0; i < front.map.N; i++) if (front.owner[i] === s && Math.hypot(cx[i] - cx[i0], cy[i] - cy[i0]) <= SPECIAL.strong.r) p.cells.push(i);
 }
@@ -178,7 +183,7 @@ export function moveStrongpoint(front, s, id, at) {
   const p = front.strong?.[s].find((x) => x.id === id);
   if (!p || p.built) return { error: 'Point d\'appui déjà établi.' };
   let best = null, bd = 4;
-  for (const t of front.map.towns) {
+  for (const t of strongSites(front)) {
     if (front.owner[t.i] !== s || front.strong[s].some((o) => o !== p && o.i === t.i)) continue;
     const d = Math.hypot(front.centers.x[t.i] - at.x, front.centers.y[t.i] - at.y);
     if (d < bd) { bd = d; best = t; }

@@ -17,6 +17,7 @@ import { staffNight, undoTransfer } from './frontnight.js';
 import { createArmor, armorAfter, armorNight, updateArmorSightings, ARMOR_SETUP } from './frontarmor.js';
 import { WORKS, initWorks, defenderBelt, barrageWorks, captureWorks, buildTick, trenchFor } from './frontworks.js';
 import { initScore, eveningScore, noteCapture, scoreBreakdown, GRADES } from './frontscore.js';
+import { ferryLandings, pocketDrainAt, isMetro, districtOwner, districtsHeld } from './frontmetro.js';
 import { createAA, airTick, updateAASightings, airNight } from './frontair.js';
 import { dealAtouts, reinforceAtouts, autoConfirm, endPlacement, ATOUT_RULES } from './frontatout.js';
 import { createSupport, refreshZones, supportDawn, supportTick, supportNight, updateSupportSightings, applySappers } from './frontbattalion.js';
@@ -226,8 +227,11 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
     initWorks(front);
     defenderBelt(front, def, dist, (i) => Math.min(1, Math.max(0.1, (works(Math.floor(i / W) * 0.09, 3.3, 2) - 0.3) * 2.2)), nearTown, cfg.entrenchDepth);
   }
-  // Villes ★ : celles du défenseur au départ (score de l'offensive, frontscore.js).
-  front.defTowns = map.towns.filter((t) => owner[t.i] === def).map((t) => t.i);
+  // Villes ★ : celles du défenseur au départ (score de l'offensive, frontscore.js) ; en métropole, les quartiers qu'il
+  // possède, repérés par leur centre.
+  front.defTowns = map.districts
+    ? map.districts.filter((d) => districtOwner(front, d) === def).map((d) => d.center)
+    : map.towns.filter((t) => owner[t.i] === def).map((t) => t.i);
   front.townCells = [];
   for (let i = 0; i < N; i++) if (map.kind[i] === TOWN) front.townCells.push(i);
   front.initial = [troops(front, 0) + front.reserve[0], troops(front, 1) + front.reserve[1]];
@@ -437,7 +441,8 @@ export function territory(front, s) {
   return own / Math.max(1, open);
 }
 
-export const townsHeld = (front, s) => front.map.towns.filter((t) => front.owner[t.i] === s).length;
+// Métropole : les quartiers possédés tiennent lieu de villes.
+export const townsHeld = (front, s) => (isMetro(front) ? districtsHeld(front, s) : front.map.towns.filter((t) => front.owner[t.i] === s).length);
 
 export function edgeCol(front, s) { return s === 0 ? 0 : front.map.W - 1; }
 
@@ -758,8 +763,15 @@ export function rebuildFields(front, s) {
 function updateSupply(front) {
   const fresh = [];
   for (const s of [0, 1]) {
-    const { supplied, pockets } = findPockets(front.map, front.owner, s, edgeCol(front, s));
+    // Métropole : les bacs de nuit ravitaillent aussi le défenseur par les quais qu'il tient ; on retient les cases
+    // qui ne tiennent que par eux (ravitaillement réduit de jour, frontmetro.js).
+    const ferry = ferryLandings(front, s);
+    const { supplied, pockets } = findPockets(front.map, front.owner, s, edgeCol(front, s), ferry);
     front.supplied[s] = supplied;
+    if (ferry.length) {
+      const edge = findPockets(front.map, front.owner, s, edgeCol(front, s)).supplied;
+      front.ferried = supplied.map((v, i) => (v && !edge[i] ? 1 : 0));
+    } else if (s !== front.attacker) front.ferried = null;
     const tag = front.pocketTag[s];
     const next = new Int32Array(front.map.N);
     const out = [];
@@ -910,7 +922,7 @@ export function stepTick(front) {
     for (const p of front.pockets[s]) {
       let lost = 0;
       const rate = front.cfg.drain * (p.mode === 'festung' ? front.cfg.festungDrain : 1);
-      for (const i of p.cells) { const l = front.dens[i] * rate; front.dens[i] -= l; lost += l; }
+      for (const i of p.cells) { const l = front.dens[i] * rate * pocketDrainAt(front, i); front.dens[i] -= l; lost += l; }
       front.stats.losses[s] += lost;
       front.stats.pocket[s] += lost;
       p.troops -= lost;
@@ -1090,7 +1102,9 @@ export function checkFrontVictory(front) {
 }
 
 // Villes ★ du défenseur au départ que l'attaquant tient maintenant.
+// Métropole : quartiers du défenseur au départ (repérés par leur centre) que l'attaquant possède maintenant.
 export function attackerTowns(front) {
+  if (isMetro(front)) return front.defTowns.filter((i) => districtOwner(front, front.map.districts[front.map.district[i]]) === front.attacker).length;
   return front.defTowns.filter((i) => front.owner[i] === front.attacker).length;
 }
 
@@ -1099,8 +1113,16 @@ export function attackerTowns(front) {
 function finalVerdict(front) {
   const att = front.attacker, def = 1 - att;
   const name = (s) => (s === 0 ? 'la Wehrmacht' : 'l\'Armée rouge');
-  const { total, grade } = scoreBreakdown(front, true);
+  const { total, grade, max } = scoreBreakdown(front, true);
   const G = GRADES[grade];
+  if (isMetro(front)) {
+    // Métropole : la part des points de quartiers (objectifs secondaires compris) fait l'issue.
+    front.grade = grade;
+    const held = `${Math.round(total)} points de quartiers sur ${max} (${Math.round((100 * total) / max)} %)`;
+    if (G.att === true) return finish(front, att, `${G.label} de ${name(att)} : l'offensive tient ${held}.`);
+    if (G.att === false) return finish(front, def, `${G.label} de ${name(def)} : l'ennemi ne tient que ${held}.`);
+    return finish(front, null, `${G.label} : ${name(att)} tient ${held}, sans emporter la décision.`);
+  }
   const got = attackerTowns(front);
   const towns = `${got} ville${got > 1 ? 's' : ''} ★ sur ${front.defTowns.length}`;
   const pts = `${total >= 0 ? '+' : '−'}${Math.abs(Math.round(total))} points`;
