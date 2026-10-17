@@ -22,7 +22,7 @@ import { bfsDistance, floodFill, components } from './path.js';
 import { GUN_KINDS, setGunOrder, onMission, artilleryCover } from './frontguns.js';
 import { ATOUT_RULES } from './frontatout.js';
 import { setArmorOrder, visibleArmor } from './frontarmor.js';
-import { gunSiteOk } from './frontmetro.js';
+import { gunSiteOk, METRO_RULES } from './frontmetro.js';
 
 const SECTOR = 4; // un secteur toutes les 4 lignes
 
@@ -42,6 +42,11 @@ export const AI_TUNING = {
   coverPrep: 0.5, // couverture d'artillerie au départ d'un assaut qui vaut une préparation (appui passif)
   gunReach: 0.9, // part de sa portée au-delà de laquelle un groupe d'artillerie rejoint l'axe d'attaque principal
   urgentHold: 0.6, // tenue d'un secteur en dessous de laquelle la contre-attaque mérite un barrage hors calendrier
+  // Métropole : attrait des quartiers à prendre, par type (× leurs points) ; les quais coupent les bacs du défenseur.
+  metroPull: { quai: 1.6, gare: 1.3, centre: 1, hauteur: 1, ouvrier: 1, parc: 1, usine: 0.7 },
+  metroEngage: 0.5, // métropole : seuil d'engagement de l'attaquant × ce facteur (la ville entière est un bastion)
+  avenueReach: 3.5, // une formation blindée ne s'engage en ville que sur une avenue à cette distance du départ
+  avenueStep: 12, // … et vise la case de l'avenue à ce nombre de pas plus loin, vers le fleuve
 };
 const REACH = 3; // rayon (en cases) pris en compte de part et d'autre du front
 
@@ -110,6 +115,36 @@ function targetTown(front, s, from) {
     if (w < bd) { bd = w; best = t; }
   }
   return best;
+}
+
+// Métropole : quartier ennemi (au sens de la mémoire) qui vaut le plus d'être pris, vu du point de départ ; distance
+// divisée par ses points et l'attrait de son type (les quais d'abord, la gare ensuite, les usines en dernier).
+function metroTarget(front, s, from) {
+  const mem = front.memory[s], cx = front.centers.x, cy = front.centers.y;
+  let best = null, bw = Infinity;
+  for (const d of front.map.districts) {
+    let mine = 0;
+    for (const i of d.cells) if (mem.owner[i] === s) mine++;
+    if (mine > d.cells.length * METRO_RULES.hold) continue;
+    const dist = Math.hypot(cx[d.center] - cx[from], cy[d.center] - cy[from]);
+    const w = dist / (d.value * (AI_TUNING.metroPull[d.type] ?? 1));
+    if (w < bw) { bw = w; best = d; }
+  }
+  return best ? { i: best.center, name: best.name } : null;
+}
+
+// Métropole : avenue radiale qui part d'à côté du point de départ ; la case visée plus loin sur elle, vers le fleuve.
+function avenueAhead(front, from) {
+  const cx = front.centers.x, cy = front.centers.y, edge = edgeCol(front, front.attacker);
+  let best = null, bd = AI_TUNING.avenueReach;
+  for (const path of front.map.avenues) {
+    if (path[0] % front.map.W !== edge) continue; // radiales seulement (du bord de l'attaquant au fleuve)
+    path.forEach((i, k) => {
+      const d = Math.hypot(cx[i] - cx[from], cy[i] - cy[from]);
+      if (d < bd) { bd = d; best = path[Math.min(path.length - 1, k + AI_TUNING.avenueStep)]; }
+    });
+  }
+  return best == null ? null : point(front, best);
 }
 
 function point(front, i) { return { x: front.centers.x[i], y: front.centers.y[i] }; }
@@ -202,7 +237,8 @@ export function planFront(front, s) {
   }
 
   // 2. Attaque : les secteurs où le rapport de forces est le meilleur, espacés d'au moins 8 lignes.
-  const engage = attacking ? AI_TUNING.attEngage : AI_TUNING.defEngage; // rapport minimal pour engager
+  // Rapport minimal pour engager ; en métropole, l'attaquant doit attaquer la ville malgré sa défense partout élevée.
+  const engage = attacking ? AI_TUNING.attEngage * (front.map.districts ? AI_TUNING.metroEngage : 1) : AI_TUNING.defEngage;
   const candidates = [...sectors].filter((x) => x.ratio > engage).sort((a, b) => b.ratio - a.ratio + (rng.next() - 0.5) * 0.3);
   const chosen = [];
   for (const sec of candidates) {
@@ -218,8 +254,9 @@ export function planFront(front, s) {
   const dist = (a, i) => Math.hypot(a.x - front.centers.x[i], a.y - front.centers.y[i]);
   const armorOK = weather.armor >= 0.75; // sous la pluie, les blindés s'enlisent : l'infanterie mène
   const cover = artilleryCover(front, s, weather.barrage); // appui passif : il compte comme une préparation
+  const metro = !!front.map.districts;
   for (const sec of chosen) {
-    const town = targetTown(front, s, sec.head);
+    const town = metro && attacking ? metroTarget(front, s, sec.head) ?? targetTown(front, s, sec.head) : targetTown(front, s, sec.head);
     const h = point(front, sec.head);
     let to = town ? point(front, town.i) : { x: h.x + dirX * 25, y: h.y };
     // On ne vise pas en arrière : au moins vers l'avant.
@@ -245,6 +282,10 @@ export function planFront(front, s) {
       if (i >= 0) { goA += Math.min(1, front.map.flowA[i]); n++; }
     }
     const armorGround = n ? goA / n : 1;
+    // Métropole : les blindés de l'attaquant ne s'engagent que le long d'une avenue, jamais à travers les îlots.
+    const avenue = metro && attacking ? avenueAhead(front, sec.head) : null;
+    const armorTo = avenue ?? to;
+    const armorFit = metro && attacking ? !!avenue : armorGround > 0.6;
     // Préparation, sur le point de départ : barrage au lever du jour puis appui aérien en fin de matinée, au même endroit
     // (le choc des deux se cumule, combat.js). Sans aucun feu, un assaut piétine : on ne l'engage qu'écrasant.
     const L = Math.hypot(to.x - h.x, to.y - h.y) || 1;
@@ -258,10 +299,10 @@ export function planFront(front, s) {
     const ai = cellAtPoint(front, at), covered = cover && ai >= 0 && cover[ai] >= AI_TUNING.coverPrep;
     if (!fired && !flown && !salvo && !covered && sec.ratio < engage * 2) continue;
     // Fer de lance : la formation la plus proche mène l'attaque vers l'objectif ; l'infanterie pousse sur le même axe.
-    if (armorOK && armorGround > 0.6 && free.length && sec.ratio > engage * 1.1) {
+    if (armorOK && armorFit && free.length && sec.ratio > engage * 1.1) {
       const a = free.reduce((b, x) => (dist(x, sec.head) < dist(b, sec.head) ? x : b));
       if (dist(a, sec.head) < 45) {
-        setArmorOrder(front, s, a.id, to);
+        setArmorOrder(front, s, a.id, armorTo);
         free.splice(free.indexOf(a), 1);
       }
     }
@@ -319,12 +360,14 @@ export function planFront(front, s) {
     const sec = threatened.find((x) => dist(a, x.head) < 45) ?? null;
     if (!sec) continue;
     const h = point(front, sec.head);
-    if (armorOK && sec.hold < 0.85 && a.tanks > a.max * 0.5) {
+    // Métropole : l'attaquant ne contre-attaque avec ses chars que le long d'une avenue.
+    const lane = metro && attacking ? avenueAhead(front, sec.head) : { x: h.x + dirX * 10, y: h.y };
+    if (armorOK && lane && sec.hold < 0.85 && a.tanks > a.max * 0.5) {
       // Contre-attaque préparée elle aussi : barrage et aviation sur les cases ennemies devant le secteur.
       const at = { x: h.x + dirX * 3, y: h.y };
       fireBarrage(front, s, at, sec.hold < AI_TUNING.urgentHold);
       addAirMission(front, s, at);
-      setArmorOrder(front, s, a.id, { x: h.x + dirX * 10, y: h.y });
+      setArmorOrder(front, s, a.id, lane);
     }
     else setArmorOrder(front, s, a.id, { x: h.x - dirX * 6, y: h.y });
   }

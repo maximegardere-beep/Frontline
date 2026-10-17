@@ -1116,12 +1116,12 @@ function finalVerdict(front) {
   const { total, grade, max } = scoreBreakdown(front, true);
   const G = GRADES[grade];
   if (isMetro(front)) {
-    // Métropole : la part des points de quartiers (objectifs secondaires compris) fait l'issue.
+    // Métropole : les points de quartiers gagnés par l'attaquant (objectifs secondaires compris) font l'issue.
     front.grade = grade;
-    const held = `${Math.round(total)} points de quartiers sur ${max} (${Math.round((100 * total) / max)} %)`;
-    if (G.att === true) return finish(front, att, `${G.label} de ${name(att)} : l'offensive tient ${held}.`);
-    if (G.att === false) return finish(front, def, `${G.label} de ${name(def)} : l'ennemi ne tient que ${held}.`);
-    return finish(front, null, `${G.label} : ${name(att)} tient ${held}, sans emporter la décision.`);
+    const n = Math.round(total), gained = `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(n)} point${Math.abs(n) > 1 ? 's' : ''} de quartiers (sur ${max})`;
+    if (G.att === true) return finish(front, att, `${G.label} de ${name(att)} : l'offensive a gagné ${gained}.`);
+    if (G.att === false) return finish(front, def, `${G.label} de ${name(def)} : l'ennemi n'a gagné que ${gained}.`);
+    return finish(front, null, `${G.label} : ${name(att)} a gagné ${gained}, sans emporter la décision.`);
   }
   const got = attackerTowns(front);
   const towns = `${got} ville${got > 1 ? 's' : ''} ★ sur ${front.defTowns.length}`;

@@ -6,11 +6,13 @@
 
 export const METRO_RULES = {
   hold: 0.6, // part des cases d'un quartier à tenir pour le posséder (entre les deux : disputé, à personne)
-  // Issue : part des points de quartiers tenue par l'attaquant au dernier soir (objectifs secondaires compris).
-  attDecisive: 0.65,
-  attWin: 0.5,
-  draw: 0.4,
-  defWin: 0.3,
+  // Issue : points de quartiers gagnés par l'attaquant pendant la bataille (pris moins perdus, objectifs secondaires
+  // compris), calés sur des batailles IA contre IA (tools/metro-sim.mjs) : victoire décisive, victoire, indécis,
+  // victoire défensive ; en dessous, victoire défensive décisive.
+  attDecisive: 5,
+  attWin: 2,
+  draw: 1,
+  defWin: 0,
   objective: 1, // points d'un objectif secondaire rempli (pour ou contre l'attaquant)
   ferryDay: 0.85, // ravitaillement de jour des cases qui ne tiennent que par les bacs (ils passent de nuit)
   strongDef: 1.3, // défense de l'îlot d'une maison-forteresse
@@ -33,10 +35,10 @@ export const districtTotal = (front) => front.map.districts.reduce((a, d) => a +
 export const districtPoints = (front, s) => front.map.districts.reduce((a, d) => a + (districtOwner(front, d) === s ? d.value : 0), 0);
 export const districtsHeld = (front, s) => front.map.districts.filter((d) => districtOwner(front, d) === s).length;
 
-// Issue d'une métropole selon la part des points tenue par l'attaquant.
-export function metroGrade(share) {
+// Issue d'une métropole selon les points gagnés par l'attaquant.
+export function metroGrade(gain) {
   const R = METRO_RULES;
-  return share >= R.attDecisive ? 'attDecisive' : share >= R.attWin ? 'attWin' : share >= R.draw ? 'draw' : share >= R.defWin ? 'defWin' : 'defDecisive';
+  return gain >= R.attDecisive ? 'attDecisive' : gain >= R.attWin ? 'attWin' : gain >= R.draw ? 'draw' : gain >= R.defWin ? 'defWin' : 'defDecisive';
 }
 
 // Bacs de nuit : les accostages (quais et usines au bord de l'eau) que tient le défenseur ravitaillent la ville comme

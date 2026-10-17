@@ -7,20 +7,21 @@ import { TOWN } from './terrain.js';
 
 // Types de quartiers. value : points de victoire (étape 3) ; w : étendue relative dans le pavage.
 export const DISTRICT_TYPES = {
-  centre: { label: 'Vieille ville', value: 3, w: 1.1 },
-  usine: { label: 'Usines', value: 2, w: 1.3 },
+  centre: { label: 'Vieille ville', value: 3, w: 0.9 },
+  usine: { label: 'Usines', value: 2, w: 1 },
   ouvrier: { label: 'Cité ouvrière', value: 1, w: 1 },
   gare: { label: 'Gare et triage', value: 2, w: 0.85 },
   hauteur: { label: 'Hauteur', value: 2, w: 0.8 },
   parc: { label: 'Parc', value: 1, w: 0.6 },
-  quai: { label: 'Quais', value: 3, w: 1 },
+  quai: { label: 'Quais', value: 2, w: 1 },
 };
 
 export const METRO = {
   suburbs: 8, // profondeur des faubourgs tenus par l'attaquant au départ (colonnes)
   taper: 8, // lignes aux extrémités nord et sud où la ville s'amincit
-  spacing: 10, // écart minimal entre deux germes de quartier (cités ouvrières, parc)
-  quayDepth: 3, // bande des quais (profondeur depuis la rive)
+  spacing: 6, // écart minimal entre deux germes de quartier (cités ouvrières, parc)
+  quayDepth: 3, // bande des quais (profondeur depuis la rive)…
+  quays: 6, // … en tronçons du nord au sud (ceux des usines en moins)
   minCells: 12, // quartier plus petit : fondu dans un voisin (quais : la moitié)
 };
 
@@ -110,12 +111,12 @@ export function buildMetropole(map, { rng, hs, B, defender = 1, cheapestPath, ma
     }
     district[i] = best;
   }
-  // Quais : la bande au bord de l'eau, hors des usines (elles ont leurs propres berges), en trois tronçons.
-  const quays = [null, null, null];
+  // Quais : la bande au bord de l'eau, hors des usines (elles ont leurs propres berges), en tronçons (METRO.quays).
+  const quays = new Array(METRO.quays).fill(null);
   for (let i = 0; i < N; i++) {
     if (district[i] < 0 || uOf(i) > METRO.quayDepth || seeds[district[i]].type === 'usine') continue;
-    const k = Math.min(2, Math.floor((rowOf(i) / H) * 3));
-    if (!quays[k]) { quays[k] = seeds.length; seeds.push({ type: 'quai', u: 1, v: (k + 0.5) * (H / 3), part: k }); }
+    const k = Math.min(METRO.quays - 1, Math.floor((rowOf(i) / H) * METRO.quays));
+    if (!quays[k]) { quays[k] = seeds.length; seeds.push({ type: 'quai', u: 1, v: (k + 0.5) * (H / METRO.quays), part: k }); }
     district[i] = quays[k];
   }
   tidyDistricts(map, district, seeds, nbs);
@@ -127,7 +128,7 @@ export function buildMetropole(map, { rng, hs, B, defender = 1, cheapestPath, ma
   for (let i = 0; i < N; i++) if (district[i] >= 0) { if (!cellsOf.has(district[i])) cellsOf.set(district[i], []); cellsOf.get(district[i]).push(i); }
   const order = [...cellsOf.keys()].sort((a, b) => cellsOf.get(a)[0] - cellsOf.get(b)[0]);
   const factories = rng.shuffle(FACTORY_NAMES.slice()), parks = rng.shuffle(PARK_NAMES.slice());
-  const quayName = ['nord', 'du centre', 'sud'];
+  const quayName = ['Quais nord', 'Débarcadère nord', 'Port fluvial', 'Quais du marché', 'Débarcadère sud', 'Quais sud'];
   for (const s of order) {
     const cells = cellsOf.get(s), S = seeds[s], id = map.districts.length;
     used[s] = id;
@@ -138,7 +139,7 @@ export function buildMetropole(map, { rng, hs, B, defender = 1, cheapestPath, ma
       : S.type === 'gare' ? 'Gare centrale'
       : S.type === 'hauteur' ? `Hauteur ${rng.int(98, 137)}`
       : S.type === 'parc' ? parks.pop()
-      : S.type === 'quai' ? `Quais ${quayName[S.part]}`
+      : S.type === 'quai' ? quayName[S.part]
       : `${uOf(center) > D * 0.6 ? 'Faubourg' : 'Cité'} ${placeName(rng, usedNames)}`;
     map.districts.push({ id, type: S.type, name, value: DISTRICT_TYPES[S.type].value, center, cells });
   }

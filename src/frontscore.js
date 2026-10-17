@@ -10,8 +10,8 @@
 // - objectifs secondaires (6 points chacun, pour ou contre l'attaquant).
 // Les seuils des cinq issues sont calés sur des batailles IA contre IA (tools/front-sim.mjs).
 //
-// Métropole (frontmetro.js) : le score est la somme des points des quartiers que possède l'attaquant, plus 1 point par
-// objectif secondaire rempli (pour ou contre lui) ; l'issue se lit à la part du total des points de quartiers.
+// Métropole (frontmetro.js) : le score est la somme des points des quartiers que l'attaquant a pris pendant la bataille,
+// moins ceux qu'il possédait au départ et a perdus, plus 1 point par objectif secondaire rempli (pour ou contre lui).
 //
 // Ce module ne dépend pas de front.js (il est importé par lui) : il lit l'état du front directement.
 
@@ -231,22 +231,27 @@ export function scoreBreakdown(front, final = false) {
   return { rows, total, grade: gradeOf(total) };
 }
 
-// Métropole : une ligne par quartier que possède l'attaquant, puis les objectifs secondaires.
+// Métropole : une ligne par quartier pris ou perdu par l'attaquant depuis le départ, puis les objectifs secondaires.
 function metroBreakdown(front, final) {
   const att = front.attacker;
   const rows = [];
-  for (const d of front.map.districts) if (districtOwner(front, d) === att) rows.push({ key: `d${d.id}`, label: `${d.name} (quartier tenu par l'attaquant)`, pts: d.value, district: d });
+  for (const d of front.map.districts) {
+    const was = front.metroStart[d.id] === att, is = districtOwner(front, d) === att;
+    if (is && !was) rows.push({ key: `d${d.id}`, label: `${d.name} pris par l'attaquant`, pts: d.value, district: d });
+    if (was && !is) rows.push({ key: `d${d.id}`, label: `${d.name} perdu par l'attaquant`, pts: -d.value, district: d });
+  }
   for (const o of front.objectives) {
     const st = objectiveState(front, o);
     const ok = st.final ?? (final ? st.done : null);
     const sign = o.side === att ? 1 : -1;
     rows.push({ key: `obj${o.id}`, label: `${o.side === att ? 'Attaquant' : 'Défenseur'} : ${o.label}`, pts: ok ? sign * METRO_RULES.objective : 0, objective: o, state: st, ok });
   }
-  const total = rows.reduce((a, r) => a + r.pts, 0), max = districtTotal(front);
-  return { rows, total, max, share: total / max, grade: metroGrade(total / max) };
+  const total = rows.reduce((a, r) => a + r.pts, 0);
+  return { rows, total, max: districtTotal(front), grade: metroGrade(total) };
 }
 
 export function initScore(front) {
+  if (isMetro(front)) front.metroStart = front.map.districts.map((d) => districtOwner(front, d)); // possession au départ
   front.stats.pocket = [0, 0];
   front.score = { daily: 0, share0: scoreShare(front, front.attacker), strength0: [scoreStrength(front, 0), scoreStrength(front, 1)] };
   front.objectives = drawObjectives(front);

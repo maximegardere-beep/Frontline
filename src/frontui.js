@@ -499,7 +499,7 @@ function showFrontDebrief() {
         <h2>Score de l'offensive : ${signed(sc.total)}</h2>
         <table class="score-table">${sc.rows.filter((r) => r.pts || r.objective).map((r) => `<tr class="${r.objective ? (r.ok ? 'ok' : 'ko') : ''}"><td>${escHtml(r.label)}</td><td>${signed(r.pts)}</td></tr>`).join('')}</table>
         <p class="muted small">${f.map.districts
-          ? `Points de quartiers tenus par l'attaquant, sur ${sc.max} : victoire décisive ≥ ${Math.round(METRO_RULES.attDecisive * 100)} %, victoire ≥ ${Math.round(METRO_RULES.attWin * 100)} %, indécis ≥ ${Math.round(METRO_RULES.draw * 100)} %, victoire défensive ≥ ${Math.round(METRO_RULES.defWin * 100)} %, au-dessous victoire défensive décisive.`
+          ? `Points de quartiers gagnés par l'attaquant (pris moins perdus, objectifs compris) : victoire décisive ≥ ${METRO_RULES.attDecisive}, victoire ≥ ${METRO_RULES.attWin}, indécis ≥ ${METRO_RULES.draw}, victoire défensive ≥ ${METRO_RULES.defWin}, au-dessous victoire défensive décisive.`
           : `Seuils : victoire décisive de l'attaquant ≥ ${SCORE.attDecisive}, victoire ≥ ${SCORE.attWin}, indécis ≥ ${SCORE.draw}, victoire défensive ≥ ${SCORE.defWin}, au-dessous victoire défensive décisive.`}</p>
         <h2>Après la bataille</h2>
         <p>Le brouillard est levé : la carte montre maintenant les forces réelles des deux camps.</p>
@@ -1271,7 +1271,7 @@ function refreshFront() {
   const sc = scoreBreakdown(f);
   const taken = f.attacker === s, noun = objNoun(f, taken);
   byId('f-goal').innerHTML = `<span class="star">★</span> ${obj}/${f.defTowns.length}${compact ? '' : ` ${noun.split(' ').pop()}`} · ${signed(sc.total)}`;
-  byId('f-goal').title = `${noun[0].toUpperCase()}${noun.slice(1)} : ${obj} sur ${f.defTowns.length}. Score de l'offensive : ≈ ${signed(sc.total)}${sc.max ? ` points de quartiers sur ${sc.max}` : ''} (${GRADES[sc.grade].label.toLowerCase()}).`;
+  byId('f-goal').title = `${noun[0].toUpperCase()}${noun.slice(1)} : ${obj} sur ${f.defTowns.length}. Score de l'offensive : ≈ ${signed(sc.total)}${sc.max ? ' points de quartiers gagnés' : ''} (${GRADES[sc.grade].label.toLowerCase()}).`;
   fui.weather.set(f.weather, 'day');
   sound.setWeather(f.weather, f.season <= 1); // juillet, août : la steppe en été
   const go = byId('f-go');

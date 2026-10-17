@@ -395,7 +395,7 @@ test('métropole : ville le long du fleuve côté défenseur, quartiers d\'un se
       const { W, N } = m;
       const defSide = (i) => (defender === 1 ? i % W > W / 2 : i % W < W / 2);
       assert.ok(m.rivers[0].big && m.rivers[0].cells.every((i) => !m.river[i] || defSide(i)), 'un fleuve, côté défenseur');
-      assert.ok(m.districts.length >= 10 && m.districts.length <= 18, `${m.districts.length} quartiers`);
+      assert.ok(m.districts.length >= 16 && m.districts.length <= 28, `${m.districts.length} quartiers`);
       const types = m.districts.map((d) => d.type);
       for (const t of ['centre', 'gare', 'hauteur', 'parc']) assert.equal(types.filter((x) => x === t).length, 1, t);
       assert.equal(types.filter((x) => x === 'usine').length, 2, 'deux usines');
@@ -487,9 +487,15 @@ test('métropole : points de quartiers, bacs de nuit par les quais, artillerie d
   const sc = scoreBreakdown(f);
   assert.equal(sc.max, m.districts.reduce((a, x) => a + x.value, 0));
   assert.ok(sc.rows.some((r) => r.district === d && r.pts === d.value), 'le quartier pris compte ses points');
-  assert.equal(sc.grade, M.metroGrade(sc.total / sc.max));
-  assert.equal(M.metroGrade(0.5), 'attWin');
-  assert.equal(M.metroGrade(0.2), 'defDecisive');
+  assert.equal(sc.grade, M.metroGrade(sc.total));
+  const mine = m.districts.find((x) => f.metroStart[x.id] === att);
+  if (mine) {
+    for (const i of mine.cells) f.owner[i] = def;
+    assert.ok(scoreBreakdown(f).rows.some((r) => r.district === mine && r.pts === -mine.value), 'un quartier de départ perdu retire ses points');
+    for (const i of mine.cells) f.owner[i] = att;
+  }
+  assert.equal(M.metroGrade(M.METRO_RULES.attWin), 'attWin');
+  assert.equal(M.metroGrade(-1), 'defDecisive');
   take(0);
   // Bacs : sans les ponts, la ville du défenseur ne tient que par ses accostages ; quais perdus, elle est encerclée.
   for (let i = 0; i < m.N; i++) if (m.river[i]) f.owner[i] = -1;
@@ -529,6 +535,24 @@ test('métropole : points de quartiers, bacs de nuit par les quais, artillerie d
   const held = g.map.districts.flatMap((x) => x.cells).filter((i) => g.owner[i] === def);
   assert.ok(held.every((i) => g.supplied[def][i] && g.ferried[i]), 'ravitaillée par les seuls bacs');
   assert.ok(held.every((i) => g.supplyK[def][i] <= M.METRO_RULES.ferryDay + 1e-6));
+});
+
+test('métropole : l\'IA de l\'attaquant assaille la ville, ses blindés ne s\'y engagent que sur une avenue', async () => {
+  const { planFront } = await import('../src/frontai.js');
+  const { cellAtPoint } = await import('../src/front.js');
+  let sent = 0;
+  for (const attacker of ['DE', 'SU']) {
+    const f = createFront({ seed: 'metro-ia', playerSide: null, attacker, biome: 'metropole' });
+    const att = f.attacker;
+    planFront(f, att);
+    assert.ok(f.orders[att].some((v) => v.type === 'infantry'), 'des assauts dès le premier jour');
+    for (const a of f.armor.filter((x) => x.side === att && x.target)) {
+      sent++;
+      const i = cellAtPoint(f, a.target);
+      assert.ok(f.map.avenue[i] || f.map.district[i] < 0 || f.owner[i] === att, 'objectif blindé sur une avenue, ou réserve dans ses lignes');
+    }
+  }
+  assert.ok(sent > 0, 'au moins une formation a un ordre');
 });
 
 test('IA : ordres des deux rôles, sans tricher (le brouillard compte), bataille complète', async () => {

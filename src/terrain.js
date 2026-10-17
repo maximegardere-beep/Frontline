@@ -177,9 +177,9 @@ export const DISTRICT_TERRAIN = {
   parc: { def: 0.1, flow: 0.8, flowA: 0.9 },
   quai: { def: 0.3, flow: 0.6, flowA: 0.4 },
 };
-// Avenues : rapides pour les chars, à découvert. flank : pertes en plus des blindés qui y poussent, à proportion des
-// îlots voisins tenus par l'ennemi (plein effet à partir de deux).
-export const AVENUE = { def: 0.1, flow: 1, flowA: 1.3, flank: 0.3 };
+// Avenues : rapides pour les chars, à découvert ; ils y gardent l'essentiel de leur choc (atkA ; ville : 0,6). flank :
+// pertes en plus des blindés qui y poussent, à proportion des îlots voisins tenus par l'ennemi (plein effet à deux).
+export const AVENUE = { def: 0.1, flow: 1, flowA: 1.3, atkA: 0.9, flank: 0.3 };
 
 // Tir de flanc sur une avenue j : multiplicateur des pertes des blindés qui l'assaillent (1 hors avenue).
 export function flankFire(map, owner, j) {
@@ -226,7 +226,7 @@ export function cellTerrain(map, i, frozen = false, ruin = 0) {
   if (k === 'town' && !water) {
     // Métropole : terrain du quartier, ou de l'avenue qui le traverse.
     const D = map.district?.[i] >= 0 ? (map.avenue[i] ? AVENUE : DISTRICT_TERRAIN[map.districts[map.district[i]].type]) : null;
-    if (D) { flow = D.flow; flowA = D.flowA; }
+    if (D) { flow = D.flow; flowA = D.flowA; if (D.atkA) atkA = D.atkA; }
     def = (1 + ruinBonus(ruin) * (D ? D.def / RUINS.intact : 1)) * (map.stronghold?.[i] === 2 ? METRO_RULES.strongDef : 1);
     flow *= 1 - RUINS.flow * ruin;
     flowA *= 1 - RUINS.flowA * ruin;

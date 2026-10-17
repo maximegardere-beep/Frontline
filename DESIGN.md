@@ -1201,7 +1201,7 @@ Un nouveau biome du front stratégique où la ville n'est plus un point à prend
 | Forme | Ville allongée le long d'un fleuve, côté défenseur ; steppe à l'ouest (ou à l'est) pour l'arrivée de l'attaquant ; échelle des cases inchangée |
 | Quartiers | 10 à 16 quartiers typés : vieille ville, usines, cités ouvrières et faubourgs, gare, hauteur, parc, quais. Terrain et bonus propres à chaque type |
 | Axes | Avenues radiales, boulevard et route des quais : rapides pour les chars, à découvert ; tir de flanc des îlots ennemis qui les bordent |
-| Victoire | Aux points de quartiers (1 à 3 points ; un quartier appartient à qui en tient plus de 60 %), à la place des villes ★ |
+| Victoire | Aux points de quartiers (1 à 3 points ; un quartier appartient à qui en tient plus de 60 %), à la place des villes ★. Étape 4 : l'issue se lit aux points gagnés pendant la bataille (la moitié des points était hors de portée, voir l'étape 4) |
 | Ajouts de la v1 | Bacs de nuit (le défenseur se ravitaille par les quais), artillerie de la rive gauche, maisons-forteresses |
 | Plus tard | Égouts (infiltration), réparation de chars à l'usine, sons urbains |
 
@@ -1304,4 +1304,31 @@ Un nouveau biome du front stratégique où la ville n'est plus un point à prend
   27 % ; sans les bacs, 27 % et le défenseur encerclé dans 60 % des batailles (10 % avec). Les bacs sont la bouée
   voulue du défenseur ; reste à l'IA de l'attaquant à viser les quais et à l'équilibre de remonter l'attaquant vers
   40 % : étape 4.
+
+### Étape 4 faite : IA de la métropole, quartiers resserrés, victoire aux points gagnés
+
+- Ce que la mesure a montré : l'IA de l'attaquant n'attaquait jamais la ville. Son rapport de forces divise par la
+  défense du terrain d'en face, ×1,5 à ×1,9 partout en ville : aucun secteur n'atteignait le seuil d'engagement, et
+  les progrès des étapes 2 et 3 venaient des blindés et du colmatage. Le rythme d'une case de ville tient à la jauge de
+  brèche (seuil au cube de la défense, remplissage plafonné par tick) : ni plus de barrages ni plus de renforts ne
+  l'accélèrent (essai : 4 barrages, renforts × 1,15 : rien). Même dans une ville transparente, l'attaquant gagnait 5 %
+  des points : « la moitié des points » était hors de portée, et le gain médian d'une bataille, d'un point.
+- IA (`frontai.js`) : en métropole, l'attaquant engage dès un rapport de forces de 0,5 (`metroEngage`) ; il vise le
+  quartier ennemi qui vaut le plus d'être pris (`metroTarget` : distance ÷ points × attrait, quais 1,6, gare 1,3, usines
+  0,7) ; ses blindés ne s'engagent, à l'assaut comme en contre-attaque, que le long d'une avenue radiale partie de
+  moins de 3,5 unités de leur départ, vers la case de l'avenue douze pas plus loin (`avenueAhead`) ; sinon ils restent
+  en réserve. Sur une avenue, les chars gardent 90 % de leur choc (`AVENUE.atkA`, ville 60 %).
+- Quartiers resserrés (`metrogen.js`) : germes à 6 colonnes d'écart au lieu de 10, usines et vieille ville moins
+  étendues : 20 à 24 quartiers de 20 à 120 cases. Quais en tronçons (six bandes du nord au sud, hors des usines : trois
+  ou quatre), à 2 points chacun : atteindre le fleuve en un point rapporte un tronçon.
+- Victoire aux points gagnés (choix validé) : la somme des points des quartiers pris pendant la bataille, moins ceux que
+  l'attaquant possédait au départ et a perdus, plus ou moins 1 par objectif secondaire. Victoire décisive ≥ 5, victoire
+  ≥ 2, indécis ≥ 1, victoire défensive ≥ 0, en dessous défensive décisive. Possession de départ : `front.metroStart`.
+- Mesure (80 batailles, deux séries de graines) : attaquant 34 % (43 % puis 25 %), défenseur 46 %, indécis 20 % ;
+  avance 2,7 colonnes, fleuve atteint presque toujours, défenseur encerclé dans 8 à 28 % des batailles, chars perdus
+  par l'attaquant 65 à 72 % (steppe 53 %, fleuve 70 %, bourg 78 %). Quartiers pris par type : gare 17/47, cités 36/544,
+  quais 24/361, hauteur 2/43, vieille ville 2/80, usines 1/160 (des citadelles), parc 1/80. Victoire à +1 : environ
+  54 % ; on garde +2.
+- Non fait : une IA du défenseur propre à la ville (tenir les îlots qui bordent les avenues, garder ses accostages) ;
+  il gagne déjà assez sans elle.
 
