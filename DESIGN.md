@@ -1187,3 +1187,63 @@ et l'artillerie passe d'un barrage par groupe et par jour à un appui permanent 
 - Reste à surveiller en jeu : la fréquence des fenêtres (environ une ville disputée tous les dix jours de bataille
   par camp en IA contre IA ; davantage quand le joueur pousse sur les villes), et l'équilibre du résultat décisif face
   à la résolution automatique.
+
+## Métropole (chantier)
+
+Un nouveau biome du front stratégique où la ville n'est plus un point à prendre mais tout le champ de bataille
+(type Stalingrad). Propositions et maquettes validées ; le biome « Grande ville » (`bourg`) reste à côté.
+
+### Cahier des charges (validé)
+
+| Sujet | Décision |
+|---|---|
+| Biome | Nouveau biome `metropole`, en plus du bourg |
+| Forme | Ville allongée le long d'un fleuve, côté défenseur ; steppe à l'ouest (ou à l'est) pour l'arrivée de l'attaquant ; échelle des cases inchangée |
+| Quartiers | 10 à 16 quartiers typés : vieille ville, usines, cités ouvrières et faubourgs, gare, hauteur, parc, quais. Terrain et bonus propres à chaque type |
+| Axes | Avenues radiales, boulevard et route des quais : rapides pour les chars, à découvert ; tir de flanc des îlots ennemis qui les bordent |
+| Victoire | Aux points de quartiers (1 à 3 points ; un quartier appartient à qui en tient plus de 60 %), à la place des villes ★ |
+| Ajouts de la v1 | Bacs de nuit (le défenseur se ravitaille par les quais), artillerie de la rive gauche, maisons-forteresses |
+| Plus tard | Égouts (infiltration), réparation de chars à l'usine, sons urbains |
+
+### Plan (une étape par commit)
+
+1. **Générateur** : biome `metropole`, emprise de la ville, quartiers, avenues et boulevard, voie ferrée, fleuve et
+   quais, ponts ; ligne de départ dans les faubourgs. Tests.
+2. **Terrain** : défense et fluidités par type de quartier, avenues, tir de flanc. Mesure.
+3. **Victoire et ravitaillement** : points de quartiers, bacs de nuit et coupure par les quais, artillerie de la rive
+   gauche, maisons-forteresses.
+4. **IA et équilibre** : l'attaquant vise quais et gare et pousse ses blindés sur les avenues ; le défenseur tient les
+   îlots qui bordent les avenues. Attaquant ≈ 40 %.
+5. **Rendu** : îlots par quartier, avenues, front en escalier, noms de quartiers, repères, états de destruction, nuit.
+6. **Interface et batailles de rue** : panneau des quartiers, bilan du soir, trame tactique par type de quartier ;
+   le biome entre dans le tirage.
+7. **Publication** : règles, README, fichier unique.
+
+### Étape 1 faite : générateur
+
+- `src/metrogen.js` (`buildMetropole`), appelé par `generateFrontMap` à la place des villes et des routes quand le
+  biome a `metropole` ; réglages dans `FRONT_BIOMES.metropole` (`riverOffset`, `cityDepth`) et `METRO`.
+- Fleuve : le fleuve du biome « fleuve », 29 à 31 colonnes du milieu vers le défenseur. La ville se mesure depuis la
+  rive côté attaquant (profondeur u, en colonnes) : de 30 à 33 colonnes, qui ondulent, amincie aux extrémités nord et
+  sud. Environ 30 % de la carte ; derrière le fleuve, une quinzaine de colonnes de steppe pour le défenseur.
+- Quartiers (`map.districts`, `map.district[i]`, -1 hors de la ville) : germes posés par type (deux usines vers un bout,
+  vieille ville vers l'autre, gare à mi-profondeur à côté, hauteur sur le point le plus haut entre les deux, un parc),
+  puis cités ouvrières et faubourgs qui comblent les vides (écart 10). Pavage au germe le plus proche, pondéré par type,
+  limites brouillées ; quais : la bande de 3 colonnes au bord de l'eau hors des usines, en tronçons nord, centre, sud.
+  Chaque quartier est rendu d'un seul tenant, les trop petits fondus dans un voisin. Mesure sur 24 cartes : 12 à 16
+  quartiers, de 25 à 280 cases. Noms : usines et parcs dans une liste, « Hauteur 98 » à « 137 », « Cité … » à
+  l'intérieur, « Faubourg … » sur le pourtour ; la ville prend un nom en -grad.
+- Terrain : toute l'emprise est ville (`TOWN`) et à plat (niveau 1 au plus), sauf la hauteur (niveau 2, son sommet 3).
+  En attendant l'étape 2, chaque case de ville a le terrain « ville » générique.
+- Avenues (`map.avenue`, `map.avenues`, et routes) : quatre radiales au plus, du bord de l'attaquant à la rive, en
+  éventail vers le centre ; un boulevard à mi-profondeur et la route des quais, du nord au sud. Les trois radiales les
+  plus proches du centre franchissent le fleuve (ponts) et filent au bord du défenseur.
+- Voie ferrée (`map.rail`, `map.rails`) : du bord de l'attaquant à la gare, puis le long de la ville jusqu'aux usines.
+  Sans effet avant l'étape 3 (renforts).
+- Objectifs : une ville du front par quartier, à son centre (`town.district`), en attendant les points de quartiers ;
+  un ou deux villages dans la steppe de l'attaquant, sur une avenue.
+- Ligne de départ (`map.startLine`, lue par `createFront`) : l'attaquant tient la frange des faubourgs, 5 colonnes
+  (de 10 à 20 % de la ville) ; quais et vieille ville au défenseur.
+- Hors du tirage des biomes : on la voit dans l'aperçu (`front-preview.html?biome=metropole`). Une bataille IA contre
+  IA tourne sans erreur, mais l'attaquant ne prend rien (la ville entière a la défense d'une ville) : étapes 2 à 4.
+

@@ -122,7 +122,8 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
   const wiggle = makeNoise(createRng(`frontline:${seed}`));
   for (let i = 0; i < N; i++) {
     const col = i % W, row = Math.floor(i / W);
-    const b = W / 2 + (wiggle(row * 0.06, 0.5, 3) - 0.5) * 16;
+    // Métropole : la ligne de départ est fixée par la carte (frange des faubourgs, metrogen.js).
+    const b = map.startLine?.[row] ?? W / 2 + (wiggle(row * 0.06, 0.5, 3) - 0.5) * 16;
     owner[i] = map.kind[i] === MOUNTAIN ? -1 : col + 0.5 * (row & 1) < b ? 0 : 1;
   }
   const front = {

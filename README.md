@@ -339,6 +339,7 @@ dernier mouvement observé : c'est la base pour anticiper et placer ses barrages
 | `src/hex.js` | Géométrie hexagonale (offset odd-r, distances, lignes, pixels) |
 | `src/terrain.js` | Coûts de mouvement, défense, ligne de vue |
 | `src/mapgen.js` | Génération procédurale : relief, forêts, marais, rivière, villages, fermes, routes |
+| `src/metrogen.js` | Biome métropole du front : ville le long du fleuve, quartiers, avenues, ponts, voie ferrée (en chantier, hors du tirage des biomes) |
 | `src/units.js` | Types d'unités, niveaux, armées aléatoires |
 | `src/path.js` | Hexagones atteignables (Dijkstra) |
 | `src/combat.js` | Jets de dés et moral |

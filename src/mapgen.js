@@ -5,6 +5,7 @@ import { neighborCoords, hexDistance, neighborTable } from './hex.js';
 import { tileAt, roadEdgeKey, TERRAIN, FRONT_KINDS, MOUNTAIN, TOWN, computeTerrain } from './terrain.js';
 import { placeName } from './names.js';
 import { BIOMES } from './conditions.js';
+import { buildMetropole } from './metrogen.js';
 
 export function makeNoise(rng) {
   const N = 64;
@@ -274,6 +275,9 @@ export const FRONT_BIOMES = {
   bourg: { label: 'Grande ville', text: 'Une grande ville au centre, nœud de routes : combats de rue.', forestQ: 0.8, marshQ: 0.86, marshElev: 0, mountains: 0.03, towns: [4, 6], city: true, river: 'meander', riverOdds: 0.5, streams: [0, 2] },
   montagne: { label: 'Montagnes (Carpates)', text: 'Chaînes infranchissables percées de quelques cols : les percées s\'y canalisent.', forestQ: 0.6, marshQ: 0.92, marshElev: 0, mountains: 0.13, passes: 4, towns: [4, 6], river: 'meander', riverOdds: 0.4, streams: [1, 2] },
   foret: { label: 'Grande forêt (Briansk)', text: 'Forêt profonde et rares routes : un combat d\'infanterie.', forestQ: 0.38, marshQ: 0.88, marshElev: 0, mountains: 0.01, towns: [4, 6], river: 'meander', riverOdds: 0.6, streams: [1, 3] },
+  // Métropole (metrogen.js) : riverOffset, colonnes entre le milieu de la carte et le fleuve ; cityDepth, profondeur
+  // de la ville depuis la rive ; towns, villages dans la steppe de l'attaquant.
+  metropole: { label: 'Métropole (Stalingrad)', text: 'Une grande ville le long d\'un fleuve, dos à l\'eau pour le défenseur : quartiers, avenues et combats de rue.', forestQ: 0.9, marshQ: 0.93, marshElev: 0, mountains: 0, towns: [1, 2], metropole: true, river: 'big', riverOdds: 1, riverOffset: [29, 31], cityDepth: [30, 33], streams: [1, 2] },
   fleuve: { label: 'Grand fleuve (Dniepr)', text: 'Un fleuve barre le secteur, quelques ponts seulement : têtes de pont et défense de rive.', forestQ: 0.86, marshQ: 0.86, marshElev: 0, mountains: 0.01, towns: [5, 7], river: 'big', riverOdds: 1, streams: [0, 2] },
 };
 
@@ -576,7 +580,7 @@ export function generateFrontMap(seed, opts = {}) {
   if (wantRiver === 'big') {
     // Fleuve nord-sud, côté du défenseur, à quelques colonnes de la ligne de départ (vers W/2).
     const side = opts.defender === 0 ? -1 : 1;
-    const { cells, line } = carveFrontRiver(map, hs, rng, { vertical: true, x0: W / 2 + side * (12 + rng.int(0, 3)), width: 2, avoid: (i) => kind[i] === MOUNTAIN, pull: 0.5 });
+    const { cells, line } = carveFrontRiver(map, hs, rng, { vertical: true, x0: W / 2 + side * (B.riverOffset ? rng.int(...B.riverOffset) : 12 + rng.int(0, 3)), width: 2, avoid: (i) => kind[i] === MOUNTAIN, pull: 0.5 });
     for (const i of cells) if (kind[i] !== MOUNTAIN) { map.river[i] = 1; map.bigRiver[i] = 1; }
     map.rivers.push({ cells, line, big: true });
   } else if (wantRiver === 'meander') {
@@ -599,6 +603,8 @@ export function generateFrontMap(seed, opts = {}) {
 
   // Villes : nœuds à tenir, espacées, hors marais et montagnes, plutôt réparties d'ouest en est.
   const usedNames = new Set();
+  // Métropole : la ville, ses quartiers, ses avenues et ses villages (metrogen.js) remplacent villes et routes.
+  if (B.metropole) buildMetropole(map, { rng, hs, B, defender: opts.defender ?? 1, cheapestPath, makeNoise, usedNames });
   // Bourg : une grande ville au centre (la case et deux couronnes, 19 cases), le nœud de la bataille.
   if (B.city) {
     let best = -1, bd = Infinity;
@@ -613,7 +619,7 @@ export function generateFrontMap(seed, opts = {}) {
     for (const j of area) if (j >= 0 && kind[j] !== MOUNTAIN) kind[j] = TOWN;
     map.towns.push({ i: best, col: best % W, row: Math.floor(best / W), name: placeName(rng, usedNames), city: true });
   }
-  const nTowns = rng.int(...B.towns);
+  const nTowns = B.metropole ? 0 : rng.int(...B.towns);
   for (let t = 0; t < nTowns; t++) {
     let best = -1, bestScore = -Infinity;
     for (let k = 0; k < 80; k++) {
@@ -652,7 +658,7 @@ export function generateFrontMap(seed, opts = {}) {
     for (const i of path) { map.road[i] = 1; if (map.river[i]) map.bridge[i] = 1; }
     map.roads.push(path);
   };
-  const T = map.towns;
+  const T = B.metropole ? [] : map.towns;
   const linked = new Set();
   for (const t of T) {
     const others = T.filter((o) => o !== t).sort((a, b) => hexDistance(a, t) - hexDistance(b, t)).slice(0, 2);
@@ -672,7 +678,7 @@ export function generateFrontMap(seed, opts = {}) {
   for (const r of map.rivers) ensureBridges(map, r, rng, roadCost);
   computeTerrain(map);
   const mid = map.towns.reduce((b, t) => (Math.abs(t.col - W / 2) < Math.abs((b?.col ?? -1e9) - W / 2) ? t : b), null);
-  map.name = mid ? `Front de ${mid.name}` : `Secteur ${100 + rng.int(10, 290)}`;
+  map.name = map.cityName ? `Front de ${map.cityName}` : mid ? `Front de ${mid.name}` : `Secteur ${100 + rng.int(10, 290)}`;
   return map;
 }
 

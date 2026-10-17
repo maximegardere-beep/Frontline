@@ -382,6 +382,60 @@ test('biomes de la micro-grille : steppe ouverte, bocage boisé, Polésie maréc
   assert.equal(around, 6, 'la grande ville couvre ses abords');
 });
 
+test('métropole : ville le long du fleuve côté défenseur, quartiers d\'un seul tenant, avenues, ponts, voie ferrée', () => {
+  const connected = (m, cells, ok) => {
+    const set = new Set(cells), seen = new Set([cells[0]]), stack = [cells[0]];
+    while (stack.length) { const i = stack.pop(); for (let d = 0; d < 6; d++) { const j = m.nb[i * 6 + d]; if (j >= 0 && (set.has(j) || ok?.(j)) && !seen.has(j)) { seen.add(j); stack.push(j); } } }
+    return seen;
+  };
+  for (const defender of [0, 1]) {
+    for (const seed of ['metro-a', 'metro-b']) {
+      const m = generateFrontMap(seed, { biome: 'metropole', defender });
+      assert.deepEqual(m.district, generateFrontMap(seed, { biome: 'metropole', defender }).district, 'reproductible');
+      const { W, N } = m;
+      const defSide = (i) => (defender === 1 ? i % W > W / 2 : i % W < W / 2);
+      assert.ok(m.rivers[0].big && m.rivers[0].cells.every((i) => !m.river[i] || defSide(i)), 'un fleuve, côté défenseur');
+      assert.ok(m.districts.length >= 10 && m.districts.length <= 18, `${m.districts.length} quartiers`);
+      const types = m.districts.map((d) => d.type);
+      for (const t of ['centre', 'gare', 'hauteur', 'parc']) assert.equal(types.filter((x) => x === t).length, 1, t);
+      assert.equal(types.filter((x) => x === 'usine').length, 2, 'deux usines');
+      assert.ok(types.includes('quai'), 'des quais');
+      let cityCells = 0;
+      for (let i = 0; i < N; i++) {
+        if (m.district[i] < 0) continue;
+        cityCells++;
+        assert.ok(m.kind[i] === 3 && !m.river[i], 'la ville est en terre ferme');
+      }
+      assert.ok(cityCells > N * 0.22 && cityCells < N * 0.4, `emprise ${cityCells}`);
+      for (const d of m.districts) {
+        assert.equal(connected(m, d.cells).size, d.cells.length, `${d.name} d'un seul tenant`);
+        assert.equal(m.district[d.center], d.id);
+        assert.ok(m.towns.some((t) => t.i === d.center && t.district === d.id), `${d.name} a son objectif`);
+      }
+      for (const d of m.districts.filter((x) => x.type === 'quai')) assert.ok(d.cells.some((i) => [0, 1, 2, 3, 4, 5].some((k) => m.river[m.nb[i * 6 + k]])), `${d.name} au bord de l'eau`);
+      assert.ok(m.districts.find((d) => d.type === 'hauteur').cells.some((i) => m.elev[i] === 3), 'la hauteur domine');
+      // Avenues : au moins trois partent du bord de l'attaquant ; le réseau routier relie les deux bords par les ponts.
+      const attEdge = defender === 1 ? 0 : W - 1, defEdge = W - 1 - attEdge;
+      assert.ok(m.avenues.filter((a) => a[0] % W === attEdge).length >= 3, 'avenues radiales');
+      const roads = [];
+      for (let i = 0; i < N; i++) if (m.road[i]) roads.push(i);
+      const reach = connected(m, roads.filter((i) => i % W === attEdge).slice(0, 1), (j) => m.road[j]);
+      assert.ok([...reach].some((i) => i % W === defEdge), 'route d\'un bord à l\'autre');
+      const bridgeRows = new Set();
+      for (let i = 0; i < N; i++) if (m.bridge[i] === 1) bridgeRows.add(Math.floor(i / W));
+      assert.ok(bridgeRows.size >= 3, 'trois ponts');
+      const gare = m.districts.find((d) => d.type === 'gare');
+      assert.ok(m.rails[0][0] % W === attEdge && m.rails[0].some((i) => m.district[i] === gare.id), 'le train arrive à la gare');
+    }
+  }
+  // Départ : l'attaquant tient la frange des faubourgs, le défenseur le reste, quais et vieille ville compris.
+  const f = createFront({ seed: 'metro-a', biome: 'metropole', attacker: 'SU' });
+  const att = f.attacker, cells = f.map.districts.flatMap((d) => d.cells);
+  const share = cells.filter((i) => f.owner[i] === att).length / cells.length;
+  assert.ok(share > 0.05 && share < 0.25, `faubourgs tenus par l'attaquant : ${share}`);
+  for (const d of f.map.districts.filter((x) => x.type === 'quai' || x.type === 'centre')) assert.ok(d.cells.every((i) => f.owner[i] === 1 - att), d.name);
+});
+
 test('IA : ordres des deux rôles, sans tricher (le brouillard compte), bataille complète', async () => {
   const { installAI, planFront } = await import('../src/frontai.js');
   const orders = (f, s) => JSON.stringify({ v: f.orders[s].map((v) => [v.type, v.fromI, Math.round(v.to.x), Math.round(v.to.y)]), l: f.lines[s].length, b: f.barrages[s].map((b) => [Math.round(b.x), Math.round(b.y)]), r: f.reserve[s] });
