@@ -22,7 +22,7 @@ import { installAI } from './frontai.js';
 import { GUN_KINDS, GUN_POSTURES, gunPower, gunFor, setGunOrder, onMission, missionGuns } from './frontguns.js';
 import { setArmorOrder, expLabel } from './frontarmor.js';
 import { scoreBreakdown, objectiveState, GRADES, SCORE } from './frontscore.js';
-import { METRO_RULES } from './frontmetro.js';
+import { METRO_RULES, districtOwner } from './frontmetro.js';
 import { FrontRenderer, CELL } from './frontrender.js';
 import { bigPockets, menRange, pickCell, areaReport, combatSpots } from './frontinput.js';
 import { noteLosses, updateAlerts } from './frontalert.js';
@@ -115,7 +115,7 @@ export function openFront(sideCode, seed, year = DEFAULT_YEAR) {
   const rng = createRng(`front:setup:${seed}`);
   const sc = scenarioOf(year);
   const attacker = rng.weighted(sc.attacker);
-  const biome = rng.weighted({ steppe: 22, bocage: 16, polesie: 12, bourg: 12, montagne: 12, foret: 12, fleuve: 14 });
+  const biome = rng.weighted({ steppe: 22, bocage: 16, polesie: 12, bourg: 12, montagne: 12, foret: 12, fleuve: 14, metropole: 10 });
   const season = rng.weighted(sc.seasons);
   const front = createFront({ seed, playerSide: sideCode, attacker, biome, season: Number(season), year, setup: { atoutsManual: true } });
   installAI(front);
@@ -158,6 +158,12 @@ function weatherText(f) {
 
 function goalText(f) {
   const att = f.attacker === fui.side;
+  if (f.map.districts) {
+    const R = METRO_RULES;
+    return att
+      ? `Bataille de rue aux points de quartiers. Un quartier est à vous quand vous tenez plus de ${Math.round(R.hold * 100)} % de ses cases : chaque quartier pris rapporte ses points (●), chaque quartier de départ perdu les retire, un objectif secondaire vaut 1 point. +${R.attWin} : victoire ; +${R.attDecisive} : victoire décisive. Prenez les quais pour couper les bacs de nuit qui ravitaillent l'ennemi, et lancez vos chars sur les avenues, pas à travers les îlots.`
+      : `Bataille de rue aux points de quartiers. Chaque quartier que l'ennemi vous prend (plus de ${Math.round(R.hold * 100)} % de ses cases) lui rapporte ses points (●) ; s'il en gagne moins de ${R.attWin}, vous avez tenu. Gardez vos quais : les bacs de nuit qui y accostent ravitaillent la ville. Votre artillerie tire de l'autre rive ; les maisons-forteresses tiennent longtemps, même encerclées.`;
+  }
   return att
     ? `Bataille aux points. Prenez les villes ★ tôt et tenez-les : chaque soir où vous les tenez rapporte, et davantage au dernier soir. Terrain gagné, pertes infligées, troupes prises dans des poches et objectifs secondaires comptent aussi. Environ deux villes ★ tenues font une victoire, trois une victoire décisive.`
     : `Bataille aux points. Chaque soir où l'ennemi tient une ville ★ lui rapporte : reprenez-les vite, ou retardez leur chute. Saignez l'offensive, encerclez ses pointes, remplissez vos objectifs secondaires : une offensive qui ne gagne presque rien est une victoire défensive.`;
@@ -211,12 +217,12 @@ function showFrontBriefing() {
         <p class="muted small">Traits : la Wehrmacht voit une case plus loin et ses Panzer se ravitaillent plus vite ; l'Armée rouge a plus de réserves et de renforts, tient mieux les villes et ne craint pas la neige.</p>
         <h2>Objectif</h2>
         <p>${goalText(f)}</p>
-        <h2>Objectifs secondaires (+${SCORE.secondary} points chacun)</h2>
+        <h2>Objectifs secondaires (+${f.map.districts ? `${METRO_RULES.objective} point` : `${SCORE.secondary} points`} chacun)</h2>
         ${objectivesHtml(f, s)}
         <p class="muted small">L'ennemi a les siens : ${f.objectives.filter((o) => o.side !== s).map((o) => escHtml(o.label.toLowerCase())).join(' ; ')}.</p>
-        <p class="muted small">Fin immédiate si un camp tombe sous 12 % de ses effectifs ou de son terrain, ou si l'attaquant prend toutes les villes.</p>
+        <p class="muted small">Fin immédiate si un camp tombe sous 12 % de ses effectifs ou de son terrain, ou si l'attaquant prend toutes les villes${f.map.districts ? ' (chaque centre de quartier)' : ''}.</p>
         <h2>Forces</h2>
-        <p>En ligne : ${fmtMen(men(troops(f, s)))}. Réserves : ${fmtMen(men(f.reserve[s]))}, renforcées chaque soir selon le ravitaillement et les villes tenues.</p>
+        <p>En ligne : ${fmtMen(men(troops(f, s)))}. Réserves : ${fmtMen(men(f.reserve[s]))}, renforcées chaque soir selon le ravitaillement et les ${f.map.districts ? 'quartiers' : 'villes'} tenu${f.map.districts ? 's' : 'es'}.</p>
         <p>Renseignement : en face, ${menRange(enemyEstimate(f), 0.8, 1.4)} repérés ; le reste est dans le brouillard.</p>
         ${atoutsHtml(f, s)}
       </section>
@@ -407,6 +413,7 @@ export function frontRules() {
         <li><b>Défense élastique.</b> Sans ordre, les troupes colmatent d'elles-mêmes les secteurs menacés.</li>
         <li><b>Encerclement.</b> Des troupes coupées de leur bord de carte forment une poche, qui fond d'environ 30 % par jour. Chaque matin, choisissez pour les vôtres : statu quo, Festung (se resserrer, tenir et fondre moins vite) ou percée d'évasion vers un point que vous touchez.</li>
         <li><b>Brouillard.</b> Vous voyez à quelques cases de vos troupes (moins par brouillard). Touchez la carte : vos forces sont comptées, celles de l'ennemi estimées en fourchette.</li>
+        <li><b>Métropole.</b> Une grande ville le long d'un fleuve, côté défenseur, découpée en quartiers (vieille ville, usines, cités ouvrières et faubourgs, gare, hauteur, parc, quais). Chaque type a sa défense et sa vitesse ; les avenues sont rapides pour les chars mais à découvert : bordées d'îlots ennemis, elles leur coûtent plus cher. Le défenseur se ravitaille aussi par les bacs de nuit qui accostent à ses quais, son artillerie tire de l'autre rive, et quatre maisons-forteresses tiennent longtemps même encerclées. La victoire se compte aux points de quartiers gagnés par l'attaquant (onglet Forces).</li>
         <li><b>Victoire aux points.</b> Le score de l'offensive additionne les villes ★ tenues par l'attaquant (chaque soir, et davantage au dernier), le terrain gagné, le rapport des pertes, les troupes perdues dans les poches, l'exploitation jusqu'au bord de la carte et les objectifs secondaires des deux camps. Au soir du ${c.days}<sup>e</sup> jour, l'issue va de la victoire décisive de l'attaquant (≥ ${SCORE.attDecisive}) à la victoire défensive décisive (&lt; ${SCORE.defWin}), en passant par une issue indécise. Un camp qui tombe sous 12 % de ses effectifs ou de son terrain a perdu sur-le-champ ; l'attaquant qui prend toutes les villes gagne aussitôt.</li>
       </ol>
     </details>`;
@@ -428,6 +435,7 @@ function takeStats() {
     territory: territory(f, s),
     towns: townsHeld(f, s),
     objective: attackerTowns(f),
+    districts: f.map.districts ? f.map.districts.map((d) => districtOwner(f, d)) : null,
     score: scoreBreakdown(f).total,
     logFrom: f.log.length,
     pockets: f.pockets[s].length,
@@ -460,6 +468,7 @@ function showDayReport() {
       ${stat(`${signed(sc.total)}`, `score · ${signed(sc.total - d.score)} auj.`)}
     </div>
     <p class="f-outlook">Issue en vue : <b>${g.label.toLowerCase()}</b>${g.mine === true ? ' en votre faveur' : g.mine === false ? ' pour l\'ennemi' : ''}.</p>
+    ${districtNews(f, s, d)}
     ${events.length ? `<ul class="ticks">${events.slice(0, 4).map((e) => `<li>${escHtml(e.text)}</li>`).join('')}${events.length > 4 ? `<li>… ${events.length - 4} autres (journal)</li>` : ''}</ul>` : ''}
     ${objectivesHtml(f, s)}
     ${f.phase === 'over' ? '' : `<p class="muted small">Demain : ${w.label.toLowerCase()} · renforts ${fmtMen(reinf)}.</p>`}
@@ -471,6 +480,17 @@ function showDayReport() {
     sound.ui('select');
     afterBriefing(); // au matin du 7e jour : tirage des renforts, bataille des airs, déploiement
   }));
+}
+
+// Bilan du soir en métropole : quartiers pris et perdus aujourd'hui (au sens strict : possession à plus de 60 %).
+function districtNews(f, s, d) {
+  if (!f.map.districts || !d.districts) return '';
+  const now = f.map.districts.map((x) => districtOwner(f, x));
+  const won = f.map.districts.filter((x) => now[x.id] === s && d.districts[x.id] !== s);
+  const lost = f.map.districts.filter((x) => d.districts[x.id] === s && now[x.id] !== s);
+  if (!won.length && !lost.length) return '<p class="muted">Quartiers : aucun ne change de mains aujourd\'hui.</p>';
+  const list = (l, sign) => l.map((x) => `${escHtml(x.name)} (${sign}${x.value})`).join(', ');
+  return `<p>Quartiers${won.length ? ` pris : <b>${list(won, '+')}</b>` : ''}${won.length && lost.length ? ' ·' : ''}${lost.length ? ` perdus : <b>${list(lost, '−')}</b>` : ''}.</p>`;
 }
 
 function showFrontDebrief() {
@@ -1479,14 +1499,51 @@ function renderForces() {
       ${fstat('Réserves', fmtMen(men(f.reserve[s])))}
       ${fstat('Pertes', fmtMen(lost))}
       ${fstat('Terrain', `${Math.round(territory(f, s) * 100)} %`)}
-      ${fstat('Villes', townsHeld(f, s))}
+      ${fstat(f.map.districts ? 'Quartiers' : 'Villes', townsHeld(f, s))}
       ${fstat('Score', `≈ ${signed(scoreBreakdown(f).total)}`)}
     </dl>
     <p class="muted">Issue en vue : <b>${GRADES[scoreBreakdown(f).grade].label.toLowerCase()}</b> (score de l'offensive ${f.attacker === s ? 'que vous menez' : 'ennemie'}).</p>
+    ${districtPanel(f, s)}
     <h3 class="f-sub f-sub-art">Vos objectifs secondaires</h3>
     ${objectivesHtml(f, s)}
     <p class="muted small">${goalText(f)}</p>
     <p class="muted small">En face (estimation) : ${menRange(enemyEstimate(f), 0.8, 1.4)} repérés.</p>`;
+  byId('f-forces').querySelectorAll('[data-district]').forEach((b) => b.addEventListener('click', () => centerOnDistrict(Number(b.dataset.district))));
+}
+
+// Panneau des quartiers (métropole) : une ligne par quartier, ce que l'on en sait (vos cases, celles de l'ennemi),
+// sa possession, ses points et ce qu'il rapporte ; toucher le nom centre la carte sur lui.
+function districtPanel(f, s) {
+  if (!f.map.districts) return '';
+  const mem = f.memory[s], sc = scoreBreakdown(f);
+  const ownerOf = (i) => (f.owner[i] === s ? s : mem.owner[i]);
+  const rows = f.map.districts.map((d) => {
+    let mine = 0, theirs = 0;
+    for (const i of d.cells) { const o = ownerOf(i); if (o === s) mine++; else if (o === 1 - s) theirs++; }
+    const n = d.cells.length, hold = METRO_RULES.hold * n;
+    const owner = mine > hold ? s : theirs > hold ? 1 - s : null;
+    const fort = (f.map.strongholds ?? []).filter((x) => x.district === d.id).map((x) => x.name);
+    const notes = [owner === s ? 'à vous' : owner === 1 - s ? 'à l\'ennemi' : 'disputé'];
+    if ((d.type === 'quai' || d.type === 'usine') && owner === 1 - f.attacker) notes.push('bacs de nuit');
+    if (fort.length) notes.push(fort.join(', '));
+    return { d, mine: mine / n, theirs: theirs / n, owner, notes, contested: owner === null && mine > 0.15 * n && theirs > 0.15 * n };
+  });
+  rows.sort((a, b) => b.contested - a.contested || b.d.value - a.d.value || a.d.name.localeCompare(b.d.name));
+  const ink = (side) => (side === 0 ? 'de' : 'su');
+  return `<h3 class="f-sub f-sub-art">Quartiers · ${signed(sc.total)} point${Math.abs(Math.round(sc.total)) > 1 ? 's' : ''} gagné${Math.abs(Math.round(sc.total)) > 1 ? 's' : ''} par l'offensive</h3>
+    <ul class="f-districts">${rows.map((r) => `<li class="f-district${r.contested ? ' contested' : ''}">
+      <p><button class="linkish" data-district="${r.d.id}"><b>${escHtml(r.d.name)}</b></button> <span class="pips" title="${r.d.value} point${r.d.value > 1 ? 's' : ''}">${'●'.repeat(r.d.value)}</span> · <em>${escHtml(r.notes.join(' · '))}</em></p>
+      <div class="f-dbar" role="img" aria-label="Vous ${Math.round(r.mine * 100)} %, l'ennemi ${Math.round(r.theirs * 100)} %"><i class="${ink(s)}" style="width:${(r.mine * 100).toFixed(1)}%"></i><i class="${ink(1 - s)}" style="width:${(r.theirs * 100).toFixed(1)}%"></i></div>
+    </li>`).join('')}</ul>`;
+}
+
+// Centre la carte sur un quartier (panneau des quartiers).
+function centerOnDistrict(id) {
+  const d = fui.front.map.districts[id], r = fui.r, p = r.center(d.center);
+  r.cam.x = p.x - r.vw / r.cam.s / 2;
+  r.cam.y = p.y - r.vh / r.cam.s / 2;
+  r.clampCam();
+  drawFront();
 }
 
 // Le journal n'affiche pas le bilan chiffré du moteur (il révèle les pertes ennemies exactes).

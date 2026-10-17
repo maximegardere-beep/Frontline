@@ -77,3 +77,27 @@ test('bataille de rue : conversion (terrain, sections, rapport de force, feux) p
   runDay(f);
   assert.equal(f.frozen, null);
 });
+
+test('bataille de rue en métropole : tout le quartier visé, trame de son type ; gagnée, le quartier change de mains', async () => {
+  const { districtOwner } = await import('../src/frontmetro.js');
+  const { planFront } = await import('../src/frontai.js');
+  const f = createFront({ seed: 'metro-rue', playerSide: null, attacker: 'DE', biome: 'metropole', setup: { atouts: false, hq: false } });
+  planFront(f, 0);
+  planFront(f, 1);
+  const c = streetCandidates(f).find((x) => x.town.district != null);
+  assert.ok(c, 'un quartier disputé');
+  const d = f.map.districts[c.town.district];
+  assert.deepEqual([...c.cells].sort(), [...d.cells].sort(), 'tout le quartier');
+  const b = streetBattle(f, c);
+  assert.equal(b.map.name, d.name);
+  assert.ok(b.title.includes(d.name));
+  const att = f.attacker;
+  const st = createBattle({ seed: b.seed, playerSide: null, armies: b.armies, kind: 'ville', maxTurns: 2, map: b.map, attacker: b.attacker, fire: b.fire, conditions: b.conditions });
+  st.phase = 'plan';
+  executeTurn(st);
+  for (const bl of st.blocks) bl.owner = b.attacker;
+  st.result = { winner: b.attacker, reason: 'test' };
+  applyStreetBattle(f, b.link, st);
+  assert.equal(districtOwner(f, d), att, 'le quartier à l\'attaquant');
+  assert.ok(d.cells.every((i) => f.frozen[i]), 'figé pour la journée');
+});

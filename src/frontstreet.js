@@ -28,11 +28,19 @@ export const STREET = {
 };
 
 const side = (s) => FRONT_SIDES[s];
+// Rayon de défense autour du centre d'une ville : plus large pour une grande ville, et en métropole tout le quartier.
+const defReach = (front, t) => STREET.near + (t.district != null ? districtRadius(front, t) : t.city ? 2 : 0);
+function districtRadius(front, t) {
+  const d = front.map.districts[t.district];
+  return Math.min(4, Math.max(...d.cells.map((i) => Math.hypot(cx(front, i) - cx(front, t.i), cy(front, i) - cy(front, t.i)))));
+}
 const cx = (front, i) => front.centers.x[i];
 const cy = (front, i) => front.centers.y[i];
 
-// Cases de la ville t : les cases bâties dont c'est la ville la plus proche, à deux cases au plus de son centre.
+// Cases de la ville t : les cases bâties dont c'est la ville la plus proche, à deux cases au plus de son centre ; en
+// métropole, tout le quartier (t.district).
 export function townCellsOf(front, t) {
+  if (t.district != null) return front.map.districts[t.district].cells.slice();
   const out = [];
   for (const i of front.townCells) {
     const d = Math.hypot(cx(front, i) - cx(front, t.i), cy(front, i) - cy(front, t.i));
@@ -77,7 +85,7 @@ export function streetCandidates(front) {
     const attMen = menAround(front, att, tx, ty, STREET.reach, STREET.engaged).men;
     if (attMen < STREET.minMen) continue;
     const cells = townCellsOf(front, t);
-    const defMen = menAround(front, def, tx, ty, STREET.near + (t.city ? 2 : 0)).men;
+    const defMen = menAround(front, def, tx, ty, defReach(front, t)).men;
     out.push({ town: t, cells, attacker: att, defender: def, attMen, defMen, armor: armor.map((a) => a.id), score: attMen + defMen + armor.reduce((n, a) => n + a.tanks * 20, 0) });
   }
   return out.sort((a, b) => b.score - a.score);
@@ -98,7 +106,7 @@ export function streetBattle(front, cand) {
   const rng = createRng(`rue:${front.seed}:${front.day}:${t.i}`);
   const tx = cx(front, t.i), ty = cy(front, t.i);
   const A = menAround(front, att, tx, ty, STREET.reach, STREET.engaged);
-  const D = menAround(front, def, tx, ty, STREET.near + (t.city ? 2 : 0));
+  const D = menAround(front, def, tx, ty, defReach(front, t));
   const [na, nd] = sections(A.men, D.men);
   // Terrain : taille, rivière (côté du défenseur ou de l'attaquant), routes d'accès, ruines déjà là.
   const cells = cand.cells;
@@ -112,8 +120,10 @@ export function streetBattle(front, cand) {
     if (front.map.road[i] && d > R + 0.5) roads.add(Math.abs(dx) >= Math.abs(dy) ? (dx > 0 ? 'E' : 'W') : dy > 0 ? 'S' : 'N');
   }
   roads.add('W'); roads.add('E'); // la grand-rue traverse toujours
-  const size = t.city ? 'city' : cells.length <= 3 ? 'village' : 'town';
-  const map = generateUrbanMap(`${front.seed}:${t.i}`, { size, river: riverN >= 2 ? (riverDx > 0 ? 'east' : 'west') : null, roads: [...roads], name: t.name });
+  // Métropole : la trame du quartier (usines, gare, quais…) ; vieille ville et usines en grande ville.
+  const type = t.district != null ? front.map.districts[t.district].type : null;
+  const size = type ? (type === 'centre' || type === 'usine' ? 'city' : 'town') : t.city ? 'city' : cells.length <= 3 ? 'village' : 'town';
+  const map = generateUrbanMap(`${front.seed}:${t.i}`, { size, style: type, river: riverN >= 2 ? (riverDx > 0 ? 'east' : 'west') : null, roads: [...roads], name: t.name });
   const ruin = cells.reduce((a, i) => a + (front.ruin?.[i] ?? 0), 0) / cells.length;
   if (ruin > 0.05) {
     for (const tile of map.tiles) {
@@ -167,7 +177,7 @@ export function streetBattle(front, cand) {
   }
   const W8 = front.weather;
   const conditions = { weather: W8 === 'clear' || W8 === 'rain' || W8 === 'fog' || W8 === 'snow' ? W8 : 'clear', biome: null, month: 6, sunrise: 4, sunset: 20, startHour: 6 };
-  const title = `Bataille de ${t.name}`;
+  const title = type ? `Bataille de rue : ${t.name}` : `Bataille de ${t.name}`;
   const intro = `${side(att) === 'DE' ? 'La Wehrmacht' : 'L\'Armée rouge'} attaque ${t.name} : environ ${Math.round(A.men / 100) * 100} hommes contre ${Math.round(D.men / 100) * 100}. Le résultat décide du sort de la ville.`;
   const link = {
     townI: t.i, cells, attacker: att, defender: def, day: front.day,

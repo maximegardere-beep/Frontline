@@ -203,6 +203,16 @@ function urbanTile(ctx, t, { x, y }, C) {
     ctx.fillStyle = '#4f7a62';
     ctx.fill();
     ctx.stroke();
+  } else if (t.terrain === 'strong' && (t.label === 'château d\'eau' || t.label === 'kiosque')) {
+    // Métropole : château d'eau de la hauteur (cuve sur pied), kiosque du parc.
+    const big = t.label === 'kiosque' ? 0.7 : 1;
+    ctx.fillStyle = 'rgba(40, 30, 18, 0.3)';
+    ctx.beginPath(); ctx.arc(x + 3, y + 3, 13 * big, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ddd5c0';
+    ctx.strokeStyle = '#2d2414';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(x, y, 13 * big, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x, y, 6 * big, 0, Math.PI * 2); ctx.fillStyle = '#8f8a7a'; ctx.fill(); ctx.stroke();
   } else if (t.terrain === 'strong') {
     // Usine : halles à toits en dents de scie, cheminée.
     ctx.fillStyle = '#7b7d7a';

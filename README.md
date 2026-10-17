@@ -133,6 +133,29 @@ défenseur, est tiré de la graine et annoncé au briefing, avec l'objectif : le
 - **Victoire** au soir du 15e jour : l'attaquant gagne s'il tient assez de villes ★, sinon le défenseur a tenu.
   Un camp qui tombe sous 12 % de ses effectifs ou de son terrain, ou qui perd toutes les villes, a perdu sur-le-champ.
 
+### Métropole
+
+Un biome du front (environ une bataille sur dix) : une grande ville allongée le long d'un fleuve, côté défenseur, que
+l'attaquant aborde par ses faubourgs (il en tient le tiers extérieur au départ).
+
+- **Quartiers** : une vingtaine, chacun d'un type : vieille ville (●●●), usines, gare, hauteur, quais (●●), cités
+  ouvrières, faubourgs, parc (●). Chacun a sa défense et sa vitesse : les usines sont des citadelles, le parc est à
+  découvert. Un quartier appartient à qui tient plus de 60 % de ses cases ; entre les deux, il est disputé.
+- **Avenues** : rapides pour les chars, qui y gardent leur choc, mais à découvert ; bordées d'îlots tenus par l'ennemi,
+  elles leur coûtent 30 % de pertes en plus. Le front suit les rues.
+- **Le fleuve** : le défenseur se ravitaille aussi par les bacs de nuit qui accostent à ses quais (et aux berges des
+  usines) ; un quartier coupé des ponts et de ses quais devient une poche. Son artillerie tire de l'autre rive.
+- **Maisons-forteresses** : silo à grain, grand magasin, maison d'angle, château d'eau ; plus solides, elles fondent
+  six fois moins vite encerclées, gênent le ravitaillement de l'attaquant autour d'elles et accueillent le point
+  d'appui.
+- **Victoire aux points de quartiers gagnés** : chaque quartier pris rapporte ses points, chaque quartier de départ
+  perdu les retire, un objectif secondaire vaut 1 point. +2 : victoire de l'attaquant ; +5 : victoire décisive ; +1 :
+  indécis ; 0 : victoire défensive ; en dessous, victoire défensive décisive.
+- **Le panneau des quartiers** (onglet Forces) : une ligne par quartier, vos cases et celles de l'ennemi, sa
+  possession, ses points ; toucher son nom centre la carte. Le bilan du soir dit les quartiers pris et perdus.
+- **Batailles de rue** : elles portent sur tout le quartier visé, avec la trame de son type (halles des usines, voies
+  de la gare, château d'eau de la hauteur, kiosque du parc, entrepôt des quais, église de la vieille ville).
+
 ### Batailles de rue
 
 Quand on lance la journée, une ville que vise une poussée (la vôtre, ou celle de l'ennemi sur l'une des vôtres) peut
@@ -340,7 +363,7 @@ dernier mouvement observé : c'est la base pour anticiper et placer ses barrages
 | `src/hex.js` | Géométrie hexagonale (offset odd-r, distances, lignes, pixels) |
 | `src/terrain.js` | Coûts de mouvement, défense, ligne de vue |
 | `src/mapgen.js` | Génération procédurale : relief, forêts, marais, rivière, villages, fermes, routes |
-| `src/metrogen.js` | Biome métropole du front : ville le long du fleuve, quartiers, avenues, ponts, voie ferrée (en chantier, hors du tirage des biomes) |
+| `src/metrogen.js` | Biome métropole du front : ville le long du fleuve, quartiers, avenues, ponts, voie ferrée, maisons-forteresses |
 | `src/frontmetro.js` | Métropole en jeu : quartiers possédés, points gagnés, bacs de nuit, maisons-forteresses |
 | `src/frontcity.js` | Rendu de la métropole : îlots par quartier, avenues, front en escalier, noms de quartiers, repères |
 | `src/units.js` | Types d'unités, niveaux, armées aléatoires |

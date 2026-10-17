@@ -304,21 +304,23 @@ export function drawDistricts(r, viewer, now, CELL) {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   if ('letterSpacing' in ctx) ctx.letterSpacing = '1.2px';
+  // Taille : celle du monde de près, au moins 6,5 pixels à l'écran de loin (vue d'ensemble).
+  const k = Math.max(1, 6.5 / 8 / r.cam.s);
   for (const d of map.districts) {
     const p = centerOf(map.W, d.center, CELL);
     const o = own[d.id], flash = Math.max(0, 1 - (now - r.distFlash[d.id]) / 1600);
-    ctx.font = `600 ${d.type === 'centre' ? 9.5 : 8}px "IBM Plex Sans Condensed", "Arial Narrow", sans-serif`;
+    ctx.font = `600 ${(d.type === 'centre' ? 9.5 : 8) * k}px "IBM Plex Sans Condensed", "Arial Narrow", sans-serif`;
     const text = d.name.toUpperCase();
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 3 * k;
     ctx.strokeStyle = flash > 0 ? `rgba(255, 210, 63, ${0.5 + 0.5 * flash})` : 'rgba(244, 238, 220, 0.85)';
     ctx.strokeText(text, p.x, p.y);
     ctx.fillStyle = LABEL_INK[o === null ? 2 : o];
     ctx.fillText(text, p.x, p.y);
-    ctx.font = '7px "IBM Plex Sans Condensed", sans-serif';
-    ctx.lineWidth = 2.4;
+    ctx.font = `${7 * k}px "IBM Plex Sans Condensed", sans-serif`;
+    ctx.lineWidth = 2.4 * k;
     const pips = '●'.repeat(d.value);
-    ctx.strokeText(pips, p.x, p.y + 8);
-    ctx.fillText(pips, p.x, p.y + 8);
+    ctx.strokeText(pips, p.x, p.y + 8 * k);
+    ctx.fillText(pips, p.x, p.y + 8 * k);
   }
   ctx.restore();
 }

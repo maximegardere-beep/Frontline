@@ -1358,3 +1358,25 @@ Un nouveau biome du front stratégique où la ville n'est plus un point à prend
 - Limites : deux noms de quartiers voisins peuvent se chevaucher ; la lueur du soir reste légère quand peu de
   quartiers brûlent.
 
+### Étape 6 faite : interface, batailles de rue, tirage
+
+- Le biome entre dans le tirage du front (poids 10, à côté de steppe 22, bocage 16, fleuve 14…).
+- Consignes (`goalText`) propres à la métropole, pour l'attaquant et le défenseur ; briefing : objectifs secondaires à
+  1 point, renforts selon les quartiers ; règles : une entrée « Métropole ».
+- Panneau des quartiers (onglet Forces, `districtPanel`) : une ligne par quartier (les disputés d'abord, puis par
+  points), barre de vos cases et de celles de l'ennemi (ce que l'on en sait), possession, pastilles de points, notes
+  (bacs de nuit pour les quais et usines du défenseur, maisons-forteresses) ; toucher le nom centre la carte.
+  « Villes » devient « Quartiers » dans les chiffres.
+- Bilan du soir (`districtNews`) : quartiers pris et perdus dans la journée, avec leurs points.
+- Noms de quartiers sur la carte : au moins 6,5 pixels à l'écran en vue d'ensemble.
+- Batailles de rue (`frontstreet.js`) : en métropole, la bataille porte sur tout le quartier visé (`townCellsOf`), ses
+  défenseurs jusqu'à 4 unités de son centre ; grande ville pour la vieille ville et les usines, ville sinon ; titre
+  « Bataille de rue : <quartier> ». Trame tactique par type (`urbangen.js`, `URBAN_STYLES`) : part de pierre, îlot fort
+  au carrefour (église, usine, gare, château d'eau, kiosque, entrepôt ; il compte double, sauf l'usine), halles
+  d'usine sur 60 % du bâti, voies de la gare (deux rues de plus d'un bord à l'autre), parc en jardins et bosquets,
+  hauteur en relief (niveaux 2 et 3). Rendu tactique : cuve ronde du château d'eau et du kiosque. Sans style, la ville
+  tactique ne change pas.
+- Vérifié dans le jeu (graine « m4 », Wehrmacht) : briefing, tirage, déploiement, panneau des quartiers, compteur
+  « ★ 0/16 pris ». La fenêtre de bataille de rue n'a pas été déclenchée à la main dans le navigateur : la conversion
+  et le retour sont couverts par un test.
+

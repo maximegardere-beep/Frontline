@@ -23,10 +23,25 @@ export const URBAN_SIZES = {
 
 const DIRS = { 'nord-ouest': [-1, -1], nord: [0, -1], 'nord-est': [1, -1], ouest: [-1, 0], centre: [0, 0], est: [1, 0], 'sud-ouest': [-1, 1], sud: [0, 1], 'sud-est': [1, 1] };
 
+// Quartiers de métropole (metrogen.js) : leur trame tactique. core : part centrale en pierre ; landmark : l'îlot fort
+// au carrefour (à la place de l'église) ; halls : part du bâti en halles d'usine ; park : part en jardins et bosquets ;
+// tracks : rues parallèles en plus (voies de la gare) ; hill : relief (château d'eau au sommet).
+export const URBAN_STYLES = {
+  centre: { core: 0.75, landmark: 'église' },
+  usine: { core: 0.3, landmark: 'usine', halls: 0.6 },
+  ouvrier: { core: 0.15, landmark: 'église' },
+  gare: { core: 0.4, landmark: 'gare', tracks: [-2, 2] },
+  hauteur: { core: 0.35, landmark: 'château d\'eau', hill: true },
+  parc: { core: 0.1, landmark: 'kiosque', park: 0.75 },
+  quai: { core: 0.5, landmark: 'entrepôt' },
+};
+const LANDMARK_BLOCK = { église: 'l\'église', usine: 'l\'usine', gare: 'la gare', 'château d\'eau': 'le château d\'eau', kiosque: 'le kiosque', entrepôt: 'l\'entrepôt' };
+
 // opts : size ('village' | 'town' | 'city'), river (null | 'east' | 'west'), roads (entrées : 'W', 'E', 'N', 'S'),
-// name, width, height.
+// name, width, height ; style (quartier de métropole, URBAN_STYLES).
 export function generateUrbanMap(seed, opts = {}) {
-  const size = URBAN_SIZES[opts.size] ?? URBAN_SIZES.town;
+  const style = URBAN_STYLES[opts.style] ?? null;
+  const size = { ...(URBAN_SIZES[opts.size] ?? URBAN_SIZES.town), ...(style ? { core: style.core } : {}) };
   const W = opts.width ?? Math.max(24, size.hw * 2 + 12);
   const H = opts.height ?? Math.max(15, size.hh * 2 + 7);
   const rng = createRng(`urban:${seed}`);
@@ -60,6 +75,7 @@ export function generateUrbanMap(seed, opts = {}) {
     street(span(out && roads.has('N') ? 0 : r0, out && roads.has('S') ? H - 1 : r1, (r) => ({ col: cx + dc, row: r })));
   }
   for (const dr of size.rows) street(span(c0, c1, (c) => ({ col: c, row: cy + dr })));
+  for (const dr of style?.tracks ?? []) street(span(0, W - 1, (c) => ({ col: c, row: cy + dr }))); // voies de la gare
 
   // Place du carrefour principal : les hexagones voisins deviennent un espace ouvert pavé.
   const plaza = neighborCoords(cx, cy).map((h) => at(h.col, h.row)).filter((t) => t && t.terrain !== 'street');
@@ -71,11 +87,16 @@ export function generateUrbanMap(seed, opts = {}) {
     const d = Math.max(Math.abs(t.col - cx) / size.hw, Math.abs(t.row - cy) / size.hh);
     if (d <= size.core) t.terrain = 'building';
     else t.terrain = rng.chance(0.72) ? 'isba' : 'garden';
+    // Quartier de métropole : halles d'usine, parc.
+    if (style?.halls && rng.chance(style.halls)) { t.terrain = 'strong'; t.label = 'usine'; }
+    else if (style?.park && rng.chance(style.park)) t.terrain = rng.chance(0.6) ? 'garden' : 'forest';
+    if (style?.hill) t.elev = d <= 0.4 ? 3 : 2;
   }
   // Église : sur la place, côté nord-est.
-  const church = [at(cx + 1, cy - 1), at(cx, cy - 1), at(cx + 1, cy + 1)].find((t) => t && t.terrain !== 'street') ?? plaza.find(Boolean);
+  const church = [at(cx + 1, cy - 1), at(cx, cy - 1), at(cx + 1, cy + 1)].find((t) => t && t.terrain !== 'street') ?? plaza.find(Boolean)
+    ?? map.tiles.find((t) => inTown(t) && t.terrain !== 'street' && !t.river);
   church.terrain = 'strong';
-  church.label = 'église';
+  church.label = style?.landmark ?? 'église';
   map.objective = { col: church.col, row: church.row };
   // Usine (grande ville) : un îlot entier en périphérie, côté défenseur probable (est).
   if (size.factory) {
@@ -121,9 +142,10 @@ export function generateUrbanMap(seed, opts = {}) {
     }
     if (tiles.length < 2 && !tiles.some((i) => map.tiles[i].terrain === 'strong')) continue;
     const mc = tiles.reduce((a, i) => a + map.tiles[i].col, 0) / tiles.length, mr = tiles.reduce((a, i) => a + map.tiles[i].row, 0) / tiles.length;
-    const label = tiles.some((i) => map.tiles[i].label === 'église') ? 'l\'église' : tiles.some((i) => map.tiles[i].label === 'usine') ? 'l\'usine' : `îlot ${blockDir(mc - cx, mr - cy, size)}`;
+    const mark = tiles.map((i) => map.tiles[i].label).find((l) => l && l !== 'usine') ?? (tiles.some((i) => map.tiles[i].label === 'usine') ? 'usine' : null);
+    const label = mark ? LANDMARK_BLOCK[mark] : `îlot ${blockDir(mc - cx, mr - cy, size)}`;
     const stone = tiles.filter((i) => map.tiles[i].terrain !== 'isba' && map.tiles[i].terrain !== 'garden').length;
-    map.blocks.push({ id: map.blocks.length, tiles, label, col: Math.round(mc), row: Math.round(mr), weight: label === 'l\'église' ? 2 : stone > tiles.length / 2 ? 1.5 : 1 });
+    map.blocks.push({ id: map.blocks.length, tiles, label, col: Math.round(mc), row: Math.round(mr), weight: mark && mark !== 'usine' ? 2 : stone > tiles.length / 2 ? 1.5 : 1 });
   }
   for (const b of map.bridges ?? []) map.blocks.push({ id: map.blocks.length, tiles: [b.row * W + b.col], label: 'le pont', col: b.col, row: b.row, weight: 1, bridge: true });
   // Plusieurs îlots dans la même direction : numérotés.
