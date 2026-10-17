@@ -324,7 +324,7 @@ export function planFront(front, s) {
       const want = { x: h.x - dirX * R * 0.45, y: h.y };
       let best = null, bd = Infinity;
       for (let i = 0; i < front.map.N; i++) {
-        if (front.owner[i] !== s || front.map.flow[i] <= 0 || !gunSiteOk(front, s, i)) continue;
+        if (front.owner[i] !== s || front.map.flow[i] <= 0 || !gunSiteOk(front, s, i, R)) continue;
         const d = Math.hypot(front.centers.x[i] - want.x, front.centers.y[i] - want.y);
         if (d < bd) { bd = d; best = point(front, i); }
       }
@@ -607,7 +607,7 @@ function planGuns(front, s) {
     // Point d'arrivée : la case amie la plus proche du point voulu (métropole : rive gauche pour le défenseur).
     let best = null, bd = Infinity;
     for (let i = 0; i < map.N; i++) {
-      if (front.owner[i] !== s || map.flow[i] <= 0 || !gunSiteOk(front, s, i)) continue;
+      if (front.owner[i] !== s || map.flow[i] <= 0 || !gunSiteOk(front, s, i, R)) continue;
       const d = Math.hypot(centers.x[i] - want.x, centers.y[i] - want.y);
       if (d < bd) { bd = d; best = { x: centers.x[i], y: centers.y[i] }; }
     }

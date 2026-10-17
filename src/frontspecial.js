@@ -15,9 +15,9 @@ export const SPECIAL = {
   strong: { r: 2.6 }, // rayon d'un point d'appui autour de sa ville
 };
 
-let nextId = 500000;
+let nextSpecialId = 500000;
 
-function cellAt(front, p) {
+function specialCellAt(front, p) {
   const h = pixelToHex(p.x, p.y, 1), { W, H } = front.map;
   return h.col < 0 || h.row < 0 || h.col >= W || h.row >= H ? -1 : h.row * W + h.col;
 }
@@ -46,7 +46,7 @@ export function addSpecial(front, specs, defer = [false, false]) {
     const sp = specs[s];
     if (!sp) continue;
     if (sp.salvos?.n) { front.rockets[s].left += sp.salvos.n; front.rockets[s].r = Math.max(front.rockets[s].r, sp.salvos.r); }
-    for (const dens of sp.paras ?? []) front.paras[s].push({ id: nextId++, dens, used: null });
+    for (const dens of sp.paras ?? []) front.paras[s].push({ id: nextSpecialId++, dens, used: null });
     for (const st of sp.strong ?? []) placeStrongpoint(front, s, st);
     if (!defer[s]) buildStrongpoints(front, s);
   }
@@ -59,7 +59,7 @@ export function addSalvo(front, s, at) {
   initSpecial(front);
   if (front.rockets[s].left - front.salvos[s].length <= 0) return { error: 'Plus de salve de lance-roquettes.' };
   if (distToOwn(front, s, at) > SPECIAL.salvo.reach) return { error: 'Trop loin de vos lignes pour les lance-roquettes.' };
-  const o = { id: nextId++, side: s, x: at.x, y: at.y, r: front.rockets[s].r };
+  const o = { id: nextSpecialId++, side: s, x: at.x, y: at.y, r: front.rockets[s].r };
   front.salvos[s].push(o);
   return o;
 }
@@ -98,10 +98,10 @@ export function addDrop(front, s, at) {
   initSpecial(front);
   const para = front.paras[s].find((p) => !p.used);
   if (!para) return { error: 'Plus de parachutistes disponibles.' };
-  const i = cellAt(front, at);
+  const i = specialCellAt(front, at);
   if (i < 0 || front.owner[i] !== 1 - s) return { error: 'Le largage se fait derrière les lignes ennemies.' };
   if (distToOwn(front, s, at) > SPECIAL.drop.reach) return { error: `Trop loin de vos lignes (${Math.round(SPECIAL.drop.reach / 1.73)} cases au plus).` };
-  const o = { id: nextId++, side: s, x: front.centers.x[i], y: front.centers.y[i], i, para: para.id, dens: para.dens };
+  const o = { id: nextSpecialId++, side: s, x: front.centers.x[i], y: front.centers.y[i], i, para: para.id, dens: para.dens };
   para.used = o.id;
   front.drops[s].push(o);
   return o;
@@ -165,7 +165,7 @@ function placeStrongpoint(front, s, st) {
     if (d + star < bd) { bd = d + star; best = t.i; }
   }
   if (best < 0) return;
-  const p = { id: nextId++, i: -1, name: '', mul: st.mul, level: st.level, garrison: st.garrison ?? 0, cells: [], built: false };
+  const p = { id: nextSpecialId++, i: -1, name: '', mul: st.mul, level: st.level, garrison: st.garrison ?? 0, cells: [], built: false };
   front.strong[s].push(p);
   setStrongTown(front, s, p, best);
 }

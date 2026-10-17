@@ -24,14 +24,14 @@ export const SUPPORT = {
 
 export const SUPPORT_LEVELS = ['', 'tranchées', 'barbelés', 'obstacles antichar'];
 
-const ORDINAL = (n) => `${n}${n === 1 ? 'er' : 'e'}`;
+const SUPPORT_ORDINAL = (n) => `${n}${n === 1 ? 'er' : 'e'}`;
 
-function cellAt(front, x, y) {
+function supportCellAt(front, x, y) {
   const h = pixelToHex(x, y, 1), { W, H } = front.map;
   return h.col < 0 || h.row < 0 || h.col >= W || h.row >= H ? -1 : h.row * W + h.col;
 }
 
-function contactCells(front, s) {
+function supportContact(front, s) {
   const out = [];
   for (let i = 0; i < front.map.N; i++) {
     if (front.owner[i] !== s) continue;
@@ -48,7 +48,7 @@ export function createSupport(front, specs, first = 1) {
   let id = first;
   for (const s of [0, 1]) {
     const list = specs[s] ?? [];
-    const contact = contactCells(front, s);
+    const contact = supportContact(front, s);
     list.forEach((spec, k) => {
       const row = Math.round(((k + 0.5) / list.length) * H);
       const y = cy[Math.min(H - 1, row) * W];
@@ -65,7 +65,7 @@ export function createSupport(front, specs, first = 1) {
       if (best < 0) return;
       const kind = spec.kind ?? 'support';
       const n = (front.support?.filter((b) => b.side === s && b.kind === kind).length ?? 0) + out.filter((b) => b.side === s && b.kind === kind).length + 1;
-      const name = kind === 'sapper' ? (s === 0 ? `Sturm-Pi.Btl. ${600 + n * 27}` : `${ORDINAL(n)} bataillon de sapeurs d'assaut`) : s === 0 ? `Bau-Btl. ${100 + n * 17}` : `${ORDINAL(n)} bataillon du génie`;
+      const name = kind === 'sapper' ? (s === 0 ? `Sturm-Pi.Btl. ${600 + n * 27}` : `${SUPPORT_ORDINAL(n)} bataillon de sapeurs d'assaut`) : s === 0 ? `Bau-Btl. ${100 + n * 17}` : `${SUPPORT_ORDINAL(n)} bataillon du génie`;
       out.push({
         id: id++, side: s, kind, name, r: spec.r ?? 0, rate: spec.rate ?? 0,
         max: spec.max ?? 2, level: 1, cell: best, x: cx[best], y: cy[best], dest: null, lost: false, seen: [null, null], cells: [], core: new Set(),
@@ -85,7 +85,7 @@ export function supportZone(front, b, dist = null) {
     for (let i = 0; i < front.map.N; i++) if (front.owner[i] === 1 - s && Math.hypot(cx[i] - b.x, cy[i] - b.y) <= b.r) cells.push(i);
     return { cells, core: new Set() };
   }
-  dist ??= bfsDistance(front.map.nb, front.map.N, contactCells(front, s), (i) => front.owner[i] === s, SUPPORT.depth);
+  dist ??= bfsDistance(front.map.nb, front.map.N, supportContact(front, s), (i) => front.owner[i] === s, SUPPORT.depth);
   const cells = [], core = new Set();
   const dir = s === 0 ? 1 : -1;
   for (let i = 0; i < front.map.N; i++) {
@@ -104,7 +104,7 @@ export function refreshZones(front) {
   for (const s of [0, 1]) {
     const own = front.support.filter((b) => b.side === s && !b.lost);
     if (!own.length) continue;
-    const dist = bfsDistance(front.map.nb, front.map.N, contactCells(front, s), (i) => front.owner[i] === s, SUPPORT.depth);
+    const dist = bfsDistance(front.map.nb, front.map.N, supportContact(front, s), (i) => front.owner[i] === s, SUPPORT.depth);
     for (const b of own) Object.assign(b, supportZone(front, b, dist));
   }
 }
@@ -175,7 +175,7 @@ export function moveSupport(front, s, id, p) {
   const b = front.support?.find((x) => x.id === id && x.side === s && !x.lost);
   if (!b) return { error: 'Bataillon introuvable.' };
   if (!p) { b.dest = null; return b; }
-  const i = cellAt(front, p.x, p.y);
+  const i = supportCellAt(front, p.x, p.y);
   if (i < 0 || front.owner[i] !== s || front.map.flow[i] <= 0) return { error: 'Le bataillon s\'installe dans vos lignes.' };
   if (i === b.cell) { b.dest = null; return b; }
   const d = Math.hypot(front.centers.x[i] - b.x, front.centers.y[i] - b.y);

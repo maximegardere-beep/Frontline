@@ -7,6 +7,7 @@
 // Distances en unités de grille (deux cases voisines sont à 1,73).
 
 import { pixelToHex } from './hex.js';
+import { LONG_RANGE } from './frontmetro.js';
 
 export const GUN_KINDS = {
   div: { label: 'Artillerie divisionnaire', short: 'Art.', range: 18, r: 3, rate: 0.04, works: 0.12, speed: 0.6 },
@@ -22,7 +23,8 @@ export const GUN_KINDS = {
   atHeavy: { label: 'Canons antichar lourds', short: 'Antichar lourd', range: 10, r: 0, rate: 0, works: 0, speed: 0.4, back: 4.5, at: { kill: 9, shock: 0.5 } },
 };
 
-// Métropole : distance des batteries du défenseur à la rive éloignée du fleuve (unités de grille).
+// Métropole : distance des batteries du défenseur à la rive éloignée du fleuve (unités de grille) ; seules les pièces
+// à longue portée (LONG_RANGE) y vont, mortiers et lance-roquettes restent en ville.
 export const METRO_GUNS = { bank: 3 };
 
 // Cône de tir des canons antichar (demi-angle) ; les chars lourds encaissent mieux.
@@ -112,7 +114,7 @@ export function createGuns(front, kinds) {
       let row = Math.round(((k + 0.5) / list.length) * H);
       while (Number.isNaN(frontX[row]) && row < H - 1) row++;
       const want = { x: frontX[row] - (s === 0 ? 1 : -1) * (K.back ?? Math.max(7, K.range * 0.5)), y: cy[row * W] };
-      if (!K.at && !Number.isNaN(farBank[row])) want.x = farBank[row] - (s === 0 ? 1 : -1) * METRO_GUNS.bank;
+      if (!K.at && K.range >= LONG_RANGE && !Number.isNaN(farBank[row])) want.x = farBank[row] - (s === 0 ? 1 : -1) * METRO_GUNS.bank;
       // Case amie la plus proche du point voulu, hors montagne.
       let best = -1, bd = Infinity;
       for (let i = 0; i < N; i++) {

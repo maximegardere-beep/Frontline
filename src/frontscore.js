@@ -187,12 +187,21 @@ export function objectiveState(front, o) {
 
 // Prises de villes dans les temps (appelé à chaque prise).
 export function noteCapture(front, i, side) {
+  if (isMetro(front)) return; // métropole : au soir, à la possession du quartier (eveningScore)
   for (const o of front.objectives ?? []) if (o.kind === 'takeTownBy' && o.i === i && o.side === side && !o.reached && front.day <= o.by) o.reached = front.day;
 }
 
 // Soir : points de contrôle des villes ★.
 export function eveningScore(front) {
-  if (isMetro(front)) return; // métropole : seuls comptent les quartiers tenus au dernier soir
+  if (isMetro(front)) {
+    // Métropole : pas de points du soir ; « prendre avant le jour n » se lit à la possession du quartier.
+    for (const o of front.objectives ?? []) {
+      if (o.kind !== 'takeTownBy' || o.reached || front.day > o.by) continue;
+      const d = front.map.districts[front.map.district[o.i]];
+      if (d && districtOwner(front, d) === o.side) o.reached = front.day;
+    }
+    return;
+  }
   for (const t of front.map.towns) {
     if (!front.defTowns.includes(t.i)) continue;
     if (front.owner[t.i] === front.attacker) front.score.daily += SCORE.townDay * scoreTownValue(t);
@@ -247,7 +256,9 @@ function metroBreakdown(front, final) {
     rows.push({ key: `obj${o.id}`, label: `${o.side === att ? 'Attaquant' : 'Défenseur'} : ${o.label}`, pts: ok ? sign * METRO_RULES.objective : 0, objective: o, state: st, ok });
   }
   const total = rows.reduce((a, r) => a + r.pts, 0);
-  return { rows, total, max: districtTotal(front), grade: metroGrade(total) };
+  // À prendre : les points des quartiers que l'attaquant ne possédait pas au départ.
+  const open = front.map.districts.reduce((a, d) => a + (front.metroStart[d.id] === att ? 0 : d.value), 0);
+  return { rows, total, max: districtTotal(front), open, grade: metroGrade(total) };
 }
 
 export function initScore(front) {

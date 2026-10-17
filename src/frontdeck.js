@@ -3,7 +3,7 @@
 
 import { ATOUTS, RARITY_LABEL, ATOUT_RULES, cardText } from './frontatout.js';
 
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const escDeck = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 // Petite icône de carte, selon son genre.
 const ICON = {
@@ -26,8 +26,8 @@ export function cardHtml(front, s, card, on) {
   const A = ATOUTS[card.key];
   return `<button class="card card-${card.rarity}" data-card="${card.id}" aria-pressed="${on}">
     <span class="card-top"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="${ICON[card.key] ?? ICON.divArt}" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="card-rarity">${RARITY_LABEL[card.rarity]}</span></span>
-    <span class="card-name">${esc(A.label)}</span>
-    <span class="card-text">${esc(cardText(front, s, card))}</span>
+    <span class="card-name">${escDeck(A.label)}</span>
+    <span class="card-text">${escDeck(cardText(front, s, card))}</span>
   </button>`;
 }
 

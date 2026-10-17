@@ -162,7 +162,7 @@ function goalText(f) {
     const R = METRO_RULES;
     return att
       ? `Bataille de rue aux points de quartiers. Un quartier est à vous quand vous tenez plus de ${Math.round(R.hold * 100)} % de ses cases : chaque quartier pris rapporte ses points (●), chaque quartier de départ perdu les retire, un objectif secondaire vaut 1 point. +${R.attWin} : victoire ; +${R.attDecisive} : victoire décisive. Prenez les quais pour couper les bacs de nuit qui ravitaillent l'ennemi, et lancez vos chars sur les avenues, pas à travers les îlots.`
-      : `Bataille de rue aux points de quartiers. Chaque quartier que l'ennemi vous prend (plus de ${Math.round(R.hold * 100)} % de ses cases) lui rapporte ses points (●) ; s'il en gagne moins de ${R.attWin}, vous avez tenu. Gardez vos quais : les bacs de nuit qui y accostent ravitaillent la ville. Votre artillerie tire de l'autre rive ; les maisons-forteresses tiennent longtemps, même encerclées.`;
+      : `Bataille de rue aux points de quartiers. Chaque quartier que l'ennemi vous prend (plus de ${Math.round(R.hold * 100)} % de ses cases) lui rapporte ses points (●), chaque quartier que vous lui reprenez les lui retire. S'il ne gagne rien, vous avez tenu ; +${R.draw} : indécis ; +${R.attWin} : il l'emporte. Gardez vos quais : les bacs de nuit qui y accostent ravitaillent la ville. Votre artillerie lourde tire de l'autre rive ; les maisons-forteresses tiennent longtemps, même encerclées.`;
   }
   return att
     ? `Bataille aux points. Prenez les villes ★ tôt et tenez-les : chaque soir où vous les tenez rapporte, et davantage au dernier soir. Terrain gagné, pertes infligées, troupes prises dans des poches et objectifs secondaires comptent aussi. Environ deux villes ★ tenues font une victoire, trois une victoire décisive.`
@@ -244,11 +244,11 @@ function atoutsHtml(f, s) {
   return `<h2>Vos atouts</h2>
     <ul class="atouts">${f.atouts.kept[s].map((c) => `<li><b>${escHtml(ATOUTS[c.key].label)}</b> <span class="muted">${RARITY_LABEL[c.rarity].toLowerCase()}</span> : ${escHtml(cardText(f, s, c))}</li>`).join('')}</ul>
     <p class="muted small">Tirés au sort selon votre rôle et l'année, déjà en place. Nouveau tirage au matin du ${ATOUT_RULES.day}e jour.</p>
-    ${airWarHtml(f, s)}`;
+    ${airWarSummary(f, s)}`;
 }
 
 // Bataille des airs : issue et manches (touches de chaque camp, le joueur d'abord).
-function airWarHtml(f, s) {
+function airWarSummary(f, s) {
   const w = f.airWar;
   if (!w) return '';
   if (f.atouts?.airPending) return '';
@@ -413,7 +413,7 @@ export function frontRules() {
         <li><b>Défense élastique.</b> Sans ordre, les troupes colmatent d'elles-mêmes les secteurs menacés.</li>
         <li><b>Encerclement.</b> Des troupes coupées de leur bord de carte forment une poche, qui fond d'environ 30 % par jour. Chaque matin, choisissez pour les vôtres : statu quo, Festung (se resserrer, tenir et fondre moins vite) ou percée d'évasion vers un point que vous touchez.</li>
         <li><b>Brouillard.</b> Vous voyez à quelques cases de vos troupes (moins par brouillard). Touchez la carte : vos forces sont comptées, celles de l'ennemi estimées en fourchette.</li>
-        <li><b>Métropole.</b> Une grande ville le long d'un fleuve, côté défenseur, découpée en quartiers (vieille ville, usines, cités ouvrières et faubourgs, gare, hauteur, parc, quais). Chaque type a sa défense et sa vitesse ; les avenues sont rapides pour les chars mais à découvert : bordées d'îlots ennemis, elles leur coûtent plus cher. Le défenseur se ravitaille aussi par les bacs de nuit qui accostent à ses quais, son artillerie tire de l'autre rive, et quatre maisons-forteresses tiennent longtemps même encerclées. La victoire se compte aux points de quartiers gagnés par l'attaquant (onglet Forces).</li>
+        <li><b>Métropole.</b> Une grande ville le long d'un fleuve, côté défenseur, découpée en quartiers (vieille ville, usines, cités ouvrières et faubourgs, gare, hauteur, parc, quais). Chaque type a sa défense et sa vitesse ; les avenues sont rapides pour les chars mais à découvert : bordées d'îlots ennemis, elles leur coûtent plus cher. Le défenseur se ravitaille aussi par les bacs de nuit qui accostent à ses quais, son artillerie lourde tire de l'autre rive (mortiers et lance-roquettes restent en ville), et quatre maisons-forteresses tiennent longtemps même encerclées. L'attaquant a deux barrages de plus. La victoire se compte aux points de quartiers gagnés par l'attaquant (onglet Forces).</li>
         <li><b>Victoire aux points.</b> Le score de l'offensive additionne les villes ★ tenues par l'attaquant (chaque soir, et davantage au dernier), le terrain gagné, le rapport des pertes, les troupes perdues dans les poches, l'exploitation jusqu'au bord de la carte et les objectifs secondaires des deux camps. Au soir du ${c.days}<sup>e</sup> jour, l'issue va de la victoire décisive de l'attaquant (≥ ${SCORE.attDecisive}) à la victoire défensive décisive (&lt; ${SCORE.defWin}), en passant par une issue indécise. Un camp qui tombe sous 12 % de ses effectifs ou de son terrain a perdu sur-le-champ ; l'attaquant qui prend toutes les villes gagne aussitôt.</li>
       </ol>
     </details>`;
@@ -1010,7 +1010,7 @@ function showStreetPrompt(k) {
       <button class="btn btn-primary" id="f-street-go">Commander la bataille</button>
       <button class="btn" id="f-street-auto">Résolution auto</button>
     </div>
-    <p class="sp-foot">Le résultat décide du sort de la ville. Une bataille commandée par jour.</p>`;
+    <p class="sp-foot">Le résultat décide du sort ${f.map.districts ? 'du quartier' : 'de la ville'}. Une bataille commandée par jour.</p>`;
   el.hidden = false;
   const ring = byId('f-street-ring');
   const sx = (x * CELL - cam.x) * cam.s, sy = (y * CELL - cam.y) * cam.s;

@@ -8,6 +8,7 @@
 
 import { hexToPixel, pixelToHex, SQRT3 } from './hex.js';
 import { createRng } from './rng.js';
+import { METRO_RULES } from './frontmetro.js';
 
 // tint : teinte du quartier sous ses îlots ; ground : la même, opaque (sol d'un îlot effondré) ; fill, edge : îlots ;
 // bw × bh : îlot, sx × sy : trame (pixels monde).
@@ -99,8 +100,8 @@ export function buildCity(r, ctx, CELL) {
     ctx.lineWidth = w;
     for (const run of runs) line(ctx, pts(run));
   }
-  map.avenues.forEach((path, n) => {
-    if (n === map.avenues.length - 1) return; // la route des quais n'a pas d'arbres
+  map.avenues.forEach((path) => {
+    if (path === map.quayRoad) return; // la route des quais n'a pas d'arbres
     const P = pts(path);
     ctx.fillStyle = 'rgba(78, 104, 56, 0.75)';
     for (let k = 1; k < P.length; k++) {
@@ -288,7 +289,7 @@ export function districtOwners(r, viewer) {
       const o = viewer === null || f.owner[i] === viewer ? f.owner[i] : mem.owner[i];
       if (o === 0) a++; else if (o === 1) b++;
     }
-    const need = d.cells.length * 0.6;
+    const need = d.cells.length * METRO_RULES.hold;
     return a > need ? 0 : b > need ? 1 : null;
   });
 }

@@ -4,7 +4,7 @@
 // front : îlots tenus → cases de la ville, pertes → densités, chars perdus, barrages dépensés. La ville est ensuite
 // figée pour la journée (front.frozen).
 
-import { FRONT_SIDES } from './front.js';
+import { FRONT_SIDES, segDist } from './front.js';
 import { GUN_KINDS, artilleryCover } from './frontguns.js';
 import { generateUrbanMap } from './urbangen.js';
 import { makeUnit, unitStats } from './units.js';
@@ -38,9 +38,12 @@ const cx = (front, i) => front.centers.x[i];
 const cy = (front, i) => front.centers.y[i];
 
 // Cases de la ville t : les cases bâties dont c'est la ville la plus proche, à deux cases au plus de son centre ; en
-// métropole, tout le quartier (t.district).
+// métropole, les cases du quartier (t.district) à portée des défenseurs qui livrent la bataille (defReach).
 export function townCellsOf(front, t) {
-  if (t.district != null) return front.map.districts[t.district].cells.slice();
+  if (t.district != null) {
+    const r = defReach(front, t);
+    return front.map.districts[t.district].cells.filter((i) => Math.hypot(cx(front, i) - cx(front, t.i), cy(front, i) - cy(front, t.i)) <= r);
+  }
   const out = [];
   for (const i of front.townCells) {
     const d = Math.hypot(cx(front, i) - cx(front, t.i), cy(front, i) - cy(front, t.i));
@@ -49,12 +52,6 @@ export function townCellsOf(front, t) {
     if (nearest === t) out.push(i);
   }
   return out.length ? out : [t.i];
-}
-
-function segDist(a, b, x, y) {
-  const vx = b.x - a.x, vy = b.y - a.y, L2 = vx * vx + vy * vy || 1;
-  const t = Math.max(0, Math.min(1, ((x - a.x) * vx + (y - a.y) * vy) / L2));
-  return Math.hypot(a.x + vx * t - x, a.y + vy * t - y);
 }
 
 // Hommes d'un camp autour d'un point (unités de densité × cfg.men), et les cases qui les portent.
@@ -178,7 +175,7 @@ export function streetBattle(front, cand) {
   const W8 = front.weather;
   const conditions = { weather: W8 === 'clear' || W8 === 'rain' || W8 === 'fog' || W8 === 'snow' ? W8 : 'clear', biome: null, month: 6, sunrise: 4, sunset: 20, startHour: 6 };
   const title = type ? `Bataille de rue : ${t.name}` : `Bataille de ${t.name}`;
-  const intro = `${side(att) === 'DE' ? 'La Wehrmacht' : 'L\'Armée rouge'} attaque ${t.name} : environ ${Math.round(A.men / 100) * 100} hommes contre ${Math.round(D.men / 100) * 100}. Le résultat décide du sort de la ville.`;
+  const intro = `${side(att) === 'DE' ? 'La Wehrmacht' : 'L\'Armée rouge'} attaque ${t.name} : environ ${Math.round(A.men / 100) * 100} hommes contre ${Math.round(D.men / 100) * 100}. Le résultat décide du sort ${type ? 'du quartier' : 'de la ville'}.`;
   const link = {
     townI: t.i, cells, attacker: att, defender: def, day: front.day,
     men: { [att]: A.men, [def]: D.men }, from: { [att]: A.cells, [def]: D.cells },

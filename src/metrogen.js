@@ -189,6 +189,7 @@ export function buildMetropole(map, { rng, hs, B, defender = 1, cheapestPath, ma
     for (const i of path) { map.road[i] = 1; map.avenue[i] = 1; }
     map.roads.push(path);
     map.avenues.push(path);
+    if (uB < METRO.quayDepth + 1) map.quayRoad = path; // route des quais (sans arbres, frontcity.js)
   }
   // Ponts : les trois avenues les plus proches du centre franchissent le fleuve, puis filent au bord du défenseur.
   const farCol = dir > 0 ? W - 1 : 0;

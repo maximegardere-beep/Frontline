@@ -144,7 +144,9 @@ l'attaquant aborde par ses faubourgs (il en tient le tiers extérieur au départ
 - **Avenues** : rapides pour les chars, qui y gardent leur choc, mais à découvert ; bordées d'îlots tenus par l'ennemi,
   elles leur coûtent 30 % de pertes en plus. Le front suit les rues.
 - **Le fleuve** : le défenseur se ravitaille aussi par les bacs de nuit qui accostent à ses quais (et aux berges des
-  usines) ; un quartier coupé des ponts et de ses quais devient une poche. Son artillerie tire de l'autre rive.
+  usines) ; un quartier coupé des ponts et de ses quais devient une poche. Son artillerie lourde tire de l'autre rive,
+  hors d'atteinte ; mortiers et lance-roquettes restent en ville. L'attaquant a deux barrages focalisés de plus.
+- **Renforts** : 9 hommes par jour et par quartier possédé (au lieu de 25 par ville).
 - **Maisons-forteresses** : silo à grain, grand magasin, maison d'angle, château d'eau ; plus solides, elles fondent
   six fois moins vite encerclées, gênent le ravitaillement de l'attaquant autour d'elles et accueillent le point
   d'appui.
@@ -153,7 +155,7 @@ l'attaquant aborde par ses faubourgs (il en tient le tiers extérieur au départ
   indécis ; 0 : victoire défensive ; en dessous, victoire défensive décisive.
 - **Le panneau des quartiers** (onglet Forces) : une ligne par quartier, vos cases et celles de l'ennemi, sa
   possession, ses points ; toucher son nom centre la carte. Le bilan du soir dit les quartiers pris et perdus.
-- **Batailles de rue** : elles portent sur tout le quartier visé, avec la trame de son type (halles des usines, voies
+- **Batailles de rue** : elles portent sur les cases du quartier visé à portée de ses défenseurs, avec la trame de son type (halles des usines, voies
   de la gare, château d'eau de la hauteur, kiosque du parc, entrepôt des quais, église de la vieille ville).
 
 ### Batailles de rue

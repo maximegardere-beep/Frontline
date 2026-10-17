@@ -511,10 +511,12 @@ test('métropole : points de quartiers, bacs de nuit par les quais, artillerie d
   for (const i of m.districts.filter((x) => x.type === 'usine').flatMap((x) => x.cells)) f.owner[i] = att;
   const left = M.ferryLandings(f, def);
   assert.ok(left.length < ferry.length && left.every((i) => m.district[i] !== q.id), 'les quais pris ne ravitaillent plus');
-  // Artillerie : les groupes du défenseur (hors antichars) partent de l'autre rive.
+  // Artillerie : les groupes du défenseur à longue portée partent de l'autre rive ; mortiers et roquettes en ville.
   const guns = f.guns.filter((g) => g.side === def && !GUN_KINDS[g.kind].at);
-  assert.ok(guns.length > 0 && guns.every((g) => m.farBank[gunCell(f, g)]), 'batteries sur la rive gauche');
-  assert.ok(!M.gunSiteOk(f, def, d.cells[0]) && M.gunSiteOk(f, att, d.cells[0]), 'l\'IA du défenseur les y garde');
+  const long = guns.filter((g) => GUN_KINDS[g.kind].range >= M.LONG_RANGE);
+  assert.ok(long.length > 0 && long.every((g) => m.farBank[gunCell(f, g)]), 'batteries lourdes sur la rive gauche');
+  assert.ok(guns.filter((g) => GUN_KINDS[g.kind].range < M.LONG_RANGE).every((g) => !m.farBank[gunCell(f, g)]), 'mortiers en ville');
+  assert.ok(!M.gunSiteOk(f, def, d.cells[0], 18) && M.gunSiteOk(f, def, d.cells[0], 12) && M.gunSiteOk(f, att, d.cells[0], 18), 'l\'IA du défenseur les y garde');
   // Maisons-forteresses : quatre îlots côté défenseur, plus solides ; une poche y fond six fois moins vite.
   const g = createFront({ seed: 'metro-s', biome: 'metropole', attacker: 'DE', setup: LEGACY });
   assert.equal(g.map.strongholds.length, 4);

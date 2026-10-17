@@ -17,7 +17,7 @@ Object.assign(SCORE, JSON.parse(process.env.SCORE ?? '{}'));
 Object.assign(GUN_RULES, JSON.parse(process.env.GUNS ?? '{}'));
 if (process.env.JSON) process.on('exit', () => {});
 const N = Number(process.argv[2] ?? 40), SEED = process.argv[3] ?? 'sim';
-const BIOMES = ['steppe', 'bocage', 'polesie', 'bourg', 'montagne', 'foret', 'fleuve'];
+const BIOMES = ['steppe', 'bocage', 'polesie', 'bourg', 'montagne', 'foret', 'fleuve', 'metropole'];
 const tally = { att: 0, def: 0, nul: 0, DE: 0, SU: 0, deAtt: 0, deAttWin: 0, deDefWin: 0 };
 const reasons = {};
 let days = 0, pockets = 0, towns = 0, ms = 0, early = 0;

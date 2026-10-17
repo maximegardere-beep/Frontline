@@ -34,9 +34,9 @@ export const HQ = {
   danger: 16, // l'IA recule son PC de nuit quand l'ennemi est plus près ; de jour, en urgence, sous la moitié
 };
 
-const NAMES = [['Gefechtsstand du corps', 'Gefechtsstand de secours'], ['PC de l\'armée', 'PC de secours']];
+const HQ_NAMES = [['Gefechtsstand du corps', 'Gefechtsstand de secours'], ['PC de l\'armée', 'PC de secours']];
 
-function cellAt(front, x, y) {
+function hqCellAt(front, x, y) {
   const h = pixelToHex(x, y, 1), { W, H } = front.map;
   return h.col < 0 || h.row < 0 || h.col >= W || h.row >= H ? -1 : h.row * W + h.col;
 }
@@ -81,7 +81,7 @@ export function createHQ(front) {
     if (Number.isNaN(x)) x = s === 0 ? front.centers.x[W - 1] / 2 : front.centers.x[W - 1] / 2;
     const want = { x: x - (s === 0 ? 1 : -1) * HQ.back, y: front.centers.y[row * W] };
     const h = {
-      side: s, name: NAMES[s][0], x: 0, y: 0, cell: -1, link: 1, captured: false, capturedNights: 0, backup: false,
+      side: s, name: HQ_NAMES[s][0], x: 0, y: 0, cell: -1, link: 1, captured: false, capturedNights: 0, backup: false,
       radius: front.cfg.hqRadius?.[s] ?? HQ.radius, loss: front.cfg.hqLoss?.[s] ?? 1, dest: null, late: false, seen: [null, null],
     };
     place(front, h, ownCellNear(front, s, want));
@@ -145,7 +145,7 @@ export function moveHQ(front, s, p) {
   if (!h) return { error: 'Pas de poste de commandement.' };
   if (h.captured) return { error: 'Le PC est aux mains de l\'ennemi.' };
   if (!p) { h.dest = null; return h; }
-  const i = cellAt(front, p.x, p.y);
+  const i = hqCellAt(front, p.x, p.y);
   if (i < 0 || front.owner[i] !== s || front.map.flow[i] <= 0) return { error: 'Le PC s\'installe dans vos lignes.' };
   if (i === h.cell) { h.dest = null; return h; }
   const d = Math.hypot(front.centers.x[i] - h.x, front.centers.y[i] - h.y);
@@ -154,7 +154,7 @@ export function moveHQ(front, s, p) {
 }
 
 const hqLog = (front, text, side) => front.log.push({ day: front.day, tick: front.tick, kind: 'hq', text, side });
-const SIDE_NAME = ['la Wehrmacht', 'l\'Armée rouge'];
+const HQ_SIDE_NAME = ['la Wehrmacht', 'l\'Armée rouge'];
 
 // Début de journée (après les ordres) : le déplacement de jour se fait, et le PC désorganisé retarde ses vecteurs.
 export function hqDawn(front) {
@@ -197,7 +197,7 @@ export function hqTick(front, events) {
     }
     if (before === 'ok' && hqState(h) === 'disorg') {
       events.push({ kind: 'hqDisorg', side: h.side });
-      hqLog(front, `${h.name} (${SIDE_NAME[h.side]}) pilonné : liaisons coupées, le commandement est désorganisé.`, h.side);
+      hqLog(front, `${h.name} (${HQ_SIDE_NAME[h.side]}) pilonné : liaisons coupées, le commandement est désorganisé.`, h.side);
     }
   }
 }
@@ -213,12 +213,12 @@ export function hqAfter(front, events) {
       front.docs ??= [-1, -1];
       front.docs[1 - h.side] = front.clock + front.cfg.ticks;
       events.push({ kind: 'hqLost', side: h.side });
-      hqLog(front, `${h.name} (${SIDE_NAME[h.side]}) est pris : l'ennemi saisit ses documents.`, h.side);
+      hqLog(front, `${h.name} (${HQ_SIDE_NAME[h.side]}) est pris : l'ennemi saisit ses documents.`, h.side);
     } else if (h.captured && own) {
       h.captured = false;
       h.link = HQ.retaken;
       events.push({ kind: 'hqRetaken', side: h.side });
-      hqLog(front, `${h.name} (${SIDE_NAME[h.side]}) est repris ; les liaisons se rétablissent.`, h.side);
+      hqLog(front, `${h.name} (${HQ_SIDE_NAME[h.side]}) est repris ; les liaisons se rétablissent.`, h.side);
     }
   }
 }
@@ -251,8 +251,8 @@ export function hqNight(front) {
       const i = ownCellNear(front, h.side, { x: h.side === 0 ? 10 : front.centers.x[W - 1] - 10, y: front.centers.y[Math.floor(front.map.H / 2) * W] }, true);
       if (i < 0) continue;
       place(front, h, i);
-      Object.assign(h, { captured: false, capturedNights: 0, backup: true, name: NAMES[h.side][1], radius: h.radius * HQ.backupRadius, link: HQ.night, seen: [null, null] });
-      hqLog(front, `${SIDE_NAME[h.side][0].toUpperCase()}${SIDE_NAME[h.side].slice(1)} installe un PC de secours loin à l'arrière.`, h.side);
+      Object.assign(h, { captured: false, capturedNights: 0, backup: true, name: HQ_NAMES[h.side][1], radius: h.radius * HQ.backupRadius, link: HQ.night, seen: [null, null] });
+      hqLog(front, `${HQ_SIDE_NAME[h.side][0].toUpperCase()}${HQ_SIDE_NAME[h.side].slice(1)} installe un PC de secours loin à l'arrière.`, h.side);
       continue;
     }
     h.link = Math.min(1, h.link + HQ.night);

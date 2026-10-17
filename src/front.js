@@ -17,7 +17,7 @@ import { staffNight, undoTransfer } from './frontnight.js';
 import { createArmor, armorAfter, armorNight, updateArmorSightings, ARMOR_SETUP } from './frontarmor.js';
 import { WORKS, initWorks, defenderBelt, barrageWorks, captureWorks, buildTick, trenchFor } from './frontworks.js';
 import { initScore, eveningScore, noteCapture, scoreBreakdown, GRADES } from './frontscore.js';
-import { ferryLandings, pocketDrainAt, isMetro, districtOwner, districtsHeld } from './frontmetro.js';
+import { ferryLandings, pocketDrainAt, isMetro, districtOwner, districtsHeld, METRO_RULES } from './frontmetro.js';
 import { createAA, airTick, updateAASightings, airNight } from './frontair.js';
 import { dealAtouts, reinforceAtouts, autoConfirm, endPlacement, ATOUT_RULES } from './frontatout.js';
 import { createSupport, refreshZones, supportDawn, supportTick, supportNight, updateSupportSightings, applySappers } from './frontbattalion.js';
@@ -209,6 +209,8 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
   }
   front.guns = createGuns(front, cfg.guns);
   front.barrageStock = cfg.barrageStock == null ? null : [cfg.barrageStock, cfg.barrageStock];
+  // Métropole : l'attaquant a plus de barrages (seuls leurs chocs entament vite une ville, combat.js).
+  if (front.barrageStock && map.districts) front.barrageStock[front.attacker] += METRO_RULES.attackBarrages;
   front.aa = createAA(front, cfg.aaBatteries);
   // Rôles : l'attaquant reçoit plus de réserves ; le défenseur est retranché sur quelques cases derrière le front.
   const att = front.attacker, def = 1 - att;
@@ -487,7 +489,7 @@ export function cellAtPoint(front, p) {
 }
 
 // Distance (grille) du segment [a, b] au point (x, y).
-function segDist(a, b, x, y) {
+export function segDist(a, b, x, y) {
   const vx = b.x - a.x, vy = b.y - a.y, l2 = vx * vx + vy * vy || 1;
   const t = Math.max(0, Math.min(1, ((x - a.x) * vx + (y - a.y) * vy) / l2));
   return Math.hypot(x - (a.x + t * vx), y - (a.y + t * vy));
@@ -1022,7 +1024,7 @@ function endDay(front) {
     const { W, H } = front.map;
     let edge = 0;
     for (let row = 0; row < H; row++) if (front.supplied[s][row * W + edgeCol(front, s)]) edge++;
-    const add = Math.round(c.reinforce[s] * (edge / H) * (s === front.attacker ? c.attackReinforce : 1) + c.townBonus * townsHeld(front, s));
+    const add = Math.round(c.reinforce[s] * (edge / H) * (s === front.attacker ? c.attackReinforce : 1) + (isMetro(front) ? METRO_RULES.reinforce : c.townBonus) * townsHeld(front, s));
     front.reserve[s] += add;
     front.lastOrders[s] = front.orders[s].filter((v) => !v.pocket);
     front.orders[s] = [];
@@ -1092,6 +1094,12 @@ export function checkFrontVictory(front) {
     if (troops(front, s) + front.reserve[s] < 0.12 * front.initial[s]) return finish(front, o, `${name(s)} est anéantie : ${name(o).toLowerCase()} l'emporte.`);
     if (territory(front, s) < 0.12) return finish(front, o, `Le front de ${name(s).toLowerCase()} s'effondre.`);
   }
+  // Métropole : l'attaquant possède tous les quartiers.
+  if (isMetro(front)) {
+    const a = front.attacker;
+    if (front.map.districts.every((d) => districtOwner(front, d) === a)) return finish(front, a, `${name(a)} tient toute la ville.`);
+    return null;
+  }
   const towns = front.map.towns;
   if (towns.length >= 3) {
     // Percée totale : l'attaquant tient toutes les villes du secteur (le défenseur, lui, gagne aux points).
@@ -1113,12 +1121,12 @@ export function attackerTowns(front) {
 function finalVerdict(front) {
   const att = front.attacker, def = 1 - att;
   const name = (s) => (s === 0 ? 'la Wehrmacht' : 'l\'Armée rouge');
-  const { total, grade, max } = scoreBreakdown(front, true);
+  const { total, grade, open } = scoreBreakdown(front, true);
   const G = GRADES[grade];
   if (isMetro(front)) {
     // Métropole : les points de quartiers gagnés par l'attaquant (objectifs secondaires compris) font l'issue.
     front.grade = grade;
-    const n = Math.round(total), gained = `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(n)} point${Math.abs(n) > 1 ? 's' : ''} de quartiers (sur ${max})`;
+    const n = Math.round(total), gained = `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(n)} point${Math.abs(n) > 1 ? 's' : ''} de quartiers (${open} à prendre)`;
     if (G.att === true) return finish(front, att, `${G.label} de ${name(att)} : l'offensive a gagné ${gained}.`);
     if (G.att === false) return finish(front, def, `${G.label} de ${name(def)} : l'ennemi n'a gagné que ${gained}.`);
     return finish(front, null, `${G.label} : ${name(att)} a gagné ${gained}, sans emporter la décision.`);

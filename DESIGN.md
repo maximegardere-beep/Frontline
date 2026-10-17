@@ -1380,3 +1380,32 @@ Un nouveau biome du front stratégique où la ville n'est plus un point à prend
   « ★ 0/16 pris ». La fenêtre de bataille de rue n'a pas été déclenchée à la main dans le navigateur : la conversion
   et le retour sont couverts par un test.
 
+### Étape 7 faite : relecture, corrections, fichier unique
+
+- Relecture du chantier (revue indépendante du diff) : aucun bug bloquant ; corrigé :
+  - renforts par quartier possédé : 9 hommes par jour (`METRO_RULES.reinforce`) au lieu des 25 d'une ville (le
+    défenseur, avec 17 quartiers, recevait 425 hommes par jour en plus) ;
+  - batailles de rue : seules les cases du quartier à portée de ses défenseurs (`defReach`) se jouent et changent de
+    mains, au lieu du quartier entier ;
+  - artillerie : seules les pièces à longue portée (`LONG_RANGE`, 15 : divisionnaire, lourde) passent sur la rive
+    gauche ; mortiers et lance-roquettes, trop courts, restent en ville (l'IA aussi) ;
+  - consigne du défenseur : 0 point, il a tenu ; +1, indécis ; +2, l'ennemi l'emporte ;
+  - info-bulle d'une case de ville : le vrai bonus défensif (quartier, ruine, maison-forteresse) ;
+  - victoire immédiate quand l'attaquant possède tous les quartiers (et non leurs seules cases centres) ; objectif
+    « prendre … avant le jour n » rempli à la possession du quartier, au soir ;
+  - fin de bataille : « (N à prendre) », les points des quartiers que l'attaquant ne possédait pas au départ ;
+  - détails : seuil de possession partagé avec le rendu, route des quais repérée (`map.quayRoad`), une
+    maison-forteresse ne ralentit la fonte que des poches du défenseur.
+- Équilibre après corrections : les mortiers rendus au défenseur faisaient tomber l'attaquant à 27 % (80 batailles) ;
+  l'attaquant a deux barrages focalisés de plus en métropole (`METRO_RULES.attackBarrages` : le choc des barrages est
+  ce qui entame vite une ville). Mesure (80 batailles) : attaquant 35 % (40 % puis 30 %), défenseur 44 %, indécis 21 %.
+- Fichier unique : il était cassé avant ce chantier (depuis les Atouts : `ATOUT_RULES is not defined` au chargement,
+  le menu ne s'affichait pas) ; neuf modules manquaient à `tools/bundle.mjs`. Ajoutés dans l'ordre ; noms de premier
+  niveau en double renommés dans leur module (`hqCellAt`, `HQ_NAMES`, `HQ_SIDE_NAME`, `nextSpecialId`,
+  `specialCellAt`, `supportCellAt`, `SUPPORT_ORDINAL`, `supportContact`, `airCellAt`, `escDeck`, `airWarSummary`),
+  `segDist` partagé (exporté par `front.js`) ; un import renommé devient une affectation. Le bundler refuse désormais
+  un module de `src` absent de son ordre (l'aperçu du front mis à part) : `--check`, lancé par les tests, le voit.
+  Vérifié dans le navigateur : menu, front en métropole (graine « m4 »), deux journées, fenêtre de bataille de rue,
+  bataille commandée en tactique, bilans du soir.
+- `tools/front-sim.mjs` compte la métropole parmi ses biomes.
+

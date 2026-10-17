@@ -78,7 +78,7 @@ test('bataille de rue : conversion (terrain, sections, rapport de force, feux) p
   assert.equal(f.frozen, null);
 });
 
-test('bataille de rue en métropole : tout le quartier visé, trame de son type ; gagnée, le quartier change de mains', async () => {
+test('bataille de rue en métropole : le quartier visé à portée de ses défenseurs, trame de son type ; gagnée, ses cases changent de mains', async () => {
   const { districtOwner } = await import('../src/frontmetro.js');
   const { planFront } = await import('../src/frontai.js');
   const f = createFront({ seed: 'metro-rue', playerSide: null, attacker: 'DE', biome: 'metropole', setup: { atouts: false, hq: false } });
@@ -87,7 +87,7 @@ test('bataille de rue en métropole : tout le quartier visé, trame de son type 
   const c = streetCandidates(f).find((x) => x.town.district != null);
   assert.ok(c, 'un quartier disputé');
   const d = f.map.districts[c.town.district];
-  assert.deepEqual([...c.cells].sort(), [...d.cells].sort(), 'tout le quartier');
+  assert.ok(c.cells.length > 0 && c.cells.every((i) => f.map.district[i] === d.id), 'des cases du quartier visé');
   const b = streetBattle(f, c);
   assert.equal(b.map.name, d.name);
   assert.ok(b.title.includes(d.name));
@@ -98,6 +98,7 @@ test('bataille de rue en métropole : tout le quartier visé, trame de son type 
   for (const bl of st.blocks) bl.owner = b.attacker;
   st.result = { winner: b.attacker, reason: 'test' };
   applyStreetBattle(f, b.link, st);
-  assert.equal(districtOwner(f, d), att, 'le quartier à l\'attaquant');
-  assert.ok(d.cells.every((i) => f.frozen[i]), 'figé pour la journée');
+  assert.ok(c.cells.every((i) => f.owner[i] === att), 'les cases de la bataille à l\'attaquant');
+  if (c.cells.length > d.cells.length * 0.6) assert.equal(districtOwner(f, d), att, 'le quartier à l\'attaquant');
+  assert.ok(c.cells.every((i) => f.frozen[i]), 'figées pour la journée');
 });

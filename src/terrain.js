@@ -252,7 +252,10 @@ export function describeCell(map, i, ruin = 0) {
   const town = k === 'town' ? map.towns.find((t) => t.i === i) : null;
   const district = map.district?.[i] >= 0 ? map.districts[map.district[i]] : null;
   const parts = [town && !district ? `${FRONT_TERRAIN[k].label} de ${town.name}` : district ? `${district.name}${map.avenue[i] ? ', avenue' : ''}` : FRONT_TERRAIN[k].label];
-  if (k === 'town' && ruinLabel(ruin)) parts[0] += ` ${ruinLabel(ruin)} (défense +${Math.round(ruinBonus(ruin) * 100)} %)`;
+  // Bonus défensif réel de la case (quartier, ruine, maison-forteresse compris ; relief à part).
+  const bonus = Math.round(((map.def ? map.def[i] / ELEV_DEF[map.elev[i]] : 1 + ruinBonus(ruin)) - 1) * 100);
+  if (k === 'town' && ruinLabel(ruin)) parts[0] += ` ${ruinLabel(ruin)} (défense +${bonus} %)`;
+  else if (district) parts[0] += ` (${map.stronghold?.[i] === 2 ? 'maison-forteresse, ' : ''}défense +${bonus} %)`;
   if (map.river?.[i]) parts.push(map.bridge?.[i] === 1 ? (map.pontoon?.[i] ? 'pont de bateaux' : 'pont') : `${map.bridge?.[i] === 2 ? 'pont détruit · ' : ''}${map.river[i] === 2 ? 'gué' : map.bigRiver?.[i] ? 'fleuve' : 'rivière'}${map.river[i] === 2 ? '' : ' (infranchissable hors des ponts)'}`);
   else if (map.road?.[i]) parts.push(map.stream?.[i] ? 'route · ruisseau' : 'route');
   else if (map.stream?.[i]) parts.push('ruisseau (berges : progression ralentie, défense +15 %)');

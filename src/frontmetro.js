@@ -14,6 +14,8 @@ export const METRO_RULES = {
   draw: 1,
   defWin: 0,
   objective: 1, // points d'un objectif secondaire rempli (pour ou contre l'attaquant)
+  attackBarrages: 2, // barrages focalisés de plus pour l'attaquant (Stalingrad : artillerie et aviation massées)
+  reinforce: 9, // renforts quotidiens par quartier possédé (une carte ordinaire : 25 par ville, pour 5 à 7 villes)
   ferryDay: 0.85, // ravitaillement de jour des cases qui ne tiennent que par les bacs (ils passent de nuit)
   strongDef: 1.3, // défense de l'îlot d'une maison-forteresse
   strongDrain: 1 / 6, // une poche fond six fois moins vite sur une maison-forteresse et ses abords (~5 % par jour)
@@ -71,8 +73,12 @@ export function metroSupply(front) {
   }
 }
 
-// Batteries de l'IA : en métropole, celles du défenseur restent sur la rive gauche.
-export const gunSiteOk = (front, s, i) => !front.map.farBank || s === front.attacker || front.map.farBank[i] === 1;
+export const gunSiteOk = (front, s, i, range = Infinity) => !front.map.farBank || s === front.attacker || range < LONG_RANGE || front.map.farBank[i] === 1;
 
-// Fonte d'une poche sur la case i (part du malus logistique ordinaire).
-export const pocketDrainAt = (front, i) => (front.map.stronghold?.[i] ? METRO_RULES.strongDrain : 1);
+// Fonte d'une poche sur la case i (part du malus logistique ordinaire) : la maison-forteresse ne tient que pour le
+// défenseur.
+export const pocketDrainAt = (front, i) => (front.map.stronghold?.[i] && front.owner[i] !== front.attacker ? METRO_RULES.strongDrain : 1);
+
+// Batteries de l'IA : en métropole, celles du défenseur à longue portée (divisionnaire, lourde) restent sur la rive
+// gauche ; mortiers et lance-roquettes, trop courts, tirent depuis la ville.
+export const LONG_RANGE = 15;

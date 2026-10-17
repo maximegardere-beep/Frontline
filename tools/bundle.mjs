@@ -1,18 +1,26 @@
 // Assemble le jeu en un seul fichier HTML autonome (dist/frontline.html) : CSS et modules JS inclus.
 // Les modules sont concaténés dans une seule portée : deux déclarations du même nom au premier niveau la cassent.
-// --check : n'écrit rien, vérifie seulement que le script assemblé se compile (utilisé par les tests).
-import { readFile, writeFile, mkdir, mkdtemp } from 'node:fs/promises';
+// --check : n'écrit rien, vérifie seulement que tous les modules y sont et que le script assemblé se compile (utilisé
+// par les tests).
+import { readFile, writeFile, mkdir, mkdtemp, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 
-const ORDER = ['rng', 'hex', 'names', 'conditions', 'frontmetro', 'terrain', 'metrogen', 'mapgen', 'units', 'path', 'frontworks', 'frontarmor', 'frontsupply', 'frontnight', 'combat', 'game', 'ai', 'campaign', 'fx', 'audio', 'weather', 'render', 'frontguns', 'frontair', 'frontscore', 'frontscenario', 'front', 'frontai', 'frontinput', 'frontfx', 'frontsprites', 'frontcity', 'frontrender', 'frontui', 'main'];
+const ORDER = ['rng', 'hex', 'names', 'conditions', 'frontmetro', 'terrain', 'metrogen', 'mapgen', 'urbangen', 'units', 'path', 'frontworks', 'frontarmor', 'frontsupply', 'frontnight', 'combat', 'game', 'ai', 'campaign', 'fx', 'audio', 'weather', 'render', 'frontguns', 'frontair', 'frontairwar', 'frontdeck', 'frontscore', 'frontscenario', 'frontbattalion', 'fronthq', 'frontspecial', 'frontatout', 'front', 'frontalert', 'frontstreet', 'frontai', 'frontinput', 'frontfx', 'frontsprites', 'frontcity', 'frontrender', 'frontui', 'main'];
+// Hors du fichier unique : l'aperçu du front (outil de développement, sa propre page).
+const DEV_ONLY = ['frontpreview'];
 const root = new URL('..', import.meta.url).pathname;
+
+// Un module oublié dans ORDER casserait le fichier unique à l'exécution seulement (nom indéfini) : on refuse.
+const missing = (await readdir(`${root}src`)).filter((f) => f.endsWith('.js')).map((f) => f.slice(0, -3)).filter((m) => !ORDER.includes(m) && !DEV_ONLY.includes(m));
+if (missing.length) { console.error(`Modules absents de ORDER (tools/bundle.mjs) : ${missing.join(', ')}`); process.exit(1); }
 
 let js = '';
 for (const name of ORDER) {
   const src = await readFile(`${root}src/${name}.js`, 'utf8');
   js += `\n// ===== ${name}.js =====\n` + src
-    .replace(/^import\s[^;]*;[ \t]*$/gm, '') // imports sur une ou plusieurs lignes
+    // Imports sur une ou plusieurs lignes : retirés (une seule portée) ; un import renommé devient une affectation.
+    .replace(/^import\s[^;]*;[ \t]*$/gm, (imp) => [...imp.matchAll(/(\w+)\s+as\s+(\w+)/g)].map(([, a, b]) => `const ${b} = ${a};`).join('\n'))
     .replace(/^export \{[^}]*\};?\s*$/gm, '')
     .replace(/^export (?=(const|function|class|let) )/gm, '');
 }

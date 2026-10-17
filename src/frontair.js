@@ -15,7 +15,7 @@ import { blowBridge } from './frontworks.js';
 import { pixelToHex } from './hex.js';
 
 // Case sous un point (unités de grille), ou −1.
-function cellAt(front, p) {
+function airCellAt(front, p) {
   const h = pixelToHex(p.x, p.y, 1), { W, H } = front.map;
   return h.col < 0 || h.row < 0 || h.col >= W || h.row >= H ? -1 : h.row * W + h.col;
 }
@@ -110,7 +110,7 @@ export function moveAA(front, s, id, p) {
   if (front.phase !== 'plan') return { error: 'La DCA se déplace la nuit : donnez l\'ordre le matin.' };
   const a = front.aa.find((x) => x.id === id && x.side === s && !x.lost);
   if (!a) return { error: 'Batterie introuvable.' };
-  const i = cellAt(front, p);
+  const i = airCellAt(front, p);
   if (i < 0 || front.owner[i] !== s) return { error: 'La DCA se place dans vos lignes.' };
   if (Math.hypot(p.x - a.x, p.y - a.y) > AIR.aaMove) return { error: 'Trop loin pour une nuit.' };
   a.x = front.centers.x[i];
@@ -207,7 +207,7 @@ export function updateAASightings(front) {
     }
     if (spotted) a.seen[s] = { x: a.x, y: a.y, clock: front.clock };
     // Débordée : sa case tombe.
-    const h = cellAt(front, a);
+    const h = airCellAt(front, a);
     if (h >= 0 && front.owner[h] === 1 - a.side) a.lost = true;
   }
 }
