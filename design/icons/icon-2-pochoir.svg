@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <radialGradient id="v" cx="50%" cy="40%" r="75%">
+      <stop offset="0" stop-color="#383e2e"/><stop offset="1" stop-color="#1b1e15"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#v)"/>
+  <!-- F au pochoir, barre haute prolongée en flèche -->
+  <g fill="#c9a24a" transform="translate(-40 0)">
+    <rect x="250" y="230" width="150" height="250"/>
+    <rect x="250" y="510" width="150" height="290"/>
+    <rect x="430" y="230" width="290" height="150"/>
+    <polygon points="720,170 860,305 720,440"/>
+    <rect x="430" y="450" width="220" height="130"/>
+  </g>
+  <rect x="250" y="830" width="524" height="14" fill="#c0392b"/>
+</svg>

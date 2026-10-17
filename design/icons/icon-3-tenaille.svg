@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <rect width="1024" height="1024" fill="#2c3124"/>
+  <g fill="none" stroke="#e8e2cb" stroke-opacity=".07" stroke-width="6">
+    <circle cx="512" cy="560" r="400"/><circle cx="512" cy="560" r="310"/>
+  </g>
+  <!-- deux bras de la tenaille qui se referment -->
+  <g fill="none" stroke="#ece3c6" stroke-width="78" stroke-linecap="round">
+    <path d="M250 860 C110 640 200 225 420 220"/>
+    <path d="M774 860 C914 640 824 225 604 220"/>
+  </g>
+  <g fill="#ece3c6">
+    <polygon points="496,220 400,135 400,305"/>
+    <polygon points="528,220 624,135 624,305"/>
+  </g>
+  <!-- objectif ★ dans la poche -->
+  <polygon fill="#c0392b" transform="translate(0 70)" points="512,352 549,460 663,461 572,529 605,638 512,573 419,638 452,529 361,461 475,460"/>
+</svg>

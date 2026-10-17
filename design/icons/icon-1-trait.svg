@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <pattern id="g" width="64" height="64" patternUnits="userSpaceOnUse">
+      <path d="M64 0H0V64" fill="none" stroke="#2a2416" stroke-opacity=".08" stroke-width="3"/>
+    </pattern>
+  </defs>
+  <rect width="1024" height="1024" fill="#ece3c6"/>
+  <rect width="1024" height="1024" fill="url(#g)"/>
+  <g fill="none" stroke="#6b5f45" stroke-opacity=".28" stroke-width="5">
+    <path d="M-20 260C180 200 300 330 520 270S860 150 1050 230"/>
+    <path d="M-20 820C200 760 360 880 600 800S900 720 1050 780"/>
+  </g>
+  <!-- ligne de front au crayon rouge -->
+  <path d="M140 -20 L230 150 L180 290 L300 400 L250 540 L400 640 L360 790 L520 880 L560 1050"
+        fill="none" stroke="#c0392b" stroke-width="44" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M140 -20 L230 150 L180 290 L300 400 L250 540 L400 640 L360 790 L520 880 L560 1050"
+        fill="none" stroke="#c0392b" stroke-width="44" stroke-dasharray="2 70" stroke-linecap="round" transform="translate(-38 14)" opacity=".9"/>
+  <!-- poussée blindée qui perce -->
+  <path d="M110 760 C330 700 480 560 690 400" fill="none" stroke="#2a2416" stroke-width="96" stroke-linecap="round"/>
+  <polygon points="620,270 900,250 800,520" fill="#2a2416"/>
+</svg>
