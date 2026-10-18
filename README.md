@@ -120,6 +120,13 @@ défenseur, est tiré de la graine et annoncé au briefing, avec l'objectif : le
   zone, laissant fumée et sol noirci. On entend les fusillades et mitrailleuses des secteurs au contact, les
   canons des blindés, les salves des barrages (feulement des orgues de Staline, sirène des Stuka en piqué), les
   villes qui tombent. La lumière suit l'heure : dorée à l'aube, chaude puis bleuie au soir.
+- **Ciel et poussière** : par temps clair, quelques ombres de cumulus glissent sous le vent ; sous la pluie et la neige,
+  le ciel est bas (voile, ombres serrées, trouées de soleil). Les blindés en marche soulèvent un panache selon le temps :
+  poussière ocre par temps sec, gerbes de boue sous la pluie, neige poudreuse l'hiver.
+- **Poches et aviation** : une poche se teinte à la couleur des encerclés, son contour pulse en rouge pendant la journée
+  et la fumée s'y concentre ; quand il ne reste plus qu'un tiers de l'effectif encerclé, des drapeaux blancs y flottent.
+  Au matin, l'escadrille passe haut avec ses traînées de condensation ; les avions d'assaut ont leur ombre au sol ; un
+  avion abattu part en vrille sous un panache noir et son épave fume encore.
 - **Ambiance sonore** : un choral de cordes au menu, un piano au briefing, puis plus de musique pendant les combats.
   Le matin des ordres, on est au QG : un téléphone de campagne sonne parfois, une machine à écrire tape de loin en
   loin ; chaque réserve qu'on fait monter passe au téléscripteur. Une ville qui tombe s'annonce en morse (« VILLE

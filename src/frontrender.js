@@ -57,6 +57,52 @@ const SMOKE = { loss: 1.5, decay: 0.9, barrage: 0.25, min: 0.6, full: 3, space: 
 const TRANSFER_INK = 'rgba(150, 186, 236, 0.95)'; // regroupements de nuit
 // Colonnes sur les routes : vitesse (pixels monde par ms), camions par colonne, écart entre deux camions.
 const CONVOY = { speed: 0.012, trucks: 4, gap: 6 };
+// Ce que soulèvent les véhicules selon le temps (frontfx.js, KICK) ; couleur de la poussière des camions.
+const KICK_OF = { clear: 'dust', fog: 'damp', rain: 'mud', snow: 'snow' };
+const CONVOY_DUST = { clear: 'rgb(214, 198, 156)', fog: 'rgb(186, 176, 150)', rain: 'rgb(96, 76, 52)', snow: 'rgb(246, 248, 250)' };
+// Ombres de nuages : par temps clair, quelques cumulus espacés ; pluie et neige, ciel bas (voile, ombres serrées,
+// trouées de soleil) ; pas sous le brouillard. size : largeur d'une ombre (part de la carte) ; cross : nombre de ticks
+// pour traverser la carte par vent moyen.
+const CLOUDS = { clear: { n: 5, a: 0.3, size: 0.3 }, rain: { n: 10, a: 0.32, size: 0.3, veil: 0.12, sun: 2 }, snow: { n: 9, a: 0.28, size: 0.32, veil: 0.08, sun: 2 }, cross: 30 };
+// Poches : teinte et pouls du contour ; drapeaux blancs quand il reste moins de flags de l'effectif encerclé au départ.
+const POCKET_FX = { tint: [[52, 84, 138], [176, 44, 30]], a: 0.34, flags: 0.35 };
+
+// Drapeau blanc planté dans une poche qui se rend ; il flotte pendant la journée (live). k : échelle (px monde).
+function whiteFlag(g, x, y, now, k, live) {
+  const t = live ? now / 1000 : 0;
+  g.save();
+  g.translate(x, y);
+  g.scale(k, k);
+  g.strokeStyle = '#3a2e1c';
+  g.lineWidth = 1.4;
+  g.beginPath(); g.moveTo(0, 0); g.lineTo(0, -16); g.stroke();
+  g.fillStyle = '#fbf8ee';
+  g.strokeStyle = 'rgba(40, 30, 20, 0.6)';
+  g.lineWidth = 0.8;
+  g.beginPath();
+  g.moveTo(0, -16);
+  for (let i = 0; i <= 6; i++) g.lineTo(i * 1.8, -16 + Math.sin(t * 6 + i + x) * 1.2);
+  for (let i = 6; i >= 0; i--) g.lineTo(i * 1.8, -10 + Math.sin(t * 6 + i + x) * 1.2);
+  g.closePath(); g.fill(); g.stroke();
+  g.restore();
+}
+
+// Ombre de nuage : amas de disques flous sombres, tirés d'une graine.
+function cloudSprite(seed) {
+  const c = document.createElement('canvas');
+  c.width = 420; c.height = 260;
+  const g = c.getContext('2d'), rng = createRng(`cloud:${seed}`);
+  for (let i = 0; i < 14; i++) {
+    const x = 420 * (0.2 + 0.6 * rng.next()), y = 260 * (0.25 + 0.5 * rng.next()), r = 260 * (0.18 + 0.22 * rng.next());
+    const gr = g.createRadialGradient(x, y, 0, x, y, r);
+    gr.addColorStop(0, `rgba(${seed < 0 ? '255, 236, 190' : '22, 30, 44'}, 0.55)`);
+    gr.addColorStop(0.6, `rgba(${seed < 0 ? '255, 236, 190' : '22, 30, 44'}, 0.35)`);
+    gr.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    g.fillStyle = gr;
+    g.fillRect(0, 0, 420, 260);
+  }
+  return c;
+}
 // Cratères par tick de barrage à pleine puissance, et leur rayon (pixels monde ; une case fait 9 de rayon).
 const SCAR = { div: { n: 6, r: 1.1 }, heavy: { n: 5, r: 1.6 }, mortar: { n: 7, r: 0.9 }, rocket: { n: 9, r: 0.9 }, nebel: { n: 8, r: 0.9 } };
 // Usure du terrain par les combats (pertes cumulées par case sur la bataille, plus chaque cratère de barrage) :
@@ -787,6 +833,7 @@ export class FrontRenderer extends Renderer {
     if (f.phase === 'resolve' && !this.fx.still) this.drawConvoys(view.viewer ?? null, now);
     this.drawArmor(view);
     this.drawDaylight(Math.max(0, Math.min(1, view.t ?? 1)));
+    this.drawClouds(Math.max(0, Math.min(1, view.t ?? 1)));
 
     this.drawTowns(view.viewer ?? null);
     if (this.map.districts) {
@@ -796,7 +843,7 @@ export class FrontRenderer extends Renderer {
     }
     this.drawStrongpoints(view.viewer ?? null);
     this.drawObjectiveMarks();
-    this.drawPockets(view.viewer ?? null);
+    this.drawPockets(view.viewer ?? null, now);
     this.drawGuns(view);
     if (f.phase === 'plan') this.drawTransfers(view.viewer ?? null);
     this.drawAA(view);
@@ -1163,6 +1210,37 @@ export class FrontRenderer extends Renderer {
 
   // Lumière du jour sur la carte : rasante et dorée à l'aube, puis neutre ; chaude au soir, bleuie à la tombée.
   // Heure : de 6 h à 20 h au fil des ticks de la journée ; le matin des ordres est l'aube.
+  // Ombres de nuages qui glissent sous le vent : leur position suit l'horloge du front (immobiles le matin des ordres,
+  // elles avancent pendant la journée et reprennent d'un jour à l'autre).
+  drawClouds(t) {
+    const f = this.front, C = CLOUDS[f.weather];
+    if (!C || f.phase === 'over') return;
+    this.cloudSprites ??= [1, 2, 3, 4, 5].map((k) => cloudSprite(k));
+    this.sunSprite ??= cloudSprite(-1);
+    const { ctx } = this, W = this.worldW, H = this.worldH;
+    const time = f.phase === 'plan' ? f.clock : f.clock - 1 + t;
+    const wind = f.wind ?? { dir: 0, force: 0.4 }, cw = W * C.size, ch = cw * 0.62;
+    const v = ((W + cw) / CLOUDS.cross) * (0.5 + wind.force), vx = Math.cos(wind.dir) * v, vy = Math.sin(wind.dir) * v;
+    const wrap = (a, n) => ((a % n) + n) % n;
+    ctx.save();
+    if (C.veil) { ctx.fillStyle = `rgba(30, 38, 52, ${C.veil})`; ctx.fillRect(0, 0, W, H); }
+    for (let k = 0; k < C.n; k++) {
+      const s = 0.8 + ((k * 7) % 5) * 0.12;
+      const x = wrap(wrap(k * 0.618, 1) * (W + cw) + vx * time, W + cw) - cw, y = wrap(wrap(k * 0.371 + 0.13, 1) * (H + ch) + vy * time, H + ch) - ch;
+      ctx.globalAlpha = C.a;
+      ctx.drawImage(this.cloudSprites[k % 5], x, y, cw * s, ch * s);
+    }
+    if (C.sun) {
+      ctx.globalCompositeOperation = 'soft-light';
+      for (let k = 0; k < C.sun; k++) {
+        const x = wrap(wrap(k * 0.5 + 0.2, 1) * (W + cw) + vx * time * 0.9, W + cw) - cw, y = wrap((k * 0.45 + 0.25) * (H + ch) + vy * time * 0.9, H + ch) - ch;
+        ctx.globalAlpha = 0.9;
+        ctx.drawImage(this.sunSprite, x, y, cw, ch);
+      }
+    }
+    ctx.restore();
+  }
+
   drawDaylight(t) {
     const f = this.front;
     if (f.phase === 'over') return;
@@ -1377,11 +1455,26 @@ export class FrontRenderer extends Renderer {
     }
   }
 
-  drawPockets(viewer) {
+  // Poches : intérieur teinté, contour qui pulse pendant la journée, fumée qui s'y concentre ; quand l'encerclé ne
+  // tient plus qu'à une fraction de son effectif de départ, des drapeaux blancs.
+  drawPockets(viewer, now) {
     const { ctx } = this;
     const f = this.front;
+    const live = f.phase === 'resolve' && !this.fx.still;
+    this.pocketStart ??= new Map();
+    const smoke = [];
     for (const { p, segs } of this.cur.pockets) {
       const s = p.side;
+      if (!this.pocketStart.has(p.id)) this.pocketStart.set(p.id, p.troops);
+      const pulse = live ? 0.5 + 0.5 * Math.sin(now * 0.004 + p.id) : 0.5;
+      ctx.drawImage(this.pocketMask(p), 0, 0, this.worldW, this.worldH);
+      ctx.strokeStyle = `rgba(239, 59, 44, ${0.25 + 0.4 * pulse})`;
+      ctx.lineWidth = 4 + 7 * pulse;
+      strokeSegments(ctx, segs);
+      if (live) for (let k = 0; k < Math.min(4, p.cells.length); k++) { const c = this.center(p.cells[(k * 7919) % p.cells.length]); smoke.push(c.x, c.y, 0.45); }
+      if (p.troops < this.pocketStart.get(p.id) * POCKET_FX.flags) {
+        for (let k = 0; k < Math.min(4, p.cells.length); k++) { const c = this.center(p.cells[(k * 104729 + 3) % p.cells.length]); whiteFlag(ctx, c.x, c.y, now, 1 / Math.max(0.8, this.cam.s), live); }
+      }
       {
         ctx.strokeStyle = s === 0 ? '#26303d' : '#4a1610';
         ctx.lineWidth = 1.8;
@@ -1403,6 +1496,32 @@ export class FrontRenderer extends Renderer {
         ctx.fillText(label, c.x, c.y);
       }
     }
+    this.fx.plumeSources(smoke, 'pocket');
+  }
+
+  // Intérieur d'une poche, teinté au camp encerclé : cases peintes sur un petit calque, adouci à l'agrandissement.
+  // Refait seulement quand la poche change.
+  pocketMask(p) {
+    const key = `${p.id}:${p.cells.length}:${this.front.clock}`;
+    this.pocketMasks ??= new Map();
+    let m = this.pocketMasks.get(p.id);
+    if (m?.key === key) return m.c;
+    const sc = 0.2, c = document.createElement('canvas');
+    c.width = Math.ceil(this.worldW * sc); c.height = Math.ceil(this.worldH * sc);
+    const g = c.getContext('2d');
+    g.clearRect(0, 0, c.width, c.height);
+    const [r, gg, b] = POCKET_FX.tint[p.side];
+    g.fillStyle = `rgb(${r}, ${gg}, ${b})`;
+    for (const i of p.cells) { const q = this.center(i); g.beginPath(); g.arc(q.x * sc, q.y * sc, CELL * 0.95 * sc, 0, Math.PI * 2); g.fill(); }
+    const out = document.createElement('canvas');
+    out.width = c.width; out.height = c.height;
+    const o = out.getContext('2d');
+    o.globalAlpha = POCKET_FX.a;
+    o.filter = 'blur(1.5px)';
+    o.drawImage(c, 0, 0);
+    this.pocketMasks.set(p.id, { key, c: out });
+    if (this.pocketMasks.size > 24) this.pocketMasks.delete(this.pocketMasks.keys().next().value);
+    return out;
   }
 
   // Cotes des objectifs secondaires : petit triangle et nom, à la couleur du camp qui doit les tenir ou les prendre.
@@ -1496,6 +1615,9 @@ export class FrontRenderer extends Renderer {
     const k = tankScale(cam.s);
     const px = 1 / cam.s;
     const planning = f.phase === 'plan';
+    const now = view.now ?? performance.now(), dt = Math.max(0, now - (this.lastArmorDraw ?? now));
+    this.lastArmorDraw = now;
+    this.fx.drawKicks(ctx, now);
     for (const { a, x, y, dir, tanks, known } of visibleArmor(f, viewer)) {
       const c = this.toWorld({ x, y });
       const own = viewer === null || a.side === viewer;
@@ -1540,7 +1662,8 @@ export class FrontRenderer extends Renderer {
         ctx.stroke();
       }
       const moving = f.phase === 'resolve' && (a.attacking || a.trail.length);
-      if (moving) for (const [x2, y2] of pts) dust(ctx, x2, y2, ang, k);
+      if (moving && this.fx.still) for (const [x2, y2] of pts) dust(ctx, x2, y2, ang, k);
+      else if (moving) for (const [x2, y2] of pts) this.fx.kick(x2, y2, ang, k, dt, KICK_OF[f.weather] ?? 'dust');
       for (const [x2, y2] of pts) piece(ctx, x2, y2, ang, k, (G, P, sh) => tank(G, P, sh, a.side === 1), SPRITE_PAL[a.side]);
       if (sel || cam.s > 1.2 || f.phase === 'resolve') {
         ctx.font = `700 ${10 * px}px "IBM Plex Sans Condensed", "Arial Narrow", sans-serif`;
@@ -1593,7 +1716,7 @@ export class FrontRenderer extends Renderer {
           if (side < 0 || !quiet(cell, side)) continue;
           const x = a.x + (b.x - a.x) * u, y = a.y + (b.y - a.y) * u, ang = Math.atan2(b.y - a.y, b.x - a.x) + (dir < 0 ? Math.PI : 0);
           // Poussière derrière le camion.
-          ctx.fillStyle = 'rgb(214, 198, 156)';
+          ctx.fillStyle = CONVOY_DUST[f.weather] ?? CONVOY_DUST.clear;
           for (let q = 1; q <= 3; q++) {
             ctx.globalAlpha = 0.28 / q;
             ctx.beginPath();

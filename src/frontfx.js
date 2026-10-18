@@ -26,6 +26,17 @@ const ARC = {
 };
 const PASSIVE = { max: 3, odds: 0.45 }; // obus d'appui passif par tick dans la vue, au plus ; chance par groupe
 const MAX_PARTS = 2400;
+// Ce que soulèvent les blindés en marche, selon le temps : poussière ocre (sec), gerbes de boue (pluie), neige
+// poudreuse (neige), poussière rabattue (brouillard). rate : bouffées par ms et par char ; life (ms) ; grow : px par
+// seconde ; drift : part du vent ; fall : gravité (boue) ; a : opacité.
+const KICK = {
+  dust: { rgb: '196, 170, 122', rate: 0.03, life: 3200, r: 3, grow: 6, drift: 1, fall: 0, a: 0.36 },
+  damp: { rgb: '170, 156, 124', rate: 0.016, life: 1800, r: 2.5, grow: 5, drift: 0.6, fall: 0, a: 0.3 },
+  mud: { rgb: '74, 56, 36', rate: 0.035, life: 650, r: 1.2, grow: 1.5, drift: 0.2, fall: 60, a: 0.8, throw: 26 },
+  snow: { rgb: '246, 248, 250', rate: 0.028, life: 2000, r: 2.6, grow: 5, drift: 0.9, fall: 0, a: 0.55 },
+};
+const MAX_KICKS = 900;
+const WRECK_SMOKE = 7000; // un avion écrasé fume encore quelques secondes (ms)
 // Panaches de fumée : bouffées émises en continu par les foyers (incendies, combats intenses), poussées par le vent.
 const PLUME = { rate: 0.008, life: 5600, max: 1000, grow: 24, drift: 0.011 }; // bouffées par ms et par foyer à plein, vie (ms), …
 
@@ -67,12 +78,51 @@ export class FrontFx {
     this.wind = { x: 1, y: 0, k: 0.6 }; // direction (unitaire) et force (0 à 1) du vent du jour
     this.still = false; // mouvement réduit ou journée accélérée : pas de nouvelles bouffées
     this.lastPlume = 0;
+    this.kicks = []; // poussière, boue ou neige soulevée par les blindés { t0, x, y, vx, vy, kind }
+    this.crashes = []; // avions écrasés qui fument { x, y, t0 }
   }
 
   clear() {
     this.parts.length = 0;
     this.glow = [];
     this.plumes.length = 0;
+    this.kicks.length = 0;
+    this.crashes.length = 0;
+  }
+
+  // Un char en marche à (x, y), cap ang : il soulève derrière lui de quoi faire un panache (dt : ms depuis l'image
+  // précédente ; k : échelle des chars).
+  kick(x, y, ang, k, dt, kind) {
+    const K = KICK[kind] ?? KICK.dust;
+    let n = K.rate * Math.min(80, dt);
+    n = Math.floor(n) + (Math.random() < n % 1 ? 1 : 0);
+    const bx = x - Math.cos(ang) * 8 * k, by = y - Math.sin(ang) * 8 * k, now = performance.now();
+    for (let q = 0; q < n; q++) {
+      const side = (Math.random() - 0.5) * 2;
+      const t = K.throw ?? 4;
+      this.kicks.push({ t0: now, x: bx + side * 2 * k, y: by + (Math.random() - 0.5) * 2 * k, vx: -Math.cos(ang) * t * (0.5 + Math.random()) - Math.sin(ang) * side * t * 0.5, vy: -Math.sin(ang) * t * (0.5 + Math.random()) + Math.cos(ang) * side * t * 0.5 - (K.throw ? t : 0), kind, k });
+    }
+    if (this.kicks.length > MAX_KICKS) this.kicks.splice(0, this.kicks.length - MAX_KICKS);
+  }
+
+  // Panaches des blindés : ils s'élargissent et filent sous le vent ; la boue retombe aussitôt.
+  drawKicks(ctx, now) {
+    if (!this.kicks.length) return;
+    this.kickSprites ??= Object.fromEntries(Object.entries(KICK).map(([k, K]) => [k, puffSprite(K.rgb)]));
+    const w = this.wind, v = 0.006 * (0.4 + w.k);
+    let alive = 0;
+    for (const p of this.kicks) {
+      const K = KICK[p.kind], age = now - p.t0, u = age / K.life;
+      if (u >= 1 || u < 0) continue;
+      alive++;
+      const s = age / 1000;
+      const x = p.x + p.vx * s + w.x * v * K.drift * age, y = p.y + p.vy * s + 0.5 * K.fall * s * s + w.y * v * K.drift * age;
+      const R = (K.r + K.grow * s) * p.k;
+      ctx.globalAlpha = K.a * (1 - u) * Math.min(1, u * 6);
+      ctx.drawImage(this.kickSprites[p.kind], x - R, y - R, R * 2, R * 2);
+    }
+    ctx.globalAlpha = 1;
+    if (this.kicks.length > 100 && alive < this.kicks.length * 0.7) this.kicks = this.kicks.filter((p) => now - p.t0 < KICK[p.kind].life);
   }
 
   glowSprite() { return (this.sprite ??= glowSprite()); }
@@ -268,6 +318,15 @@ export class FrontFx {
     // Aviation : les avions décollent au tick d'approche, piquent sur l'objectif, puis rentrent ; la DCA tire sur
     // leur route. On voit ses propres sorties, et celles de l'ennemi qui frappent là où l'on voit.
     const first = AIR.strikeTicks[0];
+    // Au matin, l'escadrille passe haut au-dessus de la vue : traînées de condensation, ombre lointaine au sol.
+    if (front.tick === 1 && [0, 1].some((s) => (viewer === null || s === viewer) && front.air?.[s]?.length)) {
+      const s = viewer ?? [0, 1].find((x) => front.air?.[x]?.length);
+      const W = rect.x1 - rect.x0, H = rect.y1 - rect.y0, dir = s === 0 ? 1 : -1;
+      const x0 = dir > 0 ? rect.x0 - W * 0.15 : rect.x1 + W * 0.15, y0 = rect.y0 + H * (0.65 + Math.random() * 0.25);
+      for (let k = 0; k < 3; k++) {
+        this.parts.push({ k: 'high', t0: now + k * 180, life: dur * 5, x0: x0 - dir * k * 26, y0: y0 + (k - 1) * 22, x1: x0 + dir * W * 1.3 - dir * k * 26, y1: y0 - H * 0.75 + (k - 1) * 22, side: s });
+      }
+    }
     for (const s of [0, 1]) {
       for (const m of front.air?.[s] ?? []) {
         const tc = Math.max(0, Math.min(front.map.N - 1, Math.round(m.y / 1.5) * front.map.W + Math.round(m.x / 1.732)));
@@ -284,7 +343,7 @@ export class FrontFx {
             if (!a) continue;
             const vx = m.x - o.x, vy = m.y - o.y, L2 = vx * vx + vy * vy || 1;
             const t = Math.max(0, Math.min(1, ((a.x - o.x) * vx + (a.y - o.y) * vy) / L2));
-            for (let q = 0; q < 14; q++) {
+            for (let q = 0; q < 20; q++) {
               const tt = Math.max(0, Math.min(1, t + (Math.random() - 0.5) * 0.25));
               this.parts.push({ k: 'flak', t0: now + tt * life * 0.45 + Math.random() * 400, life: 1500, x: (o.x + vx * tt) * C + (Math.random() - 0.5) * 20, y: (o.y + vy * tt) * C + (Math.random() - 0.5) * 16 - 10 });
             }
@@ -434,8 +493,30 @@ export class FrontFx {
       ctx.globalAlpha = 0.85 * (1 - u);
       ctx.fillStyle = '#1e1c1a';
       ctx.beginPath();
-      ctx.arc(p.x, p.y, (1.6 + 3.4 * Math.sqrt(u)) * k * 0.8, 0, Math.PI * 2);
+      ctx.arc(p.x, p.y, (2.4 + 5.6 * Math.sqrt(u)) * k * 0.8, 0, Math.PI * 2);
       ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    // Épaves : une colonne de fumée noire monte quelques secondes du point d'impact.
+    this.crashes = this.crashes.filter((c) => now - c.t0 < WRECK_SMOKE);
+    for (const c of this.crashes) if (Math.random() < 0.35) this.parts.push({ k: 'smoke', t0: now, life: 3400, x: c.x + (Math.random() - 0.5) * 3, y: c.y, r: 3.2 * k * 0.8, dx: this.wind.x * 14, dy: -22 });
+    // Escadrille en altitude : deux traînées blanches par avion, qui s'élargissent et s'effacent derrière lui.
+    for (const p of this.parts) {
+      if (p.k !== 'high' || now < p.t0 || now > p.t0 + p.life) continue;
+      const u = (now - p.t0) / p.life, dx = p.x1 - p.x0, dy = p.y1 - p.y0, L = Math.hypot(dx, dy) || 1, ang = Math.atan2(dy, dx);
+      const x = p.x0 + dx * u, y = p.y0 + dy * u, fade = Math.min(1, (1 - u) * 5);
+      ctx.fillStyle = 'rgb(252, 252, 248)';
+      for (const side of [-1, 1]) {
+        for (let q = 0; q < 26; q++) {
+          const b = q / 26, back = 6 * k + b * Math.min(L * u, 220 * k);
+          ctx.globalAlpha = 0.3 * (1 - b) * fade;
+          ctx.beginPath();
+          ctx.arc(x - (dx / L) * back - (dy / L) * side * 2.4 * k, y - (dy / L) * back + (dx / L) * side * 2.4 * k, (0.7 + b * 3.6) * k, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      this.planeSprite(ctx, x + 34 * k, y + 26 * k, ang, p.side, k * 0.8, 0.12 * fade, true);
+      this.planeSprite(ctx, x, y, ang, p.side, k * 0.8, 0.9 * fade, false);
     }
     ctx.globalAlpha = 1;
     for (const p of this.parts) {
@@ -462,15 +543,27 @@ export class FrontFx {
           const hx = p.x0 + dx * (hit / 0.5), hy = p.y0 + dy * (hit / 0.5);
           x = hx + (dx / L) * 40 * v; y = hy + (dy / L) * 40 * v + 18 * v * v;
           alt = (1 - 0.75 * (hit / 0.5) ** 3) * (1 - v); ang = Math.atan2(dy, dx) + v * 7;
-          if (Math.random() < 0.5) this.parts.push({ k: 'smoke', t0: now, life: 2200, x, y: y - alt * 14 * k, r: 2, dx: 3, dy: -6 });
+          if (Math.random() < 0.8) this.parts.push({ k: 'smoke', t0: now, life: 2600, x, y: y - alt * 14 * k, r: 3.2, dx: 3, dy: -6, black: true });
           if (v >= 1) {
-            if (!p.crashed) { p.crashed = true; this.blast(x, y, now, 7); }
+            if (!p.crashed) { p.crashed = true; this.blast(x, y, now, 11); this.crashes.push({ x, y, t0: now }); }
             continue;
           }
         }
       }
       const lift = alt * 14 * k;
-      this.planeSprite(ctx, x + alt * 10 * k, y + alt * 7 * k, ang, p.side, k, 0.22, true);
+      // Haut dans l'approche : une traînée courte derrière l'avion.
+      if (alt > 0.7 && !p.down) {
+        ctx.fillStyle = 'rgb(252, 252, 248)';
+        for (let q = 0; q < 12; q++) {
+          const b = q / 12;
+          ctx.globalAlpha = 0.22 * (1 - b) * (alt - 0.7) / 0.3;
+          ctx.beginPath();
+          ctx.arc(x - Math.cos(ang) * (6 + b * 60) * k, y - lift - Math.sin(ang) * (6 + b * 60) * k, (0.6 + b * 2.4) * k, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      }
+      this.planeSprite(ctx, x + alt * 22 * k, y + alt * 16 * k, ang, p.side, k, 0.26, true);
       this.planeSprite(ctx, x, y - lift, ang, p.side, k, 1, false);
     }
   }
@@ -544,8 +637,8 @@ export class FrontFx {
     for (const p of parts) {
       if (p.k !== 'smoke' || now < p.t0 || now > p.t0 + p.life) continue;
       const u = (now - p.t0) / p.life;
-      ctx.globalAlpha = 0.5 * (1 - u) * Math.min(1, u * 8);
-      ctx.fillStyle = 'rgb(84, 78, 70)';
+      ctx.globalAlpha = (p.black ? 0.7 : 0.5) * (1 - u) * Math.min(1, u * 8);
+      ctx.fillStyle = p.black ? 'rgb(30, 28, 26)' : 'rgb(84, 78, 70)';
       ctx.beginPath();
       ctx.arc(p.x + p.dx * u, p.y + p.dy * u, p.r * (0.7 + 1.6 * Math.sqrt(u)), 0, Math.PI * 2);
       ctx.fill();
