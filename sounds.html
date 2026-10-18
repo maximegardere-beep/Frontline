@@ -23,6 +23,7 @@
   <h1>Banc sonore</h1>
   <p>Chaque bouton joue un son du jeu, tel qu'il sonne en partie (outil de développement).</p>
   <label>Météo : <select id="weather"><option value="clear">Clair</option><option value="rain">Pluie</option><option value="snow">Neige</option><option value="fog">Brouillard</option></select></label>
+  <label><input type="checkbox" id="winter"> Novembre (le vent siffle)</label>
   <h2>Front stratégique</h2>
   <div class="row">
     <button data-s="barrage">Barrage (batterie visible)</button>
@@ -53,6 +54,19 @@
     <button data-s="go">Go (radio)</button>
     <button data-s="bell">Fin de tour</button>
     <button data-s="sos">SOS d'un secteur qui craque</button>
+  </div>
+  <h2>Musique et QG</h2>
+  <div class="row">
+    <button data-s="musMenu">Musique du menu</button>
+    <button data-s="musBrief">Musique du briefing</button>
+    <button data-s="musOff">Couper la musique</button>
+    <button data-s="stingWin">Bilan : journée gagnée</button>
+    <button data-s="stingLose">Bilan : journée perdue</button>
+    <button data-s="telegram">Télégramme (ville prise)</button>
+    <button data-s="teletype">Téléscripteur (réserve)</button>
+    <button data-s="hq">QG du matin (téléphone, machine à écrire)</button>
+    <button data-s="stove">Poêle du soir</button>
+    <button data-s="roomOff">Quitter la pièce</button>
   </div>
   <h2>Fond</h2>
   <div class="row">
@@ -85,6 +99,16 @@ const PLAY = {
   bell: () => sound.ui('bell'),
   sos: () => sound.ui('sos'),
   ambient: () => sound.ambient(!sound.ambWanted),
+  musMenu: () => sound.music('menu'),
+  musBrief: () => sound.music('briefing'),
+  musOff: () => sound.music(null),
+  stingWin: () => sound.sting(true, 0.05),
+  stingLose: () => sound.sting(false, 0.05),
+  telegram: () => sound.telegram(sound.ctx.currentTime, 'VILLE PRISE'),
+  teletype: () => sound.teletype(),
+  hq: () => sound.room('hq'),
+  stove: () => sound.room('stove'),
+  roomOff: () => sound.room(null),
 };
 
 // Raid complet tel que le front l'enchaîne : approche au tick 5, puis frappes aux ticks 6, 7 et 8.
@@ -98,7 +122,9 @@ function raid(kind, flak, downed) {
 
 window.PLAY = PLAY;
 window.sound = sound;
-document.getElementById('weather').addEventListener('change', (e) => sound.setWeather(e.target.value));
+const setWeather = () => sound.setWeather(document.getElementById('weather').value, false, document.getElementById('winter').checked);
+document.getElementById('weather').addEventListener('change', setWeather);
+document.getElementById('winter').addEventListener('change', setWeather);
 for (const b of document.querySelectorAll('button[data-s]')) {
   b.addEventListener('click', () => { sound.unlock(); PLAY[b.dataset.s](); });
 }

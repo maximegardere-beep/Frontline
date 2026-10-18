@@ -120,6 +120,12 @@ défenseur, est tiré de la graine et annoncé au briefing, avec l'objectif : le
   zone, laissant fumée et sol noirci. On entend les fusillades et mitrailleuses des secteurs au contact, les
   canons des blindés, les salves des barrages (feulement des orgues de Staline, sirène des Stuka en piqué), les
   villes qui tombent. La lumière suit l'heure : dorée à l'aube, chaude puis bleuie au soir.
+- **Ambiance sonore** : un choral de cordes au menu, un piano au briefing, puis plus de musique pendant les combats.
+  Le matin des ordres, on est au QG : un téléphone de campagne sonne parfois, une machine à écrire tape de loin en
+  loin ; chaque réserve qu'on fait monter passe au téléscripteur. Une ville qui tombe s'annonce en morse (« VILLE
+  PRISE », « VILLE PERDUE »). Le soir, le poêle crépite pendant le bilan, et quelques notes disent si la journée a
+  tourné en votre faveur (score, sinon terrain) ; d'autres saluent la victoire ou la défaite au rapport final. En
+  novembre et sous la neige, le vent siffle sur la steppe. Tout est synthétisé, aucun fichier son.
 - **Le terrain garde la trace des combats** : là où l'on se bat, la steppe se piétine et brunit, puis se crible de
   trous d'obus ; un secteur disputé plusieurs jours devient un champ lunaire gris. En été, par temps sec, un combat
   violent peut mettre le feu aux blés, qui brûlent sous le vent et laissent un chaume noir. Les chars perdus restent

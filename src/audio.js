@@ -1,10 +1,13 @@
 // Sons du champ de bataille, entièrement synthétisés (Web Audio) : aucun fichier, aucune dépendance.
 // Tirs et explosions suivent la chronologie des effets visuels ; moteurs et pas pendant les mouvements ;
-// raids aériens (moteurs, DCA, piqué, bombes) ; vent et canonnade lointaine en fond ; quelques sons d'interface.
+// raids aériens (moteurs, DCA, piqué, bombes) ; vent et canonnade lointaine en fond ; quelques sons d'interface ;
+// musique du menu et du briefing, notes du bilan, télégrammes, téléscripteur, et la pièce du QG (téléphone, machine à
+// écrire le matin, poêle le soir).
 // Une réverbération de plaine (réponse impulsionnelle synthétisée) fait rouler les détonations au loin.
 // Sans Web Audio (Node, tests), toutes les méthodes sont sans effet.
 
 const MUTE_KEY = 'frontline.mute';
+const mf = (m) => 440 * 2 ** ((m - 69) / 12); // note MIDI → fréquence
 
 class AudioBoard {
   constructor() {
@@ -17,6 +20,11 @@ class AudioBoard {
     this.ambWanted = false;
     this.weather = 'clear';
     this.summer = false;
+    this.winter = false;
+    this.mus = null; // musique en cours : { kind, bus, timer }
+    this.musWanted = null;
+    this.rm = null; // pièce du QG : { kind, bus, timer }
+    this.roomWanted = null;
     this.assault = true; // infanterie : le premier mouvement est une marche, puis assaut, et ainsi de suite
   }
 
@@ -63,6 +71,8 @@ class AudioBoard {
     }
     if (this.ctx.state === 'suspended' && !this.muted) this.ctx.resume();
     if (this.ambWanted) this.ambient(true);
+    if (this.musWanted && !this.mus) this.music(this.musWanted);
+    if (this.roomWanted && !this.rm) this.room(this.roomWanted);
   }
 
   // Réponse impulsionnelle d'une plaine ouverte : quelques échos francs (lisière, village, colline), puis une queue
@@ -97,8 +107,8 @@ class AudioBoard {
     const t = this.ctx.currentTime;
     this.master.gain.cancelScheduledValues(t);
     this.master.gain.setTargetAtTime(m ? 0 : 0.8, t, 0.05);
-    if (m) this.stopAmbient();
-    else { this.ctx.resume(); this.ambient(this.ambWanted); }
+    if (m) { this.stopAmbient(); this.stopMusic(); this.stopRoom(); }
+    else { this.ctx.resume(); this.ambient(this.ambWanted); this.room(this.roomWanted); this.music(this.musWanted); }
   }
 
   // ---------- Briques ----------
@@ -348,7 +358,7 @@ class AudioBoard {
         play.call(this, t0 + Math.random() * dur * 0.3, dest, guns, s.kind === 'heavy');
       }
       else if (s.k === 'shell') { const t = at(0.7); this.whistle(t, 0.8, dest); this.blast(t + 0.8, 6, dest); }
-      else if (s.k === 'town') this.blast(t0, 24, dest, true);
+      else if (s.k === 'town') { this.blast(t0, 24, dest, true); this.telegram(t0 + 1.6, s.won ? 'VILLE PRISE' : 'VILLE PERDUE'); }
       else if (s.k === 'bridge') this.bridge(t0 + Math.random() * dur * 0.3, dest);
       else if (s.k === 'pocket') {
         this.burst(t0, { type: 'bandpass', f0: 1600, q: 0.8, peak: 0.1, attack: 0.01, decay: 0.18 }, dest);
@@ -841,11 +851,12 @@ class AudioBoard {
   // ---------- Fond sonore ----------
 
   // Le fond sonore suit la météo : pluie, vent de neige, calme du brouillard ; summer : juillet ou août (grillons et
-  // alouette par temps clair).
-  setWeather(kind, summer = false) {
-    if (kind === this.weather && summer === this.summer) return;
+  // alouette par temps clair) ; winter : novembre (le vent siffle, même sans neige).
+  setWeather(kind, summer = false, winter = false) {
+    if (kind === this.weather && summer === this.summer && winter === this.winter) return;
     this.weather = kind;
     this.summer = summer;
+    this.winter = winter;
     if (this.amb) { this.stopAmbient(); this.ambient(true); }
   }
 
@@ -876,6 +887,25 @@ class AudioBoard {
     });
     wind.connect(bp).connect(wg).connect(bus);
     const nodes = [wind, ...lfos];
+    // Hiver : deux sifflements dans les fils et les branches, à gauche et à droite. Le filtre étroit glisse au gré de
+    // deux oscillations lentes de périodes différentes, ce qui ne revient jamais tout à fait au même.
+    if (w === 'snow' || this.winter) {
+      for (const [pan, f0, a, b] of [[-0.5, 760, 0.13, 0.31], [0.45, 820, 0.17, 0.23]]) {
+        const n = this.src(this.noise, t, null, true), f = this.filter('bandpass', f0, 14), g = ctx.createGain();
+        g.gain.value = 0.11;
+        const mods = [[f.frequency, a, 190], [f.frequency, b, 110], [g.gain, a * 0.7, 0.07]].map(([param, fr, depth]) => {
+          const o = ctx.createOscillator(), d = ctx.createGain();
+          o.frequency.value = fr; d.gain.value = depth;
+          o.connect(d).connect(param); o.start(t);
+          return o;
+        });
+        const p = ctx.createStereoPanner?.();
+        n.connect(f).connect(g);
+        if (p) { p.pan.value = pan; g.connect(p).connect(bus); } else g.connect(bus);
+        if (this.verb) { const v = ctx.createGain(); v.gain.value = 0.25; g.connect(v).connect(this.verb); }
+        nodes.push(n, ...mods);
+      }
+    }
     // Pluie : bruit blanc adouci, régulier, avec un léger souffle de rafales.
     if (w === 'rain') {
       const rain = this.src(this.noise, t, null, true);
@@ -1014,6 +1044,317 @@ class AudioBoard {
     bus.gain.cancelScheduledValues(t);
     bus.gain.setTargetAtTime(0.0001, t, 0.3);
     for (const n of nodes) n.stop(t + 1.5);
+  }
+
+  // ---------- Musique, radio, QG ----------
+
+  // Enveloppe tenue, linéaire : nappes, cordes, cuivres.
+  held(g, t, peak, attack, dur, release) {
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(peak, t + attack);
+    g.gain.setValueAtTime(peak, t + Math.max(attack, dur - release));
+    g.gain.linearRampToValueAtTime(0, t + dur);
+  }
+
+  // Sortie vers un bus (musique, pièce du QG) plutôt que vers la sortie générale.
+  busOut(bus, pan, gain, wet) {
+    const g = this.ctx.createGain();
+    g.gain.value = gain;
+    const p = this.ctx.createStereoPanner?.();
+    if (p) { p.pan.value = pan; g.connect(p).connect(bus); } else g.connect(bus);
+    if (wet > 0 && this.verb) { const w = this.ctx.createGain(); w.gain.value = wet; g.connect(w).connect(bus.send); }
+    return g;
+  }
+
+  // Bus fondu à l'entrée, avec son propre envoi vers la réverbération (coupé avec lui).
+  makeBus(level) {
+    const ctx = this.ctx, t = ctx.currentTime, bus = ctx.createGain(), send = ctx.createGain();
+    bus.gain.setValueAtTime(0.0001, t);
+    bus.gain.exponentialRampToValueAtTime(level, t + 0.6);
+    send.gain.value = 1;
+    bus.connect(this.master);
+    if (this.verb) send.connect(this.verb);
+    bus.send = send;
+    return bus;
+  }
+
+  dropBus(bus, fade = 0.6) {
+    const t = this.ctx.currentTime;
+    for (const g of [bus, bus.send]) { g.gain.cancelScheduledValues(t); g.gain.setTargetAtTime(0.0001, t, fade / 3); }
+    setTimeout(() => { bus.disconnect(); bus.send.disconnect(); }, fade * 1000 + 400);
+  }
+
+  // Nappe : deux dents de scie désaccordées, filtrées.
+  pad(t, f, dur, { attack = 1, release = 1.4, peak = 0.06, cut = 900 }, dest) {
+    const g = this.ctx.createGain(), lp = this.filter('lowpass', cut, 0.5);
+    this.held(g, t, peak, attack, dur, release);
+    lp.connect(g).connect(dest);
+    for (const det of [-7, 6]) {
+      const o = this.ctx.createOscillator();
+      o.type = 'sawtooth'; o.frequency.value = f; o.detune.value = det;
+      o.connect(lp); o.start(t); o.stop(t + dur + 0.05);
+    }
+  }
+
+  // Corde frottée : dent de scie, vibrato, formant de caisse.
+  bow(t, f, dur, dest, { peak = 0.05, attack = 0.5, release = 0.7, cut = 2200 } = {}) {
+    const ctx = this.ctx, o = ctx.createOscillator(), lfo = ctx.createOscillator(), depth = ctx.createGain();
+    o.type = 'sawtooth'; o.frequency.value = f;
+    depth.gain.value = f * 0.006;
+    lfo.frequency.value = 5.3; lfo.connect(depth).connect(o.frequency);
+    const body = this.filter('peaking', 700, 1.2); body.gain.value = 5;
+    const g = ctx.createGain(); this.held(g, t, peak, attack, dur, release);
+    o.connect(this.filter('lowpass', cut, 0.6)).connect(body).connect(g).connect(dest);
+    o.start(t); lfo.start(t + 0.3); o.stop(t + dur + 0.05); lfo.stop(t + dur + 0.05);
+  }
+
+  // Cuivre : le filtre s'ouvre à l'attaque, comme un cor qu'on embouche.
+  brass(t, f, dur, dest, peak = 0.07) {
+    const ctx = this.ctx, o = ctx.createOscillator(), lp = this.filter('lowpass', 500, 1.5), g = ctx.createGain();
+    o.type = 'sawtooth'; o.frequency.value = f;
+    lp.frequency.setValueAtTime(400, t);
+    lp.frequency.linearRampToValueAtTime(1700, t + 0.12);
+    lp.frequency.linearRampToValueAtTime(1100, t + Math.max(0.2, dur - 0.1));
+    this.held(g, t, peak, 0.08, dur, Math.min(0.4, dur / 2));
+    o.connect(lp).connect(g).connect(dest);
+    o.start(t); o.stop(t + dur + 0.05);
+  }
+
+  piano(t, f, vel, dest) {
+    const lp = this.filter('lowpass', 2600 + vel * 1500, 0.5);
+    lp.connect(dest);
+    for (const [k, amp, dec] of [[1, 1, 2.6], [2, 0.45, 1.6], [3, 0.2, 0.9], [4, 0.1, 0.6]]) {
+      this.tone(t, { f0: f * k * (1 + (k - 1) * 0.0007), peak: 0.11 * vel * amp, attack: 0.004, decay: dec }, lp);
+    }
+    this.burst(t, { f0: Math.min(6000, f * 5), q: 1.5, peak: 0.02 * vel, attack: 0.002, decay: 0.03 }, lp);
+  }
+
+  timpani(t, f, peak, dest) {
+    this.tone(t, { f0: f * 1.06, f1: f, peak, attack: 0.006, decay: 1.6 }, dest);
+    this.burst(t, { type: 'lowpass', f0: 300, peak: peak * 0.5, attack: 0.002, decay: 0.25, buffer: this.brown }, dest);
+  }
+
+  // Cloche à partiels inharmoniques (sonnette de téléscripteur, de machine à écrire, de téléphone).
+  bellStrike(t, f, peak, dest) {
+    for (const [k, amp, d] of [[1, 1, 0.5], [2.76, 0.45, 0.22], [5.4, 0.22, 0.1]]) this.tone(t, { wave: 'triangle', f0: f * k, peak: peak * amp, attack: 0.002, decay: d }, dest);
+  }
+
+  // Frappe mécanique : claquement, coup sourd du marteau, tintement de métal.
+  clack(t, dest, k = 1) {
+    this.burst(t, { f0: 3400, q: 1.1, peak: 0.28 * k, attack: 0.002, decay: 0.022 }, dest);
+    this.tone(t, { wave: 'triangle', f0: 230, f1: 140, peak: 0.16 * k, attack: 0.004, decay: 0.035 }, dest);
+    this.tone(t + 0.004, { f0: 4800 + Math.random() * 800, peak: 0.025 * k, attack: 0.004, decay: 0.018 }, dest);
+  }
+
+  // Chaîne d'un poste radio ou d'un combiné : bande étroite et saturation.
+  radioChain(dest) {
+    const hp = this.filter('highpass', 380), lp = this.filter('lowpass', 2700, 0.9);
+    hp.connect(lp).connect(this.drive(dest));
+    return hp;
+  }
+
+  // Voix lointaine et indistincte : syllabes en dent de scie passées dans deux formants de voyelle.
+  babble(t, phrases, pitch, dest) {
+    const V = [[800, 1200], [500, 1800], [300, 2300], [500, 900], [330, 800], [420, 2000]];
+    for (const [a, b] of phrases) {
+      for (let tt = t + a; tt < t + b;) {
+        const d = 0.07 + Math.random() * 0.13, p = pitch * (0.92 + Math.random() * 0.2), [f1, f2] = V[(Math.random() * V.length) | 0];
+        const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+        o.type = 'sawtooth';
+        o.frequency.setValueAtTime(p, tt);
+        o.frequency.linearRampToValueAtTime(p * (0.85 + Math.random() * 0.27), tt + d);
+        this.held(g, tt, 0.45, 0.02, d, 0.035);
+        o.connect(this.filter('bandpass', f1, 5)).connect(g);
+        o.connect(this.filter('bandpass', f2, 7)).connect(g);
+        g.connect(dest);
+        o.start(tt); o.stop(tt + d + 0.05);
+        if (Math.random() < 0.4) this.burst(tt - 0.03, { type: 'highpass', f0: 3200, peak: 0.12, attack: 0.002, decay: 0.045 }, dest);
+        tt += d + 0.02 + Math.random() * 0.07;
+      }
+    }
+  }
+
+  // Musique : menu (choral des steppes, repris après un silence), briefing (piano du QG, une fois), ou rien.
+  // Jamais pendant la journée de combat ; demandée avant le premier geste, elle attend unlock().
+  music(kind) {
+    this.musWanted = kind;
+    if (this.mus?.kind === kind) return;
+    this.stopMusic();
+    if (!kind || !this.live) return;
+    const bus = this.makeBus(0.75), mus = this.mus = { kind, bus, timer: null };
+    const play = () => {
+      if (this.mus !== mus) return;
+      const t = this.ctx.currentTime + 0.1;
+      if (kind === 'menu') {
+        this.choral(t, bus);
+        mus.timer = setTimeout(play, 34000);
+      } else this.pianoTheme(t, bus);
+    };
+    play();
+  }
+
+  stopMusic() {
+    if (!this.mus) return;
+    clearTimeout(this.mus.timer);
+    this.dropBus(this.mus.bus, 1.5);
+    this.mus = null;
+  }
+
+  // Choral des steppes (14 s) : nappe de cordes en ré mineur, quatre accords, une ligne de violon au-dessus.
+  choral(t, bus) {
+    const d = this.busOut(bus, 0, 0.55, 0.7), lead = this.busOut(bus, 0.15, 0.5, 0.8);
+    [[50, 53, 57, 62], [46, 53, 58, 62], [43, 50, 55, 58], [45, 52, 57, 61]].forEach((c, i) => c.forEach((m) => this.pad(t + i * 3.2, mf(m), 4.2, { attack: 1.3, release: 1.6, peak: 0.055 }, d)));
+    for (const [m, s, l] of [[69, 0.8, 2.6], [70, 3.9, 2.4], [67, 7.1, 2.6], [69, 10.2, 3.4]]) this.bow(t + s, mf(m), l, lead);
+  }
+
+  // Piano du QG (14 s) : quelques notes espacées en la mineur, comme jouées dans la pièce voisine.
+  pianoTheme(t, bus) {
+    const d = this.busOut(bus, -0.1, 0.8, 0.55);
+    for (const [s, m] of [[0, 45], [3.2, 41], [6.4, 48], [9.6, 40], [12.4, 45]]) { this.piano(t + s, mf(m), 0.7, d); this.piano(t + s + 0.4, mf(m + 7), 0.45, d); }
+    for (const [s, m, v] of [[0.8, 76, 0.7], [1.6, 72, 0.6], [2.0, 71, 0.5], [2.4, 69, 0.6], [4.0, 72, 0.6], [4.8, 74, 0.6], [5.2, 72, 0.5], [5.6, 71, 0.55],
+      [7.2, 67, 0.6], [8.0, 69, 0.6], [8.8, 71, 0.65], [10.4, 69, 0.55], [11.2, 64, 0.5], [12.4, 69, 0.6]]) this.piano(t + s, mf(m), v, d);
+  }
+
+  // Quelques notes au bilan : journée gagnée (ré majeur qui s'ouvre, cor qui monte) ou perdue (bourdon, violoncelle
+  // qui descend). delay : après la cloche de fin de journée.
+  sting(won, delay = 1.1) {
+    if (!this.live) return;
+    const t = this.ctx.currentTime + delay, d = this.out(0, 0.6, 0.7);
+    if (won) {
+      for (const m of [50, 54, 57, 62]) this.pad(t, mf(m), 4.6, { attack: 0.9, release: 2, peak: 0.05, cut: 1200 }, d);
+      const h = this.out(0.1, 0.6, 0.75);
+      for (const [m, s, l] of [[62, 0.3, 0.5], [66, 0.8, 0.5], [69, 1.3, 0.5], [74, 1.8, 2.6]]) this.brass(t + s, mf(m), l, h, 0.06);
+      this.timpani(t + 1.8, 73, 0.3, d);
+    } else {
+      for (const m of [38, 45]) this.pad(t, mf(m), 6.8, { attack: 1.2, release: 2.4, peak: 0.06, cut: 420 }, d);
+      const c = this.out(-0.15, 0.7, 0.7);
+      for (const [m, s, l] of [[45, 0.4, 1.7], [43, 1.9, 1.7], [41, 3.4, 1.4], [40, 4.6, 2.3]]) this.bow(t + s, mf(m), l, c, { peak: 0.08, cut: 1400 });
+      this.timpani(t + 4.6, 55, 0.25, d);
+    }
+  }
+
+  // Télégramme en morse d'une ville qui tombe, au QG : porteuse qui ondule dans les parasites.
+  telegram(t, text) {
+    const d = this.out(-0.2, 0.55, 0.1), ch = this.radioChain(d), unit = 0.07;
+    const M = { V: '...-', I: '..', L: '.-..', E: '.', P: '.--.', R: '.-.', S: '...', D: '-..', U: '..-' };
+    let tt = t + 0.3;
+    const qsb = this.ctx.createGain();
+    qsb.connect(ch);
+    for (const w of text.split(' ')) {
+      for (const c of w) {
+        for (const k of M[c]) {
+          const len = k === '.' ? unit : unit * 3, o = this.ctx.createOscillator(), g = this.ctx.createGain();
+          o.frequency.value = 690;
+          g.gain.setValueAtTime(0, tt); g.gain.linearRampToValueAtTime(0.16, tt + 0.006);
+          g.gain.setValueAtTime(0.16, tt + len - 0.006); g.gain.linearRampToValueAtTime(0, tt + len);
+          o.connect(g).connect(qsb); o.start(tt); o.stop(tt + len + 0.01);
+          tt += len + unit;
+        }
+        tt += unit * 2;
+      }
+      tt += unit * 4;
+    }
+    for (let x = t; x < tt; x += 0.3) qsb.gain.setTargetAtTime(0.55 + Math.random() * 0.45, x, 0.15);
+    const hiss = this.src(this.noise, t, tt - t + 0.3), hg = this.ctx.createGain();
+    this.held(hg, t, 0.06, 0.15, tt - t + 0.3, 0.25);
+    hiss.connect(this.filter('bandpass', 1500, 0.4)).connect(hg).connect(ch);
+    for (let x = t; x < tt; x += 0.05 + Math.random() * 0.35) this.burst(x, { type: 'highpass', f0: 2500, peak: 0.02 + Math.random() * 0.1, attack: 0.001, decay: 0.004 }, ch);
+  }
+
+  // Téléscripteur : la réserve qu'on fait monter est confirmée par une ligne de frappe et un retour à la ligne.
+  teletype() {
+    if (!this.live) return;
+    const t = this.ctx.currentTime + 0.02, d = this.out(0.15, 0.6, 0.15);
+    const n = 6 + ((Math.random() * 4) | 0);
+    for (let i = 0; i < n; i++) this.clack(t + i * 0.09, d, 0.7 + Math.random() * 0.3);
+    for (let k = 0; k < 3; k++) this.clack(t + n * 0.09 + 0.08 + k * 0.04, d, 0.45);
+  }
+
+  // Pièce du QG : 'hq' le matin des ordres (téléphone de campagne, machine à écrire), 'stove' le soir du bilan
+  // (poêle qui crépite), ou rien.
+  room(kind) {
+    this.roomWanted = kind;
+    if (this.rm?.kind === kind) return;
+    this.stopRoom();
+    if (!kind || !this.live) return;
+    const bus = this.makeBus(kind === 'hq' ? 0.5 : 0.7), rm = this.rm = { kind, bus, timer: null };
+    if (kind === 'stove') return this.stove(rm);
+    // Le téléphone sonne une fois sur deux en arrivant au QG ; puis la machine à écrire, de loin en loin.
+    let first = 4 + Math.random() * 4;
+    if (Math.random() < 0.5) { this.phone(this.ctx.currentTime + 1.2, bus); first += 7; }
+    const type = () => {
+      if (this.rm !== rm) return;
+      if (!document.hidden) this.typewriter(this.ctx.currentTime + 0.05, bus, Math.random() < 0.35);
+      rm.timer = setTimeout(type, 12000 + Math.random() * 16000);
+    };
+    rm.timer = setTimeout(type, first * 1000);
+  }
+
+  stopRoom() {
+    if (!this.rm) return;
+    clearTimeout(this.rm.timer);
+    this.rm.nodes?.forEach((n) => n.stop(this.ctx.currentTime + 1.5));
+    this.dropBus(this.rm.bus, 1);
+    this.rm = null;
+  }
+
+  // Sonnerie à magnéto, deux fois, puis le combiné décroché : la ligne grésille, une voix lointaine.
+  phone(t, bus) {
+    const d = this.busOut(bus, 0.35, 0.75, 0.25);
+    for (const s of [0.2, 2.2]) for (let x = 0; x < 1.25; x += 0.045) this.bellStrike(t + s + x, 920, 0.07, d);
+    this.tone(t + 4.0, { f0: 150, f1: 90, peak: 0.3, attack: 0.004, decay: 0.08 }, d);
+    this.burst(t + 4.0, { type: 'lowpass', f0: 1200, peak: 0.15, attack: 0.002, decay: 0.05 }, d);
+    const ch = this.radioChain(this.busOut(bus, 0.35, 0.5, 0.05));
+    const line = this.src(this.noise, t + 4.1, 3.6), g = this.ctx.createGain();
+    this.held(g, t + 4.1, 0.05, 0.3, 3.6, 0.6);
+    line.connect(this.filter('bandpass', 1500, 0.6)).connect(g).connect(ch);
+    this.babble(t + 4.1, [[0.4, 1.6], [2.0, 3.0]], 135, ch);
+  }
+
+  // Machine à écrire : frappe par mots, barre d'espace plus sourde ; line : sonnette et retour du chariot.
+  typewriter(t, bus, line) {
+    const d = this.busOut(bus, -0.25, 0.85, 0.25);
+    let x = 0;
+    const words = 2 + ((Math.random() * 4) | 0);
+    for (let w = 0; w < words; w++) {
+      const n = 3 + ((Math.random() * 5) | 0);
+      for (let k = 0; k < n; k++) { this.clack(t + x, d, 0.75 + Math.random() * 0.25); x += 0.07 + Math.random() * 0.06; }
+      this.tone(t + x, { wave: 'triangle', f0: 150, f1: 110, peak: 0.18, attack: 0.004, decay: 0.05 }, d);
+      this.burst(t + x, { f0: 1800, q: 0.8, peak: 0.12, attack: 0.002, decay: 0.03 }, d);
+      x += 0.18 + Math.random() * 0.22;
+    }
+    if (!line) return;
+    this.bellStrike(t + x, 2600, 0.14, d);
+    for (let k = 0; k < 12; k++) this.burst(t + x + 0.5 + k * 0.04, { f0: 2600, q: 2, peak: 0.08, attack: 0.002, decay: 0.012 }, d);
+  }
+
+  // Poêle du soir : grondement du feu dans la fonte, crépitements, une bûche qui éclate, le métal qui travaille.
+  stove(rm) {
+    const ctx = this.ctx, t = ctx.currentTime, d = this.busOut(rm.bus, -0.2, 1, 0.2);
+    const roar = this.src(this.brown, t, null, true), rg = ctx.createGain(), lfo = ctx.createOscillator(), lg = ctx.createGain();
+    rg.gain.value = 0.18;
+    lfo.frequency.value = 0.6; lg.gain.value = 0.05;
+    lfo.connect(lg).connect(rg.gain);
+    roar.connect(this.filter('lowpass', 260)).connect(rg).connect(d);
+    lfo.start(t);
+    rm.nodes = [roar, lfo];
+    const crackle = () => {
+      if (this.rm !== rm) return;
+      if (document.hidden) { rm.timer = setTimeout(crackle, 2000); return; }
+      const t1 = this.ctx.currentTime + 0.05;
+      for (let x = Math.random() * 0.2; x < 2; x += -Math.log(1 - Math.random()) / 8) {
+        const cl = Math.random() < 0.12 ? 5 : 1;
+        for (let k = 0; k < cl; k++) this.burst(t1 + x + k * (0.01 + Math.random() * 0.02), { type: 'highpass', f0: 1200 + Math.random() * 3000, peak: Math.random() ** 2 * 0.22 + 0.01, attack: 0.001, decay: 0.002 + Math.random() * 0.008 }, d);
+      }
+      if (Math.random() < 0.25) {
+        const tp = t1 + Math.random() * 1.5;
+        this.burst(tp, { f0: 900, q: 1, peak: 0.3, attack: 0.002, decay: 0.04 }, d);
+        this.tone(tp, { f0: 420, f1: 190, peak: 0.12, attack: 0.004, decay: 0.05 }, d);
+      }
+      if (Math.random() < 0.15) this.tone(t1 + Math.random() * 1.5, { f0: 2900 + Math.random() * 600, peak: 0.02, attack: 0.004, decay: 0.06 }, d);
+      rm.timer = setTimeout(crackle, 2000);
+    };
+    crackle();
   }
 
   // ---------- Interface ----------

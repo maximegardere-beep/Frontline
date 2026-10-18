@@ -98,6 +98,12 @@ const fui = {
 export const frontActive = () => !!fui.front && !byId('front-app').hidden;
 // Fond sonore : seulement pendant la journée, carte visible.
 export const frontAmbient = () => frontActive() && byId('overlay').hidden && fui.front?.phase === 'resolve';
+// Pièce du QG : le matin des ordres (déploiement compris), puis le poêle pendant le bilan du soir.
+export function frontRoom() {
+  if (!frontActive()) return null;
+  if (!byId('overlay').hidden) return fui.evening ? 'stove' : null;
+  return fui.front.phase === 'plan' ? 'hq' : null;
+}
 
 const men = (d) => Math.round(d * (fui.front?.cfg.men ?? 10));
 const fmtMen = (n) => `${(Math.round(n / 100) * 100).toLocaleString('fr-FR')} h`;
@@ -119,7 +125,7 @@ export function openFront(sideCode, seed, year = DEFAULT_YEAR) {
   const season = rng.weighted(sc.seasons);
   const front = createFront({ seed, playerSide: sideCode, attacker, biome, season: Number(season), year, setup: { atoutsManual: true } });
   installAI(front);
-  Object.assign(fui, { front, seed, side: sideIndex(sideCode), tool: null, pending: null, breakout: null, probe: null, alerts: [], acc: 0, skip: false, ending: false, showAll: false, tab: 'orders', hoverPoint: null });
+  Object.assign(fui, { front, seed, side: sideIndex(sideCode), tool: null, pending: null, breakout: null, probe: null, alerts: [], acc: 0, skip: false, ending: false, showAll: false, tab: 'orders', hoverPoint: null, evening: false, sung: false });
   fui.r.setMap(front);
   fui.r.resize();
   fui.r.initialView(sideCode);
@@ -203,6 +209,7 @@ function showFrontBriefing() {
   const f = fui.front;
   const s = fui.side;
   const att = f.attacker === s;
+  sound.music('briefing');
   fui.hooks.showDossier(`
     <p class="eyebrow">Front stratégique · ${escHtml(SEASON[f.season].month.replace('1943', f.year))} · ${f.cfg.days} jours</p>
     <h1 class="title-l">${escHtml(f.map.name)}</h1>
@@ -457,6 +464,10 @@ function showDayReport() {
   const pct = (x) => `${x >= 0 ? '+' : '−'}${Math.abs(x).toFixed(1).replace('.', ',')} %`;
   const stat = (v, l, cls = '') => `<div class="f-stat ${cls}"><b>${v}</b><span>${l}</span></div>`;
   const w = FRONT_WEATHER[f.weather];
+  // Quelques notes si la journée a tranché (score, sinon terrain) ; au dernier soir, la musique attend le rapport final.
+  const gain = (att ? 1 : -1) * (sc.total - d.score), day = Math.abs(gain) >= 0.5 ? gain : Math.abs(terr) >= 0.5 ? terr : 0;
+  if (day && f.phase !== 'over') sound.sting(day > 0);
+  fui.evening = true;
   fui.hooks.showDossier(`
     <p class="eyebrow">${escHtml(f.map.name)} · bilan du soir</p>
     <h1 class="title-l">Jour ${d.day} / ${f.cfg.days}</h1>
@@ -475,6 +486,7 @@ function showDayReport() {
     ${myPockets.length && f.phase !== 'over' ? `<p class="warn-note">${myPockets.length > 1 ? `${myPockets.length} poches attendent` : 'Une poche attend'} vos ordres.</p>` : ''}
     <div class="row-end"><button class="btn btn-primary" id="f-next">${f.phase === 'over' ? 'Résultat' : `Ordres du jour ${f.day}`}</button></div>
   `, () => byId('f-next').addEventListener('click', () => {
+    fui.evening = false;
     if (f.phase === 'over') return showFrontDebrief();
     fui.hooks.hideDossier();
     sound.ui('select');
@@ -500,6 +512,8 @@ function showFrontDebrief() {
   const sc = scoreBreakdown(f, true);
   const g = gradeFor(f, f.result.grade ?? sc.grade);
   fui.showAll = true;
+  fui.evening = false;
+  if (!fui.sung && !draw) { fui.sung = true; sound.sting(won, 0.3); }
   resnap();
   drawFront();
   const L = f.stats.losses;
@@ -712,6 +726,7 @@ function onTap(p) {
     const r = deployReserve(f, s, i, f.cfg.chunk);
     if (!fail(r)) {
       placed(`+${fmtMen(men(r.amount))} · réserves ${fmtMen(men(f.reserve[s]))}.`);
+      sound.teletype();
       fui.probe = { ...cellPoint(i), r: 2.5 };
       resnap();
     }
@@ -1152,7 +1167,7 @@ function tickSounds(events, tick, T) {
     }
   }
   for (const e of events) {
-    if (e.kind === 'capture' && f.map.towns.some((t) => t.i === e.i)) items.push({ k: 'town', ...frontLocate(f.centers.x[e.i], f.centers.y[e.i]) });
+    if (e.kind === 'capture' && f.map.towns.some((t) => t.i === e.i)) items.push({ k: 'town', won: e.side === s, ...frontLocate(f.centers.x[e.i], f.centers.y[e.i]) });
     else if (e.kind === 'pocket' && (e.side === s || f.pockets[e.side].some((p) => p.id === e.id && p.troops >= 20))) items.push({ k: 'pocket', pan: 0, gain: 0.8 });
     else if (e.kind === 'bridge' && (e.side === s || f.vision[s][e.i])) items.push({ k: 'bridge', ...frontLocate(f.centers.x[e.i], f.centers.y[e.i]) });
   }
@@ -1293,7 +1308,7 @@ function refreshFront() {
   byId('f-goal').innerHTML = `<span class="star">★</span> ${obj}/${f.defTowns.length}${compact ? '' : ` ${noun.split(' ').pop()}`} · ${signed(sc.total)}`;
   byId('f-goal').title = `${noun[0].toUpperCase()}${noun.slice(1)} : ${obj} sur ${f.defTowns.length}. Score de l'offensive : ≈ ${signed(sc.total)}${sc.max ? ' points de quartiers gagnés' : ''} (${GRADES[sc.grade].label.toLowerCase()}).`;
   fui.weather.set(f.weather, 'day');
-  sound.setWeather(f.weather, f.season <= 1); // juillet, août : la steppe en été
+  sound.setWeather(f.weather, f.season <= 1, f.season >= 4); // juillet, août : la steppe en été ; novembre : le vent siffle
   const go = byId('f-go');
   byId('f-go-label').textContent = fui.placing && f.phase === 'plan' ? 'Terminer le déploiement' : f.phase === 'plan' ? `Lancer le jour ${f.day}` : 'Rapport final';
   go.title = f.phase === 'plan' ? `Lancer le jour ${f.day} (Entrée)` : 'Rapport final';

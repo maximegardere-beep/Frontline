@@ -14,7 +14,7 @@ import { unitStats, UNIT_TYPES, LEVELS, SIDES, other, hpState, resetIds, XP_FOR_
 import { tileAt, describeTile, terrainDefense } from './terrain.js';
 import { hexDistance, hexToPixel, sameHex } from './hex.js';
 import { newCampaign, battleSetup, concludeBattle, campaignOver, campaignVerdict, CAMPAIGN_LENGTH, KIND_LABELS } from './campaign.js';
-import { initFront, openFront, closeFront, frontActive, frontAmbient, frontRules } from './frontui.js';
+import { initFront, openFront, closeFront, frontActive, frontAmbient, frontRoom, frontRules } from './frontui.js';
 import { SCENARIOS, DEFAULT_YEAR } from './frontscenario.js';
 
 // Année du front stratégique choisie au menu (mémorisée).
@@ -86,9 +86,12 @@ function showDossier(html, bind) {
 }
 function hideDossier() { $('overlay').hidden = true; syncAmbient(); }
 
-// Fond sonore (vent, canonnade lointaine) seulement sur le champ de bataille, pas derrière les menus.
+// Fond sonore (vent, canonnade lointaine) seulement sur le champ de bataille, pas derrière les menus ; la pièce du QG
+// le matin des ordres et au bilan du soir ; la musique se tait dès que la carte reprend la main.
 function syncAmbient() {
   sound.ambient(frontActive() ? frontAmbient() : !!ui.inGame && $('overlay').hidden && ui.state?.phase !== 'over');
+  sound.room(frontRoom());
+  if ($('overlay').hidden) sound.music(null);
 }
 
 // Quitte le front stratégique pour le mode tactique (le menu reste ouvert par-dessus).
@@ -106,6 +109,7 @@ const FACTION_TEXT = {
 // Menu du front stratégique, mode principal tant que le tactique est débranché.
 function showFrontMenu() {
   const seed = Math.random().toString(36).slice(2, 7).toUpperCase();
+  sound.music('menu');
   showDossier(`
     <p class="eyebrow">Front de l'Est · 1941-1944</p>
     <h1 class="title-xl">Frontline</h1>
