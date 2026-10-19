@@ -90,8 +90,12 @@ défenseur, est tiré de la graine et annoncé au briefing, avec l'objectif : le
 - **Les cours d'eau** : une rivière ne se franchit que sur ses ponts (ou gelée) ; ses cases n'appartiennent à
   personne et le front s'arrête sur les rives. Un barrage fait sauter un pont. Les ruisseaux ralentissent la
   progression et donnent +15 % de défense à qui tient leurs berges.
-- **Le matin**, le jeu attend vos ordres. Choisir un outil en bas de la carte, puis toucher le départ et la cible :
-  le jeu prend lui-même la case la plus pertinente autour du doigt (on peut déplacer la carte entre les deux appuis).
+- **Le matin**, le jeu attend vos ordres. Les outils sont deux rails d'icônes au bord de la carte : à gauche
+  Manœuvre (Infanterie, Blindés, Fixer, Repli) et Renforts (Réserves, Paras, Pont), à droite Feux (Barrage, Salve,
+  Air). Une pastille au coin de l'icône dit ce qu'il en reste ; le nom, la touche et le détail s'affichent au survol.
+  Sur téléphone, les rails restent sur la carte et défilent s'ils ne tiennent pas. Choisir un outil, puis toucher le
+  départ et la cible : le jeu prend lui-même la case la plus pertinente autour du doigt (on peut déplacer la carte
+  entre les deux appuis).
   La barre sous la carte reste muette : elle ne s'affiche que pour une consigne courte, une erreur, la confirmation
   d'un ordre (quelques secondes) ou l'estimation d'une zone touchée.
 
@@ -108,6 +112,10 @@ défenseur, est tiré de la graine et annoncé au briefing, avec l'objectif : le
   autour de son départ : là où il prend, le front se dégarnit. Sans ordre, les troupes colmatent d'elles-mêmes
   les secteurs menacés. L'onglet Ordres liste les ordres du jour (✕ pour en retirer un) et propose de reprendre
   ceux de la veille.
+- **Regroupement de nuit** : chaque nuit, l'état-major de chaque camp prélève des troupes sur son secteur le plus
+  calme pour renforcer le plus menacé, le long de ses lignes ; une route tenue porte beaucoup plus loin et davantage
+  qu'à travers champs. Au matin, une flèche bleue montre le chemin (« −N h » au départ, « +N h » à l'arrivée) et
+  l'onglet Ordres le liste. Un PC désorganisé l'empêche.
 - **Toucher la carte** sans outil : vos troupes comptées dans la zone, l'ennemi estimé en fourchette
   (« 1 000 à 1 800 hommes »).
 - **Poches** : des troupes coupées de leur bord de carte fondent d'environ 30 % par jour. Chaque matin, pour

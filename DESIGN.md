@@ -248,7 +248,8 @@ partagés. Entrée « Front stratégique » au menu, sous les deux camps du mode
 - Briefing : rôle tiré de la graine (attaquant ou défenseur), objectif en villes ★, forces, renseignement en
   fourchette, biome, mois et météo du jour.
 - Matin : barre de six outils en bas de carte (infanterie, blindés, repli, ligne, barrage, réserves), chacun avec
-  ce qu'il en reste pour la journée ; raccourcis 1 à 6, Échap, Entrée. Deux appuis pour les vecteurs et les
+  ce qu'il en reste pour la journée ; raccourcis 1 à 6, Échap, Entrée. (Remplacée depuis par deux rails d'icônes au
+  bord de la carte : voir « Rails d'ordres ».) Deux appuis pour les vecteurs et les
   lignes (on peut déplacer la carte entre les deux), un seul pour le barrage et les réserves (l'outil réserves
   reste actif : un appui, 800 hommes). Le jeu choisit la case autour du doigt (rayon ~32 px d'écran) : la plus
   garnie au contact pour un vecteur, une case ravitaillée au contact pour les réserves, la plus proche dans nos
@@ -547,12 +548,13 @@ densités. Le moteur garde des points d'accroche pour cela.
   0,25, une case de steppe 1, la forêt et le marais davantage ; une nuit permet un coût de 6 (≈ 24 cases par la
   route, 6 à travers champs). Un chemin à plus de 50 % sur route transporte jusqu'à 600 hommes, sinon 150. On prélève
   au plus la moitié de chaque case autour du départ (2 cases), on dépose autour de l'arrivée.
-- Le matin, outil « Transfert » (touche 8, 3 par matin) : les troupes ont marché pendant la nuit, le transfert
-  s'applique tout de suite et s'annule depuis la liste des ordres. La nuit, l'état-major de chaque camp (1 transfert
-  pour le joueur, 2 pour l'IA) prélève sur son secteur le plus calme pour le plus menacé (bandes de 8 lignes ;
-  menace = densité ennemie connue au contact / nos troupes au contact, à partir de 0,7).
+- La nuit (`staffNight`), l'état-major de chaque camp (1 regroupement pour le camp du joueur, 2 pour l'IA) prélève sur
+  son secteur le plus calme pour le plus menacé (bandes de 8 lignes ; menace = densité ennemie connue au contact / nos
+  troupes au contact, à partir de 0,7). Pas sans PC en état (`staffBlocked`). Notés dans `front.nightMoves`.
+- Le joueur n'a plus d'outil « Transfert » (ancienne touche 8) : redondant avec les vecteurs et les réserves, il
+  chargeait la barre d'ordres. Le regroupement reste l'affaire de l'état-major.
 - Rendu : le matin, flèche le long du chemin (épaisse par la route, pointillée à travers champs), « −N h » au départ et
-  « +N h » à l'arrivée ; les transferts de l'état-major sont marqués comme tels.
+  « +N h · état-major » à l'arrivée ; la ligne « Regroupement de l'état-major » dans l'onglet Ordres.
 - Mesure (42 batailles IA contre IA) : 8 regroupements de l'état-major par bataille et par carte en moyenne, la moitié
   par la route ; équilibre inchangé (attaquant 15, défenseur 17).
 
@@ -1429,3 +1431,18 @@ Un nouveau biome du front stratégique où la ville n'est plus un point à prend
   vert vif qui pulse (percée), barre orange en travers (piétinement), chevron rouge à rebours (recul), cercle gris
   (ordre retenu par le PC). Quand l'attaque progresse, un trait pointillé fin mène à un chevron ouvert : là où elle sera
   ce soir à ce rythme. Repli et fixation, qui ne cherchent pas de terrain, gardent leur tracé.
+
+### Rails d'ordres
+
+- La barre d'outils du bas (dix étiquettes serrées, illisibles sur téléphone) devient deux rails verticaux d'icônes,
+  posés sur la carte (`#f-tools`, `.order-rails`) : à gauche Manœuvre (Infanterie, Blindés, Fixer, Repli) puis
+  Renforts (Réserves, Paras, Pont), séparés d'un filet ; à droite, au bord de la carte et non du panneau, Feux
+  (Barrage, Salve, Air). Rails centrés verticalement, défilant s'ils ne tiennent pas ; affichés aux mêmes conditions
+  que l'ancienne barre (matin, hors placement).
+- Icônes SVG au trait (`currentColor`, 22 px) : symboles OTAN pour l'infanterie et les blindés, flèche contre un mur
+  (fixer), flèche qui revient (repli), chevrons qui montent (réserves), parachute, pont sur l'eau, éclat (barrage),
+  roquettes en salve, avion. Liseré de couleur de l'ordre côté bord de carte. `title` et `aria-label` : nom et touche
+  (« Infanterie (1) ») ; l'info-bulle ajoute le détail (troupes engagées, restants, réserve en hommes).
+- Pastille au coin de l'icône (côté carte) : ce qui reste, en court (« 12k » pour la réserve) ; barrages en ●●○ sous
+  l'icône. Blindés : une seconde pastille rouge (rang / nombre) dit quelle formation est choisie, l'info-bulle la nomme.
+- Téléphone (portrait et paysage bas) : cibles de 42 et 40 px. La barre d'aide se décale pour passer entre les rails.

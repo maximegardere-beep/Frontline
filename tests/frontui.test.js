@@ -111,6 +111,24 @@ test('interface : chaque élément cherché par le contrôleur existe dans la pa
   }
   for (const tool of ['infantry', 'armor', 'retreat', 'barrage', 'reserve']) assert.ok(html.includes(`data-tool="${tool}"`), tool);
   assert.ok(!html.includes('data-tool="line"'), 'plus d\'outil « Ligne » : les ouvrages viennent des bataillons de soutien');
+  assert.ok(!html.includes('data-tool="transfer"'), 'plus de transfert du joueur : seul l\'état-major regroupe la nuit');
+});
+
+test('rails d\'ordres : Manœuvre et Renforts à gauche, Feux à droite, icônes nommées avec leur touche', () => {
+  const html = readFileSync(`${root}index.html`, 'utf8');
+  const rail = (cls) => html.slice(html.indexOf(`order-rail ${cls}`), html.indexOf('order-rail', html.indexOf(`order-rail ${cls}`) + 12));
+  const tools = (s) => [...s.matchAll(/data-tool="(\w+)"/g)].map((m) => m[1]);
+  assert.deepEqual(tools(rail('rail-l')), ['infantry', 'armor', 'fix', 'retreat', 'reserve', 'drop', 'pontoon']);
+  assert.deepEqual(tools(rail('rail-r')), ['barrage', 'salvo', 'air']);
+  for (const g of ['Manœuvre', 'Renforts', 'Feux']) assert.ok(html.includes(`role="group" aria-label="${g}"`), g);
+  assert.ok(!html.includes('order-bar') && !html.includes('tool-l'), 'plus de barre du bas ni d\'étiquettes');
+  for (const m of html.matchAll(/<button class="otool"[^>]*>.*?<\/button>/g)) {
+    const b = m[0];
+    const label = b.match(/aria-label="([^"]+)"/)?.[1];
+    assert.match(label ?? '', /^\S.* \(\w\)$/, `${b.slice(0, 60)} : nom et touche`);
+    assert.ok(b.includes(`title="${label}"`), `${label} : info-bulle`);
+    assert.ok(b.includes('<svg') && b.includes('class="tool-n"'), `${label} : icône et pastille`);
+  }
 });
 
 test('fichier unique : les modules assemblés se compilent (pas de nom déclaré deux fois)', () => {

@@ -13,7 +13,7 @@ import { findPockets, bfsDistance } from './path.js';
 import { emptyField, frontNeed, frontTick } from './combat.js';
 import { FRONT_TRAITS, scenarioOf, DEFAULT_YEAR } from './frontscenario.js';
 import { initSupply, updateSupplyK, advanceRails, restTroops } from './frontsupply.js';
-import { staffNight, undoTransfer } from './frontnight.js';
+import { staffNight } from './frontnight.js';
 import { createArmor, armorAfter, armorNight, updateArmorSightings, ARMOR_SETUP } from './frontarmor.js';
 import { WORKS, initWorks, defenderBelt, barrageWorks, captureWorks, buildTick, trenchFor } from './frontworks.js';
 import { initScore, eveningScore, noteCapture, scoreBreakdown, GRADES } from './frontscore.js';
@@ -153,8 +153,7 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
     air: [[], []], // missions aériennes du jour (frontair.js)
     lineMask: new Uint8Array(N), // cases couvertes par une ligne de défense aujourd'hui
     deployments: [[], []],
-    transfers: [[], []], // regroupements : tracés le matin, ou de l'état-major la nuit (frontnight.js)
-    nightMoves: [], // transferts de l'état-major la nuit dernière (affichés à l'aube)
+    nightMoves: [], // regroupements de l'état-major la nuit dernière, des deux camps (frontnight.js, affichés à l'aube)
     supplied: [new Uint8Array(N), new Uint8Array(N)],
     pockets: [[], []],
     pocketTag: [new Int32Array(N), new Int32Array(N)],
@@ -565,7 +564,6 @@ export function removeOrder(front, s, id) {
   front.orders[s] = front.orders[s].filter((v) => v.id !== id);
   front.lines[s] = front.lines[s].filter((v) => v.id !== id);
   front.barrages[s] = front.barrages[s].filter((v) => v.id !== id);
-  undoTransfer(front, s, id);
   front.air[s] = front.air[s].filter((m) => m.id !== id);
   front.pontoonOrders[s] = front.pontoonOrders[s].filter((o) => o.id !== id);
   removeSpecial(front, s, id);
@@ -1104,7 +1102,6 @@ function endDay(front) {
   armorNight(front);
   advanceRails(front);
   restTroops(front);
-  front.transfers = [[], []];
   staffNight(front); // regroupement de nuit (pas sans PC en état)
   hqNight(front);
   supportNight(front);

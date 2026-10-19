@@ -105,7 +105,7 @@ export function addAirMission(front, s, p) {
   return m;
 }
 
-// Déplacement d'une DCA, la nuit (appliqué le matin, comme les transferts).
+// Déplacement d'une DCA, la nuit (appliqué le matin).
 export function moveAA(front, s, id, p) {
   if (front.phase !== 'plan') return { error: 'La DCA se déplace la nuit : donnez l\'ordre le matin.' };
   const a = front.aa.find((x) => x.id === id && x.side === s && !x.lost);

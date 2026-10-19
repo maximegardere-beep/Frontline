@@ -109,18 +109,27 @@
     <section class="board" aria-label="Carte du front">
       <canvas id="f-map" class="map-canvas"></canvas>
       <canvas id="f-weather" class="weather-canvas" aria-hidden="true"></canvas>
-      <div class="order-bar" id="f-tools" role="toolbar" aria-label="Ordres du matin">
-        <button class="otool" data-tool="infantry" aria-pressed="false" title="Vecteur d'infanterie (1)"><span class="tool-l">Inf.</span><span class="tool-n"></span></button>
-        <button class="otool" data-tool="armor" aria-pressed="false" title="Percée blindée (2)"><span class="tool-l" data-s="Chars">Blindés</span><span class="tool-n"></span></button>
-        <button class="otool" data-tool="retreat" aria-pressed="false" title="Repli ordonné (3)"><span class="tool-l">Repli</span><span class="tool-n"></span></button>
-        <button class="otool" data-tool="fix" aria-pressed="false" title="Fixer l'ennemi (7)"><span class="tool-l">Fixer</span><span class="tool-n"></span></button>
-        <button class="otool" data-tool="barrage" aria-pressed="false" title="Barrage focalisé (5) : trois par bataille"><span class="tool-l" data-s="Barr.">Barrage</span><span class="tool-n"></span></button>
-        <button class="otool" data-tool="air" aria-pressed="false" title="Aviation (9)"><span class="tool-l">Air</span><span class="tool-n"></span></button>
-        <button class="otool" data-tool="reserve" aria-pressed="false" title="Faire monter les réserves (6)"><span class="tool-l" data-s="Rés.">Réserves</span><span class="tool-n"></span></button>
-        <button class="otool" data-tool="salvo" aria-pressed="false" title="Salve de lance-roquettes (R)" hidden><span class="tool-l">Salve</span><span class="tool-n"></span></button>
-        <button class="otool" data-tool="drop" aria-pressed="false" title="Largage de parachutistes (L)" hidden><span class="tool-l">Paras</span><span class="tool-n"></span></button>
-        <button class="otool" data-tool="pontoon" aria-pressed="false" title="Pont de bateaux du génie (G)" hidden><span class="tool-l">Pont</span><span class="tool-n"></span></button>
-        <button class="otool" data-tool="transfer" aria-pressed="false" title="Regroupement de nuit (8)"><span class="tool-l">Transf.</span><span class="tool-n"></span></button>
+      <div class="order-rails" id="f-tools" role="toolbar" aria-label="Ordres du matin" aria-orientation="vertical">
+        <div class="order-rail rail-l">
+          <div class="tool-group" role="group" aria-label="Manœuvre" title="Manœuvre">
+            <button class="otool" data-tool="infantry" aria-pressed="false" title="Infanterie (1)" aria-label="Infanterie (1)"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="1"/><path d="M3 6l18 12M21 6L3 18"/></svg><span class="tool-n"></span></button>
+            <button class="otool" data-tool="armor" aria-pressed="false" title="Blindés (2)" aria-label="Blindés (2)"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="1"/><rect x="6.5" y="9.5" width="11" height="5" rx="2.5"/></svg><span class="tool-n"></span><span class="tool-f"></span></button>
+            <button class="otool" data-tool="fix" aria-pressed="false" title="Fixer (7)" aria-label="Fixer (7)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h10M9.5 8l4 4-4 4M17 5v14M20.5 5v14"/></svg><span class="tool-n"></span></button>
+            <button class="otool" data-tool="retreat" aria-pressed="false" title="Repli (3)" aria-label="Repli (3)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 18v-6a4 4 0 0 0-4-4H5"/><path d="M9 4L5 8l4 4"/></svg><span class="tool-n"></span></button>
+          </div>
+          <div class="tool-group" role="group" aria-label="Renforts" title="Renforts">
+            <button class="otool" data-tool="reserve" aria-pressed="false" title="Réserves (6)" aria-label="Réserves (6)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 19l7-6 7 6M5 12l7-6 7 6"/></svg><span class="tool-n"></span></button>
+            <button class="otool" data-tool="drop" aria-pressed="false" title="Parachutistes (L)" aria-label="Parachutistes (L)" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10a9 6.5 0 0 1 18 0z"/><path d="M3 10l7.6 8M21 10l-7.6 8M12 10v8"/><circle cx="12" cy="20" r="1.6"/></svg><span class="tool-n"></span></button>
+            <button class="otool" data-tool="pontoon" aria-pressed="false" title="Pont de bateaux (G)" aria-label="Pont de bateaux (G)" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 9h20M5 9v6M12 9v6M19 9v6"/><path d="M2 19c2-1.4 4-1.4 6 0s4 1.4 6 0 4-1.4 6 0"/></svg><span class="tool-n"></span></button>
+          </div>
+        </div>
+        <div class="order-rail rail-r">
+          <div class="tool-group" role="group" aria-label="Feux" title="Feux">
+            <button class="otool" data-tool="barrage" aria-pressed="false" title="Barrage (5)" aria-label="Barrage (5)"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4M5.3 5.3l2.8 2.8M15.9 15.9l2.8 2.8M5.3 18.7l2.8-2.8M15.9 8.1l2.8-2.8"/></svg><span class="tool-n"></span></button>
+            <button class="otool" data-tool="salvo" aria-pressed="false" title="Salve de lance-roquettes (R)" aria-label="Salve de lance-roquettes (R)" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 13l8-8M7 17l8-8M11 21l8-8"/><path d="M8 5h3v3M12 9h3v3M16 13h3v3"/></svg><span class="tool-n"></span></button>
+            <button class="otool" data-tool="air" aria-pressed="false" title="Aviation (9)" aria-label="Aviation (9)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5c.9 0 1.3 1 1.3 2.5v4l7.7 3.5v2l-7.7-2v4.5l2.5 2v1.5L12 19.5l-3.8 1V19l2.5-2v-4.5L3 14.5v-2L10.7 9V5c0-1.5.4-2.5 1.3-2.5z"/></svg><span class="tool-n"></span></button>
+          </div>
+        </div>
       </div>
       <div class="street-ring" id="f-street-ring" hidden></div>
       <div class="street-pop" id="f-street" role="dialog" aria-labelledby="f-street-title" hidden></div>

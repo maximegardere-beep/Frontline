@@ -506,54 +506,90 @@ kbd {
 .variant-note { margin: 0 0 8px; padding: 4px 8px; border-left: 3px solid #d9b44a; background: rgba(217, 180, 74, 0.12); font-size: 13px; }
 
 /* ---------- Front stratégique ---------- */
-.order-bar {
+/* Ordres du matin : deux rails d'icônes au bord de la carte (Manœuvre et Renforts à gauche, Feux à droite). Le
+   conteneur couvre la carte sans capter les appuis ; seuls les rails les reçoivent. */
+.order-rails { position: absolute; inset: 0; pointer-events: none; }
+.order-rail {
   position: absolute;
-  left: max(10px, env(safe-area-inset-left, 0px));
-  right: 10px;
+  top: 10px;
   bottom: 10px;
-  max-width: 600px;
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(0, 1fr);
-  gap: 4px;
+  height: max-content;
+  max-height: calc(100% - 20px);
+  margin-block: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
   padding: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
   border: 1px solid rgba(0, 0, 0, 0.5);
   border-radius: 4px;
   background: rgba(44, 49, 36, 0.92);
+  pointer-events: auto;
 }
+.order-rail::-webkit-scrollbar { display: none; }
+.rail-l { left: max(10px, env(safe-area-inset-left, 0px)); }
+.rail-r { right: 10px; }
+.tool-group { display: flex; flex-direction: column; gap: 4px; }
+.tool-group + .tool-group { padding-top: 5px; border-top: 1px solid rgba(233, 227, 205, 0.22); }
 .otool {
-  min-height: 46px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1px;
-  padding: 3px 2px;
+  --acc: var(--line);
+  position: relative;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
   border: 1px solid var(--line);
-  border-bottom-width: 3px;
   border-radius: 3px;
   background: var(--desk-3);
+  color: var(--text);
   cursor: pointer;
-  min-width: 0;
 }
-.otool[data-tool="infantry"] { border-bottom-color: #c0392b; }
-.otool[data-tool="armor"] { border-bottom-color: #e0623f; }
-.otool[data-tool="retreat"] { border-bottom-color: #b58a2e; }
-.otool[data-tool="fix"] { border-bottom-color: #c98a5a; }
-.otool[data-tool="line"] { border-bottom-color: #4f7db0; }
-.otool[data-tool="barrage"] { border-bottom-color: #8d6a9f; }
-.otool[data-tool="reserve"] { border-bottom-color: #7fbf4d; }
-.otool[data-tool="transfer"] { border-bottom-color: #8fb3d9; }
-.otool[data-tool="air"] { border-bottom-color: #d9d2b0; }
-.otool[data-tool="pontoon"] { border-bottom-color: #6894aa; }
+/* Liseré de couleur de l'ordre, côté bord de carte. */
+.rail-l .otool { border-left: 3px solid var(--acc); }
+.rail-r .otool { border-right: 3px solid var(--acc); }
+.otool svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.otool[data-tool="infantry"] { --acc: #c0392b; }
+.otool[data-tool="armor"] { --acc: #e0623f; }
+.otool[data-tool="retreat"] { --acc: #b58a2e; }
+.otool[data-tool="fix"] { --acc: #c98a5a; }
+.otool[data-tool="line"] { --acc: #4f7db0; }
+.otool[data-tool="barrage"] { --acc: #8d6a9f; }
+.otool[data-tool="reserve"] { --acc: #7fbf4d; }
+.otool[data-tool="air"] { --acc: #d9d2b0; }
+.otool[data-tool="pontoon"] { --acc: #6894aa; }
+.otool[data-tool="salvo"] { --acc: #c4573a; }
+.otool[data-tool="drop"] { --acc: #9fb37a; }
 .otool[hidden] { display: none; }
 .otool[aria-pressed="true"] { background: var(--paper); color: var(--ink); }
 .otool:disabled { opacity: 0.4; cursor: default; }
 .otool:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
-.tool-l { font: 600 13px/1.1 var(--f-body); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-.tool-n { font: 500 10px/1 var(--f-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
-.otool[aria-pressed="true"] .tool-n { color: var(--ink-muted); }
-.order-bar:not([hidden]) ~ .hint { bottom: 70px; }
+/* Pastilles : ce qui reste (en haut, côté carte) ; formation blindée choisie (en bas) ; barrages ●●○ (en bas). */
+.tool-n, .tool-f {
+  position: absolute;
+  min-width: 14px;
+  padding: 1px 3px;
+  border-radius: 7px;
+  background: rgba(20, 23, 16, 0.92);
+  font: 600 9px/1.1 var(--f-mono);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.tool-n { top: 1px; }
+.rail-l .tool-n { right: 1px; }
+.rail-r .tool-n { left: 1px; }
+.tool-n:empty, .tool-f:empty { display: none; }
+.tool-n.pips { top: auto; bottom: 1px; left: 50%; right: auto; transform: translateX(-50%); padding: 0 2px; font-size: 8px; letter-spacing: -0.5px; color: var(--brass); }
+.tool-f { bottom: 1px; left: 50%; transform: translateX(-50%); background: var(--pencil); color: #fff6ec; }
+.otool[aria-pressed="true"] .tool-n { background: var(--ink); color: var(--paper); }
+.otool[aria-pressed="true"] .tool-n.pips { color: var(--brass); }
+.order-rails:not([hidden]) ~ .hint { left: calc(max(10px, env(safe-area-inset-left, 0px)) + 64px); max-width: calc(100% - 138px); }
 .hint.error { background: rgba(122, 34, 22, 0.92); }
 .front-app .hint { max-width: calc(100% - 20px); }
 
@@ -584,7 +620,7 @@ kbd {
 }
 .clock-skip svg { width: 13px; height: 13px; vertical-align: -2px; }
 .clock-skip:disabled { opacity: 0.5; }
-@media (hover: hover) { .clock-skip:hover:not(:disabled) { color: var(--text); } .otool:hover:not(:disabled) { border-color: var(--brass); } }
+@media (hover: hover) { .clock-skip:hover:not(:disabled) { color: var(--text); } .otool:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--brass); } }
 
 .f-orders, .f-pockets { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .f-order { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 0 2px 8px; border-left: 3px solid var(--pencil); }
@@ -648,7 +684,6 @@ kbd {
 .f-side.collapsed .clock-track { flex: none; width: 4px; height: 90px; min-width: 0; }
 .f-side.collapsed .clock-track i { width: 100%; height: var(--p, 0%); }
 .f-side.collapsed .clock-skip { padding: 2px 8px; }
-.front-app .order-bar { right: 10px; }
 
 @media (max-width: 820px) and (orientation: portrait), (max-width: 600px) {
   .f-side .rail { padding: 0 4px; gap: 2px; }
@@ -666,9 +701,20 @@ kbd {
   .f-side.collapsed .day-clock { flex-direction: row; gap: 8px; padding: 2px 2px 2px 10px; }
   .f-side.collapsed .clock-track { flex: 1; width: auto; height: 4px; min-width: 30px; }
   .f-side.collapsed .clock-track i { width: var(--p, 0%); height: 100%; }
+  /* Rails d'ordres plus serrés : cibles de 42 px, défilement vertical s'ils ne tiennent pas. */
+  .order-rail { top: 6px; bottom: 6px; max-height: calc(100% - 12px); gap: 4px; padding: 3px; }
+  .rail-l { left: max(6px, env(safe-area-inset-left, 0px)); }
+  .rail-r { right: 6px; }
+  .otool { width: 42px; height: 42px; }
+  .order-rails:not([hidden]) ~ .hint { left: calc(max(6px, env(safe-area-inset-left, 0px)) + 56px); max-width: calc(100% - 118px); }
 }
 @media (max-height: 500px) and (orientation: landscape) {
   .f-side .rail { padding: 4px 6px; gap: 2px; }
+  .order-rail { top: 4px; bottom: 4px; max-height: calc(100% - 8px); gap: 3px; padding: 3px; }
+  .tool-group { gap: 3px; }
+  .tool-group + .tool-group { padding-top: 3px; }
+  .otool { width: 40px; height: 40px; }
+  .order-rails:not([hidden]) ~ .hint { left: calc(max(10px, env(safe-area-inset-left, 0px)) + 56px); max-width: calc(100% - 120px); }
   .f-side .tabs { flex: 1; min-width: 0; border-bottom: 0; }
   .f-side .tab { min-height: 40px; padding-inline: 2px; letter-spacing: 0.04em; }
   .f-side .rail .tool { width: 36px; height: 36px; }
@@ -723,11 +769,6 @@ kbd {
 .front-year { flex-wrap: wrap; margin: 4px 0 6px; }
 .front-year .btn { flex: 1 1 140px; }
 .dossier .front-year .btn.on { background: var(--pencil); border-color: var(--pencil); color: #fff6ec; }
-@media (max-width: 480px) {
-  .tool-l { font-size: 11px; letter-spacing: -0.2px; }
-  .tool-l[data-s] { font-size: 0; }
-  .tool-l[data-s]::after { content: attr(data-s); font-size: 11px; }
-}
 
 /* Atouts : main tirée, bataille des airs, déploiement. */
 .deck { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin: 14px 0 10px; }

@@ -48,7 +48,7 @@ test('PC : barrages ennemis sur lui, désorganisation, pas de regroupement de nu
   assert.ok(f.log.some((l) => l.kind === 'hq' && /désorganisé/.test(l.text)));
   assert.ok(h.seen[1], 'pilonné, il est repéré');
   finishDay(f);
-  assert.equal(f.transfers[0].filter((t) => t.auto).length, 0, 'aucun regroupement de l\'état-major');
+  assert.equal(f.nightMoves.filter((t) => t.side === 0).length, 0, 'aucun regroupement de l\'état-major');
   assert.ok(h.link >= HQ.disorg && h.link <= 1, 'la nuit rétablit la liaison');
   assert.equal(hqState(h), 'ok');
 });

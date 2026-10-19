@@ -810,9 +810,8 @@ test('villes sous le feu : la défense fond puis remonte dans les ruines, les ch
   assert.ok(g.ruin[t] > 0.1, `barrage : ruine ${g.ruin[t].toFixed(2)}`);
 });
 
-test('regroupement de nuit : la route porte plus loin et davantage, transfert annulable, état-major la nuit', async () => {
-  const { NIGHT, transferPath, addTransfer } = await import('../src/frontnight.js');
-  const { removeOrder } = await import('../src/front.js');
+test('regroupement de nuit : la route porte plus loin et davantage, l\'état-major regroupe la nuit', async () => {
+  const { NIGHT, transferPath, moveTroops } = await import('../src/frontnight.js');
   const f = createFront({ seed: 'nuit2', attacker: 'DE', biome: 'steppe' });
   // Deux cases d'une même route, dans les lignes allemandes, à 12 cases l'une de l'autre.
   const road = f.map.roads.map((r) => r.filter((i) => f.owner[i] === 0)).find((r) => r.length > 14);
@@ -825,16 +824,15 @@ test('regroupement de nuit : la route porte plus loin et davantage, transfert an
   for (const i of road.slice(0, 3)) f.dens[i] += 80;
   const total = () => f.dens.reduce((x, v) => x + v, 0);
   const t0 = total();
-  const t = addTransfer(f, 0, a, b);
+  const t = moveTroops(f, 0, a, b);
   assert.ok(!t.error, t.error);
   assert.ok(t.amount > NIGHT.cap.field && t.amount <= NIGHT.cap.road, `transporté : ${t.amount.toFixed(1)}`);
   assert.ok(Math.abs(total() - t0) < 1e-3, 'rien ne se perd en route');
-  const before = f.dens[b];
-  removeOrder(f, 0, t.id);
-  assert.ok(f.dens[b] < before && f.transfers[0].length === 0, 'transfert annulé');
-  // La nuit, l'état-major peut regrouper (aucune erreur, transferts notés pour l'aube).
+  // Plus d'outil de transfert pour le joueur : seul l'état-major regroupe, la nuit (transferts notés pour l'aube).
+  assert.equal(f.transfers, undefined);
   runDay(f);
   assert.ok(Array.isArray(f.nightMoves));
+  for (const m of f.nightMoves) assert.ok(m.side === 0 || m.side === 1);
 });
 
 test('aviation : sorties par jour, la DCA sur la route émousse la mission et se dévoile, brouillard au sol', async () => {

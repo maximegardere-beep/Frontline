@@ -54,7 +54,7 @@ const FIRE = { decay: 0.965, gain: 5, min: 0.08 }; // incendies : déclin par ti
 // Fumée des combats : chaleur par unité de densité perdue, déclin par tick, apport d'un cratère ; seuil d'un foyer,
 // chaleur d'un foyer à plein, espacement (unités de grille), nombre au plus, débit relatif à un incendie.
 const SMOKE = { loss: 1.5, decay: 0.9, barrage: 0.25, min: 0.6, full: 3, space: 3.5, max: 28, rate: 0.8 };
-const TRANSFER_INK = 'rgba(150, 186, 236, 0.95)'; // regroupements de nuit
+const NIGHT_INK = 'rgba(150, 186, 236, 0.95)'; // regroupements de l'état-major, la nuit
 // Colonnes sur les routes : vitesse (pixels monde par ms), camions par colonne, écart entre deux camions.
 const CONVOY = { speed: 0.012, trucks: 4, gap: 6 };
 // Ce que soulèvent les véhicules selon le temps (frontfx.js, KICK) ; couleur de la poussière des camions.
@@ -845,7 +845,7 @@ export class FrontRenderer extends Renderer {
     this.drawObjectiveMarks();
     this.drawPockets(view.viewer ?? null, now);
     this.drawGuns(view);
-    if (f.phase === 'plan') this.drawTransfers(view.viewer ?? null);
+    if (f.phase === 'plan') this.drawNightMoves(view.viewer ?? null);
     this.drawAA(view);
     this.drawSupport(view);
     this.drawHQ(view);
@@ -1990,41 +1990,39 @@ export class FrontRenderer extends Renderer {
     }
   }
 
-  // Regroupements (frontnight.js), le matin : ceux de l'état-major cette nuit et ceux qu'on vient de tracer. Flèche le
-  // long du chemin de marche, épaisse par la route, pointillée à travers champs ; « −N h » au départ, « +N h » à
-  // l'arrivée. Seulement les siens.
-  drawTransfers(viewer) {
+  // Regroupements de l'état-major cette nuit (frontnight.js), le matin. Flèche le long du chemin de marche, épaisse
+  // par la route, pointillée à travers champs ; « −N h » au départ, « +N h » à l'arrivée. Seulement les siens.
+  drawNightMoves(viewer) {
     const f = this.front;
-    if (!f.transfers) return;
+    if (!f.nightMoves?.length) return;
     const { ctx, cam } = this;
     const px = 1 / cam.s;
-    for (const s of viewer === null ? [0, 1] : [viewer]) {
-      for (const t of f.transfers[s]) {
-        const pts = t.path.map((i) => this.center(i));
-        if (pts.length < 2) continue;
-        const w = (t.road ? 5 : 2.2) * px;
-        ctx.save();
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        if (!t.road) ctx.setLineDash([5 * px, 4 * px]);
-        ctx.beginPath(); splineTo(ctx, pts);
-        ctx.strokeStyle = 'rgba(14, 18, 30, 0.8)'; ctx.lineWidth = w + 3 * px; ctx.stroke();
-        ctx.beginPath(); splineTo(ctx, pts);
-        ctx.strokeStyle = TRANSFER_INK; ctx.lineWidth = w; ctx.stroke();
-        ctx.setLineDash([]);
-        const a = pts[pts.length - 1], b = pts[Math.max(0, pts.length - 3)], ang = Math.atan2(a.y - b.y, a.x - b.x), L = (t.road ? 13 : 9) * px;
-        ctx.beginPath();
-        ctx.moveTo(a.x + Math.cos(ang) * 3 * px, a.y + Math.sin(ang) * 3 * px);
-        ctx.lineTo(a.x + Math.cos(ang + 2.5) * L, a.y + Math.sin(ang + 2.5) * L);
-        ctx.lineTo(a.x + Math.cos(ang - 2.5) * L, a.y + Math.sin(ang - 2.5) * L);
-        ctx.closePath();
-        ctx.fillStyle = TRANSFER_INK; ctx.strokeStyle = 'rgba(14, 18, 30, 0.8)'; ctx.lineWidth = 1.2 * px; ctx.stroke(); ctx.fill();
-        const n = Math.round(t.amount * f.cfg.men / 10) * 10;
-        this.tag(`+${n.toLocaleString('fr-FR')} h${t.auto ? ' · état-major' : ''}`, a.x, a.y - 12 * px, '#a8d68f', px);
-        const o = pts[0];
-        this.tag(`−${n.toLocaleString('fr-FR')} h`, o.x, o.y + 14 * px, '#e8a08c', px);
-        ctx.restore();
-      }
+    for (const t of f.nightMoves) {
+      if (viewer !== null && t.side !== viewer) continue;
+      const pts = t.path.map((i) => this.center(i));
+      if (pts.length < 2) continue;
+      const w = (t.road ? 5 : 2.2) * px;
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      if (!t.road) ctx.setLineDash([5 * px, 4 * px]);
+      ctx.beginPath(); splineTo(ctx, pts);
+      ctx.strokeStyle = 'rgba(14, 18, 30, 0.8)'; ctx.lineWidth = w + 3 * px; ctx.stroke();
+      ctx.beginPath(); splineTo(ctx, pts);
+      ctx.strokeStyle = NIGHT_INK; ctx.lineWidth = w; ctx.stroke();
+      ctx.setLineDash([]);
+      const a = pts[pts.length - 1], b = pts[Math.max(0, pts.length - 3)], ang = Math.atan2(a.y - b.y, a.x - b.x), L = (t.road ? 13 : 9) * px;
+      ctx.beginPath();
+      ctx.moveTo(a.x + Math.cos(ang) * 3 * px, a.y + Math.sin(ang) * 3 * px);
+      ctx.lineTo(a.x + Math.cos(ang + 2.5) * L, a.y + Math.sin(ang + 2.5) * L);
+      ctx.lineTo(a.x + Math.cos(ang - 2.5) * L, a.y + Math.sin(ang - 2.5) * L);
+      ctx.closePath();
+      ctx.fillStyle = NIGHT_INK; ctx.strokeStyle = 'rgba(14, 18, 30, 0.8)'; ctx.lineWidth = 1.2 * px; ctx.stroke(); ctx.fill();
+      const n = Math.round(t.amount * f.cfg.men / 10) * 10;
+      this.tag(`+${n.toLocaleString('fr-FR')} h · état-major`, a.x, a.y - 12 * px, '#a8d68f', px);
+      const o = pts[0];
+      this.tag(`−${n.toLocaleString('fr-FR')} h`, o.x, o.y + 14 * px, '#e8a08c', px);
+      ctx.restore();
     }
   }
 

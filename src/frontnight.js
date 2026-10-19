@@ -1,7 +1,5 @@
-// Regroupement de nuit : des troupes quittent un secteur pour un autre, derrière les lignes.
-// - Le matin, le joueur trace des transferts (d'un point de ses lignes à un autre) : ils sont censés avoir marché
-//   pendant la nuit et s'appliquent tout de suite, comme les réserves qui montent en ligne (annulables).
-// - La nuit, l'état-major déplace seul des troupes d'un secteur calme vers le secteur le plus menacé.
+// Regroupement de nuit : l'état-major de chaque camp déplace seul des troupes d'un secteur calme vers le secteur le
+// plus menacé, derrière les lignes (pas sans PC en état, voir fronthq.js). Affiché le matin.
 // La route décide de tout : par une route tenue, on emmène beaucoup d'hommes loin ; à travers champs, peu et près.
 // Le chemin de marche passe par nos propres cases (Dijkstra) ; une case de route coûte 4 fois moins qu'une case de
 // steppe, la forêt et le marais davantage.
@@ -16,7 +14,6 @@ export const NIGHT = {
   cap: { road: 60, field: 15 }, // densité transportée au plus (× 10 hommes)
   take: 0.5, // part au plus de chaque case de départ
   radius: 2, // cases autour du départ et de l'arrivée
-  perDay: 3, // transferts tracés par le joueur chaque matin
   auto: [1, 2], // transferts de l'état-major par nuit : camp du joueur, camp de l'IA
   band: 8, // lignes de carte par secteur (état-major)
 };
@@ -85,7 +82,7 @@ function around(front, s, i) {
 }
 
 // Déplace jusqu'à la capacité du chemin, des environs de a vers ceux de b. Renvoie le transfert ou { error }.
-export function moveTroops(front, s, a, b, { auto = false, want = Infinity } = {}) {
+export function moveTroops(front, s, a, b, { want = Infinity } = {}) {
   const path = transferPath(front, s, a, b);
   if (!path || path.cells.length < 2) return { error: 'Transfert impossible : départ et arrivée doivent être reliés par vos lignes.' };
   if (path.cost > NIGHT.reach) return { error: `Trop loin pour une nuit de marche (${path.road ? 'même par la route' : 'à travers champs ; une route porte bien plus loin'}).` };
@@ -101,29 +98,7 @@ export function moveTroops(front, s, a, b, { auto = false, want = Infinity } = {
   const placed = dst.map(([j, w]) => [j, (amount * w * front.map.flow[j]) / tw]);
   for (const [j, v] of placed) front.dens[j] += v;
   const c = (k) => ({ x: front.centers.x[k], y: front.centers.y[k] });
-  return { id: 100000 + nextTransferId++, side: s, from: c(a), to: c(b), amount, road: path.road, path: path.cells, taken, placed, auto, day: front.day };
-}
-
-// Transfert tracé le matin par le joueur (ou l'IA).
-export function addTransfer(front, s, a, b) {
-  if (front.phase !== 'plan') return { error: 'Les transferts se décident le matin.' };
-  const today = front.transfers[s].filter((t) => !t.auto && t.day === front.day);
-  if (today.length >= NIGHT.perDay) return { error: `${NIGHT.perDay} transferts au plus par nuit.` };
-  const t = moveTroops(front, s, a, b);
-  if (t.error) return t;
-  front.transfers[s].push(t);
-  return t;
-}
-
-// Annule un transfert du matin (removeOrder) : les troupes reviennent, autant que possible.
-export function undoTransfer(front, s, id) {
-  const t = front.transfers[s].find((x) => x.id === id && !x.auto);
-  if (!t || front.phase !== 'plan') return false;
-  const back = Math.min(1, t.placed.reduce((a, [j, v]) => a + Math.min(v, front.dens[j]) / t.amount, 0));
-  for (const [j, v] of t.placed) front.dens[j] = Math.max(0, front.dens[j] - v * back);
-  for (const [j, v] of t.taken) front.dens[j] += v * back;
-  front.transfers[s] = front.transfers[s].filter((x) => x !== t);
-  return true;
+  return { id: 100000 + nextTransferId++, side: s, from: c(a), to: c(b), amount, road: path.road, path: path.cells, taken, placed, day: front.day };
 }
 
 // La nuit : l'état-major de chaque camp prélève sur son secteur le plus calme pour renforcer le plus menacé.
@@ -167,9 +142,8 @@ export function staffNight(front) {
       // Le secteur le plus calme qu'une nuit de marche permet d'atteindre.
       for (const calm of [...bands].reverse()) {
         if (calm === hot || calm.ratio > hot.ratio * 0.6) continue;
-        const t = moveTroops(front, s, calm.src, hot.dst, { auto: true });
+        const t = moveTroops(front, s, calm.src, hot.dst);
         if (t.error) continue;
-        front.transfers[s].push(t);
         front.nightMoves.push(t);
         made++;
         break;
