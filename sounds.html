@@ -116,7 +116,7 @@ function raid(kind, flak, downed) {
   const from = L(-0.8, 0.4), to = L(0.3);
   sound.front([{ k: 'raid', kind, from, to, flak, downed }], T);
   for (let i = 0; i < (kind === 'strike' ? 3 : 1); i++) {
-    setTimeout(() => sound.front([{ k: 'bombs', kind, first: i === 0, ...to }], T), (i + 1) * T * 1000);
+    setTimeout(() => sound.front([{ k: 'bombs', kind, side: 0, first: i === 0, ...to }], T), (i + 1) * T * 1000);
   }
 }
 

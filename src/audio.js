@@ -697,12 +697,14 @@ class AudioBoard {
   }
 
   // Frappe sur l'objectif (s.kind : strike, appui rapproché ; hunt, chasse de batterie ; s.first : premier passage).
-  // Appui rapproché soviétique : les Sturmovik, en rase-mottes, au lieu des Stuka en piqué.
+  // Appui rapproché soviétique : les Sturmovik en rase-mottes ; allemand : un chapelet de He 111.
   bombs(t, s, dest) {
     if (s.kind === 'strike' && s.side === 1) return this.sturmovik(t, s);
     let tb = t;
-    if (s.kind === 'strike' && s.first) { this.siren(t, 2.3, dest); tb = t + 2.1; }
-    if (s.kind === 'hunt') {
+    // Chasse allemande : les Stuka basculent en piqué, sirène hurlante (frontfx.js) ; l'appui allemand, ce sont des
+    // He 111 en palier, sans sirène.
+    if (s.kind === 'hunt' && s.side === 0) { this.siren(t, 2.3, dest); tb = t + 2.1; }
+    else if (s.kind === 'hunt') {
       this.pass(t, dest);
       this.mg(t + 0.35, dest, 650, 0.2, 10);
       this.mg(t + 1.1, dest, 620, 0.18, 8);

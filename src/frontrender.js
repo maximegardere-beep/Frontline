@@ -104,7 +104,7 @@ function cloudSprite(seed) {
   return c;
 }
 // Cratères par tick de barrage à pleine puissance, et leur rayon (pixels monde ; une case fait 9 de rayon).
-const SCAR = { div: { n: 6, r: 1.1 }, heavy: { n: 5, r: 1.6 }, mortar: { n: 7, r: 0.9 }, rocket: { n: 9, r: 0.9 }, nebel: { n: 8, r: 0.9 } };
+const SCAR = { div: { n: 6, r: 1.1 }, heavy: { n: 5, r: 2 }, mortar: { n: 7, r: 0.75 }, rocket: { n: 9, r: 0.9 }, nebel: { n: 8, r: 0.9 } };
 // Usure du terrain par les combats (pertes cumulées par case sur la bataille, plus chaque cratère de barrage) :
 // au-delà de trample, la steppe se piétine et brunit ; chaque unité au-delà de crater0 ajoute des trous d'obus
 // (per, au plus max par case) ; vers moon, la case devient un champ lunaire gris, criblé de cratères qui se recoupent.

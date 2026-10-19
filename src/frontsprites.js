@@ -180,3 +180,108 @@ export function dust(g, x, y, ang, k) {
   g.ellipse(x - 9 * k * Math.cos(ang), y - 9 * k * Math.sin(ang), 7 * k, 3 * k, ang, 0, Math.PI * 2);
   g.fill();
 }
+
+// ---------- Avions ----------
+// Silhouettes vues de dessus, nez vers +x, envergure le long de y ; une unité ≈ 1 m. Ju 87 Stuka (bombardier en
+// piqué allemand : ailes en W, carénages de roues fixes), He 111 (bombardier horizontal : ailes elliptiques, deux
+// moteurs, nez vitré), Pe-2 (bombardier en piqué soviétique : deux moteurs, double dérive), Il-2 Sturmovik (assaut
+// au sol : nez blindé, bords d'attaque en flèche). Type inconnu : la silhouette générique.
+// Teintes : gris-vert et bande jaune du front de l'Est (Luftwaffe), vert et étoiles rouges (VVS).
+export const PLANE_PAL = [
+  { body: '#7c8590', dark: '#4e5560', band: '#d8b13a' },
+  { body: '#6c7a4a', dark: '#46512e', band: null },
+];
+
+const outline = (g, pts) => { g.beginPath(); pts.forEach(([a, b], i) => (i ? g.lineTo(a, b) : g.moveTo(a, b))); g.closePath(); };
+// Contour symétrique : points du côté y < 0, du nez à la queue ; le côté y > 0 s'en déduit.
+const sym = (pts) => [...pts, ...pts.slice().reverse().map(([a, b]) => [a, -b])];
+
+// Croix noire liserée de blanc (Balkenkreuz) ou étoile rouge, à plat sur l'aile.
+function mark(g, side, x, y, s) {
+  if (side === 0) {
+    g.fillStyle = '#f2f0e6';
+    g.fillRect(x - s, y - s * 0.38, s * 2, s * 0.76);
+    g.fillRect(x - s * 0.38, y - s, s * 0.76, s * 2);
+    g.fillStyle = '#16140f';
+    g.fillRect(x - s * 0.8, y - s * 0.2, s * 1.6, s * 0.4);
+    g.fillRect(x - s * 0.2, y - s * 0.8, s * 0.4, s * 1.6);
+    return;
+  }
+  g.fillStyle = '#c8281c';
+  g.beginPath();
+  for (let q = 0; q < 10; q++) {
+    const a = (q / 10) * Math.PI * 2 - Math.PI / 2, r = q % 2 ? s * 0.42 : s;
+    g.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r);
+  }
+  g.closePath();
+  g.fill();
+}
+
+// Demi-aile elliptique (He 111), côté y < 0 : de la racine y0 au saumon b, corde c à la racine, centrée sur x0.
+function ellipticWing(b, y0, c, x0) {
+  const pts = [];
+  for (let q = 0; q <= 8; q++) { const t = q / 8, k = Math.sqrt(1 - t * t * 0.96); pts.push([x0 + c * 0.55 * k, -(y0 + (b - y0) * t)]); }
+  for (let q = 8; q >= 0; q--) { const t = q / 8, k = Math.sqrt(1 - t * t * 0.96); pts.push([x0 - c * 0.45 * k + t * 0.5, -(y0 + (b - y0) * t)]); }
+  return pts;
+}
+
+// Dessine l'avion (type, camp side) centré sur l'origine ; shadow : silhouette noire, sans détails.
+export function planeShape(g, type, side, shadow) {
+  const P = PLANE_PAL[side];
+  const part = (pts, c) => { g.fillStyle = shadow ? '#141008' : c; outline(g, pts); g.fill(); if (!shadow) g.stroke(); };
+  const both = (pts, c) => { part(pts, c); part(pts.map(([a, b]) => [a, -b]), c); };
+  const disc = (x, y, rx, ry, c) => { g.fillStyle = c; g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); g.fill(); };
+  g.strokeStyle = '#22261c';
+  g.lineWidth = 0.4;
+  if (type === 'stuka') {
+    // Ailes en W inversé : section intérieure plus sombre (elle plonge), cassure, carénages de roues sous la cassure.
+    both([[2.7, -1], [3, -3.3], [-0.8, -3.3], [-0.7, -1]], P.dark);
+    both([[3, -3.3], [2.2, -6.6], [1.5, -7.1], [0.4, -7], [-0.8, -3.3]], P.body);
+    if (!shadow) { disc(3.4, -3.3, 1, 0.45, P.dark); disc(3.4, 3.3, 1, 0.45, P.dark); }
+    part(sym([[6.4, -0.5], [5.8, -1], [1.5, -1.1], [-4.8, -0.45], [-5.6, -0.1]]), P.body);
+    part(sym([[-4, -0.4], [-4.2, -2.8], [-5.4, -2.8], [-5.7, -0.4]]), P.body);
+    if (shadow) return;
+    g.fillStyle = '#9fb0ba'; g.fillRect(0, -0.5, 3, 1); // longue verrière
+    g.fillStyle = '#2a2a26'; g.fillRect(6.2, -1.6, 0.35, 3.2); // hélice
+    g.fillStyle = P.band; g.fillRect(-3.2, -0.75, 0.9, 1.5);
+    mark(g, 0, 1.2, -5.2, 0.9); mark(g, 0, 1.2, 5.2, 0.9);
+  } else if (type === 'he111') {
+    both(ellipticWing(11, 1, 5.2, 0.6), P.body);
+    both([[5, -3.2], [5.4, -3.8], [5, -4.4], [-2.2, -4.2], [-2.2, -3.4]], P.dark); // moteurs
+    part(sym([[8.4, -0.1], [7.6, -1.1], [3, -1.35], [-6, -0.8], [-9, -0.25]]), P.body);
+    part(sym([[-6.6, -0.5], [-7, -4], [-8.4, -4.2], [-9, -0.4]]), P.body);
+    if (shadow) return;
+    disc(7.2, 0, 1.4, 1.05, '#b8c8d0'); // nez vitré
+    disc(5.6, -3.8, 1.7, 1.7, 'rgba(30, 30, 26, 0.5)'); disc(5.6, 3.8, 1.7, 1.7, 'rgba(30, 30, 26, 0.5)'); // hélices
+    g.fillStyle = P.band; g.fillRect(-5.4, -0.9, 1, 1.8);
+    mark(g, 0, 0.4, -7.4, 1.1); mark(g, 0, 0.4, 7.4, 1.1);
+  } else if (type === 'pe2') {
+    both([[2.1, -0.9], [1.2, -8.6], [0.2, -8.6], [-1.3, -0.9]], P.body);
+    both([[4.4, -2.2], [4.6, -2.7], [4.4, -3.2], [-2.4, -3], [-2.4, -2.4]], P.dark);
+    part(sym([[7, -0.1], [6.4, -0.8], [2.6, -1], [-6, -0.5], [-6.8, -0.2]]), P.body);
+    part([[-5.2, -3], [-6.6, -3], [-6.6, 3], [-5.2, 3]], P.body);
+    if (shadow) return;
+    g.fillStyle = P.dark; g.fillRect(-7.2, -3.3, 2.6, 0.6); g.fillRect(-7.2, 2.7, 2.6, 0.6); // double dérive
+    disc(6, 0, 1.1, 0.7, '#b8c8d0');
+    disc(4.8, -2.7, 1.4, 1.4, 'rgba(30, 30, 26, 0.5)'); disc(4.8, 2.7, 1.4, 1.4, 'rgba(30, 30, 26, 0.5)');
+    mark(g, 1, 0.4, -5.8, 1.1); mark(g, 1, 0.4, 5.8, 1.1);
+  } else if (type === 'il2') {
+    // Plan central droit, panneaux extérieurs en flèche (bord d'attaque), saumons arrondis.
+    both([[2.6, -1.2], [2.6, -2.8], [0.9, -7.1], [0.2, -7.4], [-0.6, -7], [-0.9, -1.2]], P.body);
+    part(sym([[6.3, -0.4], [5.6, -1.3], [2.4, -1.3], [-4.6, -0.5], [-5.6, -0.1]]), P.body);
+    part(sym([[-3.9, -0.4], [-4.1, -2.7], [-5.3, -2.6], [-5.6, -0.4]]), P.body);
+    if (shadow) return;
+    g.fillStyle = P.dark; g.fillRect(3, -1.1, 3, 2.2); // capot blindé
+    g.fillStyle = '#b8c8d0'; g.fillRect(0.4, -0.5, 2.2, 1);
+    g.fillStyle = '#2a2a26'; g.fillRect(6.1, -1.7, 0.35, 3.4);
+    mark(g, 1, 0.9, -4.8, 1); mark(g, 1, 0.9, 4.8, 1);
+  } else {
+    part([[7, 0], [-6, -0.9], [-6, 0.9]], P.body);
+    part([[2, -8], [3.6, -8], [3.6, 8], [2, 8]], P.body);
+    part([[-5, -3], [-4, -3], [-4, 3], [-5, 3]], P.body);
+    if (shadow) return;
+    g.fillStyle = side ? '#c0392b' : '#1d1b17';
+    g.fillRect(2.2, -6.5, 1.1, 1.6);
+    g.fillRect(2.2, 4.9, 1.1, 1.6);
+  }
+}
