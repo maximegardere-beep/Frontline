@@ -579,19 +579,38 @@ densités. Le moteur garde des points d'accroche pour cela.
 - Mesure (6 batailles) : 2 groupes d'artillerie détruits par l'aviation au total, 34 avions abattus ; équilibre
   inchangé sur 42 batailles (attaquant 17, défenseur 14).
 
-### Troupes : des points massés le long du front
+### Troupes : de petits soldats le long du front
 
 - Le dégradé opaque et les courbes de concentration disparaissent. Chaque camp n'a plus qu'une teinte légère
-  (opacité 0,15 à 0,2) ; ses troupes sont des points (`frontrender.js`, troopDots) :
-  - au contact, une bande serrée contre la ligne : depuis chaque case de contact, 0,45 point par unité de densité du
-    secteur (la case et ses voisines, 14 au plus), tirés entre la frontière et l'intérieur, de plus en plus rares en
-    profondeur ; la bande s'épaissit avec la densité (4 à 26 pixels monde). Un secteur faible se voit à sa bande mince.
-    Chaque point reste de son côté du trait du front ;
-  - à l'arrière, seulement les amas de plus de 300 hommes (garnisons, réserves) : un petit essaim et son effectif ;
-  - positions tirées d'un générateur par case, stables d'un tick à l'autre ; les points d'une case qui attaque
-    avancent par bonds. Chez l'ennemi, les points reprennent son estimation, estompés hors de vue.
+  (opacité 0,15 à 0,2) ; ses troupes sont de petits soldats vus de dessus (`frontinfantry.js`, placés par troopDots
+  dans `frontrender.js`) : ombre portée, corps, tête plus claire, fusil, tournés vers l'ennemi.
+  - au contact, depuis chaque case de contact, 0,45 homme par unité de densité du secteur (la case et ses voisines,
+    14 au plus) ; la bande s'épaissit avec la densité (4 à 26 pixels monde). Un secteur faible se voit à ses rangs
+    clairsemés. Chaque homme reste de son côté du trait du front ;
+  - la disposition dit la posture du secteur, lue dans l'état du moteur (de la plus forte à la plus faible) :
+    - poche (cases d'une poche montrée) : groupes de 2 à 5 épars, tournés en tous sens ; les drapeaux blancs restent
+      ceux de drawPockets ;
+    - repli (couloir ou ramassage d'un ordre de repli) : une arrière-garde de 3 au contact, qui tire, et une colonne
+      en file indienne qui glisse vers l'arrière dans la poussière ;
+    - attaque (la case a poussé ce tick, `tickEdges`, ou elle est dans le couloir d'un vecteur d'infanterie, de
+      blindés ou de fixation) : groupes de 4 en deux vagues décalées ; pendant la journée, bonds alternés d'environ
+      10 pixels (1,4 s par vague) : l'une avance, l'autre fait feu ; le matin, à leur ligne de départ ; un ordre
+      retenu par le PC ne bouge pas encore ;
+    - tenir (par défaut) : un groupe de 3 à 5 serré dans le créneau d'une tranchée parallèle au front, quelques
+      pixels en arrière, et une ligne de soutien clairsemée derrière. La tranchée n'apparaît que si la case et ses
+      voisines n'ont pas changé de mains depuis 3 ticks (toute la ligne de départ en a une), ou si elle est
+      retranchée (`trenchFor`) ; elle se marque avec l'immobilité et le retranchement ;
+    - chez l'ennemi, ses ordres ne se lisent que pendant la journée et sur les cases en vue : le matin, il tient ;
+  - à l'arrière, seulement les amas de plus de 300 hommes (garnisons, réserves) : un essaim serré et son effectif ;
+  - positions tirées d'un générateur par case, stables d'un tick à l'autre ; coups de feu (point jaune et halo, au
+    hasard d'un tirage visuel) seulement pendant la journée ; mouvement réduit : ni bonds, ni colonnes, ni coups de
+    feu. Chez l'ennemi, les hommes reprennent son estimation, estompés hors de vue (opacité 0,55).
+- Une seule représentation à tous les zooms : taille monde (les hommes rapetissent quand on dézoome), avec un
+  plancher à l'écran de 45 % de leur taille au zoom 1. Silhouettes pré-dessinées par camp et 16 orientations sur une
+  planche, refaite par palier de zoom. Mesure (Chromium logiciel, écran ×2, bataille chargée à 2 500 hommes) : le
+  dessin des troupes prend 10,5 ms contre 14 ms pour les anciens points.
 - Essais écartés avant ce choix (maquettes) : groupes de fantassins sur toute la carte, hachures de carte, courbes
-  d'isodensité, voile pâle et trous de combat.
+  d'isodensité, voile pâle et trous de combat, puis des points le long du front.
 
 ### Rivières infranchissables, ruisseaux, pont de bateaux
 

@@ -48,8 +48,11 @@ Raccourcis clavier : `Tab` unité suivante, `E` retrancher, `B` barrage, `H` ann
 Au menu, choisir l'année (1941 à 1944) puis son camp. Le rôle, attaquant ou
 défenseur, est tiré de la graine et annoncé au briefing, avec l'objectif : les villes marquées ★.
 
-- **La carte** : chaque camp est une masse de troupes (bleue pour la Wehrmacht, rouge pour l'Armée rouge), plus
-  sombre où elle est dense ; le trait noir est le front. Hors de vue, l'ennemi n'est qu'une estimation estompée.
+- **La carte** : chaque camp a sa teinte (bleue pour la Wehrmacht, rouge pour l'Armée rouge) ; le trait noir est le
+  front. Le long du front, de petits soldats vus de dessus, d'autant plus nombreux que le secteur est dense, montrent
+  sa posture : tranchée à créneaux et groupes face à l'ennemi là où il tient, vagues de tirailleurs qui avancent par
+  bonds là où il attaque, colonnes en file vers l'arrière et arrière-garde là où il se replie, groupes épars dans une
+  poche. Hors de vue, l'ennemi n'est qu'une estimation estompée.
 - **Atouts** : l'artillerie, les formations blindées, la DCA, le génie et l'aviation ne sont pas fixés d'avance.
   Après le briefing, on tire 5 cartes du paquet de son rôle (selon l'année) et on en garde 3 (« Choix de
   l'état-major » propose un choix) ; au matin du 7e jour, on en tire 4 (5 si l'on est mené aux points) et on en garde
@@ -413,6 +416,7 @@ dernier mouvement observé : c'est la base pour anticiper et placer ses barrages
 | `src/frontscenario.js` | Scénarios 1941 à 1944 (forces, blindés, artillerie, exigence du score) et atouts propres à chaque camp |
 | `src/frontsprites.js` | Pièces vues de dessus dessinées en code : chars, obusiers, mortiers, Katioucha, camions, épaulements |
 | `src/frontrender.js` | Rendu du front : masses fondues, ligne de front, ordres, poches |
+| `src/frontinfantry.js` | Fantassins vus de dessus le long du front : disposition selon la posture du secteur (tenir, attaquer, repli, poche), tranchées, bonds et coups de feu |
 | `src/frontui.js` | Interface du front : briefing, outils, journée animée, bilans, sons, fenêtre des batailles de rue |
 | `src/urbangen.js` | Ville tactique : rues, pâtés de maisons, isbas, place et église, usine, rivière et pont ; îlots |
 | `src/frontstreet.js` | Batailles de rue : villes disputées, conversion du front en bataille tactique, résultat réinjecté |

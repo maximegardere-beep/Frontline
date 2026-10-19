@@ -26,6 +26,8 @@ import { AIR, airBase, visibleAA } from './frontair.js';
 import { railPoint } from './frontsupply.js';
 import { visibleHQ, hqState, HQ } from './fronthq.js';
 import { buildCity, drawCity, cityFrontEdges, inCity, drawDistricts, drawLandmarks, drawFerries, drawCityGlow } from './frontcity.js';
+import { POSTURE, TRENCH, MAN_STRIDE, placeSector, placeCluster, drawMen } from './frontinfantry.js';
+import { trenchFor } from './frontworks.js';
 import { SPRITE_PAL, WRECK_PAL, piece, tank, wreck, howitzer, towed, mortar, rocket, nebelwerfer, pit, dust } from './frontsprites.js';
 
 export const CELL = 9; // rayon d'une case de la micro-grille, en pixels monde
@@ -33,11 +35,10 @@ export const CELL = 9; // rayon d'une case de la micro-grille, en pixels monde
 const K = Object.fromEntries(FRONT_KINDS.map((k, i) => [k, i]));
 const SIDE_RGB = [[52, 84, 138], [178, 42, 30]]; // Wehrmacht, Armée rouge
 const SIDE_LINE = ['#26303d', '#4a1610'];
-// Points des troupes : [ombre, couleur] par camp.
-const DOT_RGB = [['#1e2f4a', '#3a5a8e'], ['#5a170c', '#b0371f']];
-// Densité → points : par unité de densité (au plus max par case de contact), profondeur de la bande (pixels monde)
-// à faible et forte densité, échelle de densité, rayon ; à l'arrière, densité d'une case et d'un amas retenus.
-const DOTS = { per: 0.45, max: 14, depth0: 4, depth: 22, scale: 14, r: 1.1, rearCell: 6, group: 30 };
+// Densité → fantassins (frontinfantry.js) : hommes par unité de densité (au plus max par case de contact), profondeur
+// de la bande (pixels monde) à faible et forte densité, échelle de densité ; à l'arrière, densité d'une case et d'un
+// amas retenus, rayon de l'essaim (de base, et sa croissance avec la racine de la densité), hommes par unité, au plus.
+const DOTS = { per: 0.45, max: 14, depth0: 4, depth: 22, scale: 14, rearCell: 6, group: 30, groupR: 4, groupGrow: 1.2, groupPer: 0.3, groupMax: 40 };
 const ORDER_INK = '#ffd23f'; // ordres du joueur
 const ORDER_HALO = 'rgba(24, 20, 10, 0.8)';
 // Élan d'une attaque en cours (vectorMomentum) : couleur et forme de la marque posée à la tête de l'avance.
@@ -744,7 +745,7 @@ export class FrontRenderer extends Renderer {
       const d = de ? dA[s] / Math.max(0.05, o[s]) : dB[s] / Math.max(0.05, 1 - o[s]);
       const rgb = SIDE_RGB[de ? 0 : 1];
       const enemy = b.viewer !== null && (de ? 0 : 1) !== b.viewer;
-      // Teinte légère du camp (les troupes elles-mêmes sont des points le long du front, drawDots) ; hors de vue,
+      // Teinte légère du camp (les troupes elles-mêmes sont de petits soldats le long du front, drawDots) ; hors de vue,
       // l'ennemi est estompé.
       const k = 1 - Math.exp(-d / 5), dark = 1;
       let alpha = (0.15 + 0.05 * k) * Math.min(1, open * 1.3);
@@ -881,23 +882,41 @@ export class FrontRenderer extends Renderer {
     }
   }
 
-  // ---------- Troupes : points le long du front ----------
+  // ---------- Troupes : petits soldats le long du front ----------
 
-  // Points de chaque camp, pour le camp observateur : une bande serrée contre la ligne de front, d'autant plus
-  // profonde et fournie que le secteur est dense ; à l'arrière, seulement les amas (garnisons, réserves) de plus
-  // de 300 hommes, avec leur effectif. Positions tirées d'un générateur par case : stables d'un tick à l'autre.
+  // Fantassins de chaque camp, pour le camp observateur (frontinfantry.js) : depuis chaque case de contact, d'autant
+  // plus d'hommes que le secteur est dense, disposés selon sa posture ; à l'arrière, seulement les amas (garnisons,
+  // réserves) de plus de 300 hommes, avec leur effectif. Positions tirées d'un générateur par case : stables d'un tick
+  // à l'autre. Posture d'une case de contact, de la plus forte à la plus faible :
+  // - poche : la case est dans une poche de son camp (celles que montre drawPockets) ;
+  // - repli : dans le couloir ou le ramassage d'un ordre de repli ;
+  // - attaque : elle a poussé ce tick (tickEdges), ou elle est dans le couloir d'un vecteur d'attaque ou de fixation ;
+  // - tenir : par défaut ; une tranchée court devant elle si le secteur n'a pas bougé depuis TRENCH.still ticks (ou
+  //   s'il est retranché), d'autant plus marquée qu'il est immobile ou retranché depuis longtemps.
+  // Chez l'ennemi, ses ordres ne se lisent que pendant la journée, sur les cases en vue ; le matin, il tient.
   troopDots(viewer) {
-    const f = this.front, { N, nb, W } = this.map;
+    const f = this.front, { N, nb } = this.map;
     const mem = viewer === null ? null : f.memory[viewer];
     const ownerOf = (i) => (viewer === null || f.owner[i] === viewer ? f.owner[i] : mem.owner[i]);
     const densOf = (i, o) => (viewer === null || o === viewer ? f.dens[i] : mem.est[i]);
     const visOf = (i, o) => viewer === null || o === viewer || f.vision[viewer][i];
+    const day = f.phase === 'resolve';
     const hot = new Uint8Array(N);
     const e = f.tickEdges ?? [];
-    if (f.phase === 'resolve') for (let k = 0; k < e.length; k += 3) hot[e[k]] = 1;
-    const dots = [[], []], groups = [];
+    if (day) for (let k = 0; k < e.length; k += 3) if (e[k + 2] > 0.02) hot[e[k]] = 1;
+    const quiet = this.quietTicks();
+    const pocketOf = [new Uint8Array(N), new Uint8Array(N)];
+    for (const { p } of this.cur?.pockets ?? []) for (const i of p.cells) pocketOf[p.side][i] = 1;
+    const out = { men: [[], []], trenches: [[], []] }, groups = [];
     const contactSeeds = [];
-    // 1. Bande au contact : depuis chaque case de contact, des points tirés entre la frontière et l'intérieur.
+    const S = this.sampler, own = this.cur?.owner;
+    // Champ de partage lissé (celui qui trace la ligne du front), interpolé : > 0,5 chez le camp 0.
+    const ownAt = (x, y) => {
+      const gx = Math.max(0, Math.min(S.w - 1.001, x / S.step)), gy = Math.max(0, Math.min(S.h - 1.001, y / S.step));
+      const x0 = Math.floor(gx), y0 = Math.floor(gy), u = gx - x0, v = gy - y0, w = S.w;
+      return (own[y0 * w + x0] * (1 - u) + own[y0 * w + x0 + 1] * u) * (1 - v) + (own[(y0 + 1) * w + x0] * (1 - u) + own[(y0 + 1) * w + x0 + 1] * u) * v;
+    };
+    // 1. Secteurs au contact : depuis chaque case de contact, des hommes disposés selon la posture.
     for (let i = 0; i < N; i++) {
       const o = ownerOf(i);
       if (o < 0) continue;
@@ -908,8 +927,8 @@ export class FrontRenderer extends Renderer {
       // Densité du secteur : la case et ses voisines du même camp.
       let sum = densOf(i, o), n = 1;
       for (let d = 0; d < 6; d++) { const j = nb[i * 6 + d]; if (j >= 0 && ownerOf(j) === o) { sum += densOf(j, o); n++; } }
-      const S = sum / n, k = 1 - Math.exp(-S / DOTS.scale);
-      const count = Math.min(DOTS.max, Math.round(S * DOTS.per));
+      const Sd = sum / n, k = 1 - Math.exp(-Sd / DOTS.scale);
+      const count = Math.min(DOTS.max, Math.round(Sd * DOTS.per));
       if (!count) continue;
       const r = createRng(i * 7919 + 13);
       const c = this.center(i);
@@ -920,12 +939,27 @@ export class FrontRenderer extends Renderer {
       let nx = c.x - mx, ny = c.y - my;
       const L = Math.hypot(nx, ny) || 1;
       nx /= L; ny /= L;
-      const depth = DOTS.depth0 + DOTS.depth * k;
-      const seen = visOf(i, o);
-      for (let q = 0; q < count; q++) {
-        const d = 1.2 + depth * Math.pow(r.next(), 1.8), lat = (r.next() - 0.5) * CELL * 1.7;
-        dots[o].push(mx + nx * d - ny * lat, my + ny * d + nx * lat, hot[i] && d < 6 ? -nx : 0, hot[i] && d < 6 ? -ny : 0, r.next() * 6.3, seen ? 1 : 0.55);
+      // Point du front : là où le trait lissé coupe la normale, en partant du centre de la case vers l'ennemi.
+      let fx = mx, fy = my;
+      if (own) {
+        for (let t = 0; t < CELL * 2; t += 1) {
+          const v = ownAt(c.x - nx * t, c.y - ny * t);
+          if (o === 0 ? v < 0.5 : v > 0.5) { fx = c.x - nx * (t - 0.5); fy = c.y - ny * (t - 0.5); break; }
+        }
       }
+      const seen = visOf(i, o);
+      let posture = POSTURE.hold, live = day, trench = 0;
+      if (pocketOf[o][i]) posture = POSTURE.pocket;
+      else {
+        const ord = viewer === null || o === viewer || (day && seen) ? this.orderAt(o, i) : null;
+        if (ord?.retreat) posture = POSTURE.retreat;
+        else if ((hot[i] && seen) || ord?.attack) { posture = POSTURE.attack; live = day && (!!hot[i] || !ord?.wait); }
+      }
+      if (posture === POSTURE.hold) {
+        const dug = trenchFor(f, i, o);
+        if (quiet[i] >= TRENCH.still || dug >= 0.3) trench = Math.max(0.35, Math.min(1, Math.max(dug, quiet[i] / TRENCH.full)));
+      }
+      placeSector(out, { side: o, posture, x: fx, y: fy, nx, ny, count, depth: DOTS.depth0 + DOTS.depth * k, alpha: seen ? 1 : 0.55, live, trench }, r);
     }
     // 2. Arrière : amas de plus de 300 hommes, loin du contact.
     const dist = bfsDistance(nb, N, contactSeeds, (i) => ownerOf(i) >= 0, 6);
@@ -949,55 +983,76 @@ export class FrontRenderer extends Renderer {
       }
       if (agg < DOTS.group) continue;
       cx /= agg; cy /= agg;
-      const r = createRng(i * 104729 + 7), R = 3 + Math.sqrt(agg) * 0.9, n = Math.min(60, Math.round(agg * 0.35));
-      for (let q = 0; q < n; q++) { const a = r.next() * 6.3, d = Math.sqrt(r.next()) * R; dots[o].push(cx + Math.cos(a) * d * 1.15, cy + Math.sin(a) * d * 0.9, 0, 0, r.next() * 6.3, 1); }
+      const r = createRng(i * 104729 + 7), R = DOTS.groupR + Math.sqrt(agg) * DOTS.groupGrow;
+      placeCluster(out.men[o], o, cx, cy, R, Math.min(DOTS.groupMax, Math.round(agg * DOTS.groupPer)), r);
       groups.push({ x: cx, y: cy + R + 7, side: o, men: Math.round((agg * f.cfg.men) / 50) * 50 });
     }
-    // Chaque point reste de son côté du trait du front (champ de partage lissé, celui qui dessine la ligne).
-    const S = this.sampler, own = this.cur?.owner;
+    // Chaque homme reste de son côté du trait du front (champ de partage lissé, celui qui dessine la ligne).
     if (own) {
       for (const o of [0, 1]) {
-        const a = dots[o], out = [];
-        for (let k = 0; k < a.length; k += 6) {
+        const a = out.men[o], keep = [];
+        for (let k = 0; k < a.length; k += MAN_STRIDE) {
           const gx = Math.max(0, Math.min(S.w - 1, Math.round(a[k] / S.step))), gy = Math.max(0, Math.min(S.h - 1, Math.round(a[k + 1] / S.step)));
           const v = own[gy * S.w + gx];
           if (o === 0 ? v < 0.55 : v > 0.45) continue;
-          for (let q = 0; q < 6; q++) out.push(a[k + q]);
+          for (let q = 0; q < MAN_STRIDE; q++) keep.push(a[k + q]);
         }
-        dots[o] = out;
+        out.men[o] = keep;
       }
     }
-    void W;
-    return { dots, groups };
+    out.groups = groups;
+    out.stats = { men: (out.men[0].length + out.men[1].length) / MAN_STRIDE };
+    return out;
+  }
+
+  // Ordres du camp o qui portent sur la case i : repli, attaque (infanterie, blindés, fixation) et si l'attaque attend
+  // encore le PC. Mêmes couloirs que le moteur (rebuildFields) : gaussienne autour de l'axe, ramassage derrière l'origine.
+  orderAt(o, i) {
+    const f = this.front, x = f.centers.x[i], y = f.centers.y[i];
+    let retreat = 0, attack = 0, wait = true;
+    for (const v of f.orders[o]) {
+      const T = VECTOR_TYPES[v.type];
+      if (!T) continue;
+      const L = Math.hypot(v.to.x - v.from.x, v.to.y - v.from.y) || 1;
+      const ux = (v.to.x - v.from.x) / L, uy = (v.to.y - v.from.y) / L, rx = x - v.from.x, ry = y - v.from.y;
+      const t = (rx * ux + ry * uy) / L;
+      if (t > 1) continue;
+      const w = t >= 0 ? Math.exp(-(((rx * -uy + ry * ux) / T.sigma) ** 2)) : Math.exp(-((Math.hypot(rx, ry) / T.catch) ** 2));
+      if (w < 0.4) continue;
+      if (T.retreat) retreat = Math.max(retreat, w);
+      else { attack = Math.max(attack, w); if (!v.hold) wait = false; }
+    }
+    return retreat > attack ? { retreat: true } : attack ? { attack: true, wait } : null;
+  }
+
+  // Immobilité de chaque case : ticks depuis que la case ou une voisine a changé de mains (tranchées des secteurs qui
+  // tiennent). Mise à jour une fois par tick de l'horloge ; toute la ligne de départ est immobile.
+  quietTicks() {
+    const f = this.front, { N, nb } = this.map;
+    if (this.quiet?.front !== f) this.quiet = { front: f, clock: f.clock, owner: Int8Array.from(f.owner), ticks: new Uint16Array(N).fill(TRENCH.full) };
+    const Q = this.quiet;
+    if (Q.clock !== f.clock) {
+      const dt = Math.max(1, f.clock - Q.clock), moved = new Uint8Array(N);
+      for (let i = 0; i < N; i++) {
+        if (f.owner[i] === Q.owner[i]) continue;
+        moved[i] = 1;
+        for (let d = 0; d < 6; d++) { const j = nb[i * 6 + d]; if (j >= 0) moved[j] = 1; }
+      }
+      for (let i = 0; i < N; i++) Q.ticks[i] = moved[i] ? 0 : Math.min(999, Q.ticks[i] + dt);
+      Q.owner.set(f.owner);
+      Q.clock = f.clock;
+    }
+    return Q.ticks;
   }
 
   drawDots(now) {
     const D = this.dots;
     if (!D) return;
     const { ctx, cam } = this;
-    const px = 1 / cam.s, r = Math.max(DOTS.r, 1.05 * px);
-    for (const s of [0, 1]) {
-      const a = D.dots[s];
-      for (const pass of [0, 1]) {
-        for (const alpha of [1, 0.55]) {
-          ctx.beginPath();
-          for (let k = 0; k < a.length; k += 6) {
-            if (a[k + 5] !== alpha) continue;
-            // Les points d'une case qui attaque avancent par bonds vers l'ennemi, puis reviennent (boucle).
-            const hop = a[k + 2] || a[k + 3] ? ((now * 0.0025 + a[k + 4]) % 4) : 0;
-            const x = a[k] + a[k + 2] * hop + (pass ? 0 : 0.35 * r), y = a[k + 1] + a[k + 3] * hop + (pass ? 0 : 0.35 * r);
-            ctx.moveTo(x + r, y);
-            ctx.arc(x, y, r, 0, Math.PI * 2);
-          }
-          ctx.globalAlpha = alpha;
-          ctx.fillStyle = DOT_RGB[s][pass];
-          ctx.fill();
-        }
-      }
-    }
-    ctx.globalAlpha = 1;
+    const still = this.fx.still || !!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    drawMen(ctx, D, { now, s: cam.s, dpr: this.dpr, live: this.front.phase === 'resolve' && !still });
     // Effectifs des amas de l'arrière.
-    if (cam.s > 0.7) for (const g of D.groups) this.tag(`≈ ${g.men.toLocaleString('fr-FR')} h`, g.x, g.y, g.side === 0 ? '#c9d6ec' : '#f0c4b8', px);
+    if (cam.s > 0.7) for (const g of D.groups) this.tag(`≈ ${g.men.toLocaleString('fr-FR')} h`, g.x, g.y, g.side === 0 ? '#c9d6ec' : '#f0c4b8', 1 / cam.s);
   }
 
   // ---------- Cratères ----------
