@@ -24,6 +24,7 @@ import { createSupport, refreshZones, supportDawn, supportTick, supportNight, up
 import { fightAirWar } from './frontairwar.js';
 import { initSpecial, addSpecial, salvoTick, dropTick, applyStrong, removeSpecial, specialNight } from './frontspecial.js';
 import { createHQ, applyHQ, engageCapOf, ordersWait, hqDawn, hqTick, hqAfter, hqSightings, hqNight } from './fronthq.js';
+import { createRegiments, regimentTroops, regimentMenOf, regimentTick, regimentNight, updateRegimentSightings, removeRegimentOrder, spreadMen, priorityRecover } from './frontregiment.js';
 import { GUN_KINDS, GUN_RULES, createGuns, gunFor, gunPower, moveGuns, supportFire, gunsNight, updateGunSightings, atFire, onMission, missionGuns, applyArtillery } from './frontguns.js';
 
 export const FRONT_SIDES = ['DE', 'SU'];
@@ -76,6 +77,7 @@ export const FRONT_SETUP = {
   // Poste de commandement (fronthq.js) : coordination autour de lui ; false : aucun PC (banc, tests de physique).
   hq: true,
   airInitiative: 2, // force en plus pour l'attaquant à chaque bataille des airs (frontairwar.js)
+  regiments: [3, 3], // régiments motorisés par camp (frontregiment.js), pris sur les troupes du départ
 };
 
 // Types de vecteurs. sigma : demi-largeur du couloir ; catch : rayon de ramassage autour de l'origine
@@ -185,7 +187,8 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
     const { need } = frontNeed(front, s);
     let total = 0;
     for (let i = 0; i < N; i++) if (owner[i] === s) total += need[i] * map.flow[i] ** 0.5;
-    for (let i = 0; i < N; i++) if (owner[i] === s) dens[i] = (cfg.troops[s] * need[i] * map.flow[i] ** 0.5) / total;
+    const onMap = cfg.troops[s] - regimentTroops(cfg, s); // les régiments motorisés partent en réserve mobile
+    for (let i = 0; i < N; i++) if (owner[i] === s) dens[i] = (onMap * need[i] * map.flow[i] ** 0.5) / total;
   }
   if (cfg.atouts) {
     // Atouts tirés au sort : ils remplacent l'artillerie, les blindés et la DCA placés d'office.
@@ -235,7 +238,7 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
     : map.towns.filter((t) => owner[t.i] === def).map((t) => t.i);
   front.townCells = [];
   for (let i = 0; i < N; i++) if (map.kind[i] === TOWN) front.townCells.push(i);
-  front.initial = [troops(front, 0) + front.reserve[0], troops(front, 1) + front.reserve[1]];
+  front.initial = [0, 1].map((s) => troops(front, s) + front.reserve[s] + regimentTroops(cfg, s));
   front.memory = [0, 1].map((s) => ({ owner: Int8Array.from(owner), est: new Float32Array(N), seen: new Int32Array(N).fill(-1) }));
   rollWeather(front);
   updateSupply(front);
@@ -243,6 +246,8 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
   front.armor = createArmor(front, cfg.armor ?? ARMOR_SETUP);
   front.hq = cfg.hq ? createHQ(front) : null;
   front.support = createSupport(front, cfg.support ?? [[], []]); // bataillons de soutien, génie d'assaut (frontbattalion.js)
+  front.regiments = createRegiments(front); // régiments motorisés, près du PC (frontregiment.js)
+  front.priority = [null, null]; // secteur prioritaire de chaque camp : case du fanion
   refreshZones(front);
   initSpecial(front);
   if (cfg.special) addSpecial(front, cfg.special); // salves, parachutistes, points d'appui (frontspecial.js)
@@ -250,6 +255,7 @@ export function createFront({ seed, playerSide = 'DE', attacker = 'DE', biome = 
   updateGunSightings(front);
   updateAASightings(front);
   updateArmorSightings(front);
+  updateRegimentSightings(front);
   initSupply(front);
   initScore(front);
   flog(front, 'day', `— Jour 1 : ${map.name} · ${FRONT_WEATHER[front.weather].label} —`);
@@ -567,6 +573,7 @@ export function removeOrder(front, s, id) {
   front.air[s] = front.air[s].filter((m) => m.id !== id);
   front.pontoonOrders[s] = front.pontoonOrders[s].filter((o) => o.id !== id);
   removeSpecial(front, s, id);
+  removeRegimentOrder(front, s, id); // marche ou engagement d'un régiment motorisé
 }
 
 // Comportement d'une poche, choisi le matin (par le joueur pour les siennes, par l'IA pour les autres).
@@ -685,17 +692,8 @@ export function deployReserve(front, s, i, amount = front.cfg.chunk) {
   amount = Math.min(amount, front.reserve[s]);
   if (amount < 1) return { error: 'Pool logistique épuisé.' };
   if (front.owner[i] !== s || !front.supplied[s][i]) return { error: 'Déploiement impossible : case hors de vos lignes ravitaillées.' };
-  const { map } = front;
-  const dist = bfsDistance(map.nb, map.N, [i], (j) => front.owner[j] === s && front.supplied[s][j], 3);
-  const cells = [];
-  let tw = 0;
-  for (let j = 0; j < map.N; j++) {
-    if (dist[j] > 3) continue;
-    const w = Math.exp(-((dist[j] / 2) ** 2)) * map.flow[j];
-    if (w > 0) { cells.push([j, w]); tw += w; }
-  }
-  const placed = cells.map(([j, w]) => [j, (amount * w) / tw]);
-  for (const [j, a] of placed) front.dens[j] += a;
+  const placed = spreadMen(front, s, i, amount); // trois cases autour, par nos lignes ravitaillées (frontregiment.js)
+  if (!placed) return { error: 'Déploiement impossible : case hors de vos lignes ravitaillées.' };
   front.reserve[s] -= amount;
   front.deployments[s].push({ i, amount, placed });
   return { amount };
@@ -981,6 +979,7 @@ export function stepTick(front) {
   }
   const fresh = updateSupply(front);
   hqAfter(front, events);
+  regimentTick(front, FRONT_WEATHER[front.weather].armor); // régiments motorisés : débordés, ou en route
   supportTick(front, events); // zones des bataillons de soutien : chantiers ; bataillons débordés
   // Malus logistique immédiat : une poche perd chaque tick une part de sa densité.
   for (const s of [0, 1]) {
@@ -1008,6 +1007,7 @@ export function stepTick(front) {
   updateArmorSightings(front);
   hqSightings(front);
   updateSupportSightings(front);
+  updateRegimentSightings(front);
   checkFrontVictory(front);
   if (front.phase === 'resolve' && front.tick >= front.cfg.ticks) endDay(front);
   return events;
@@ -1111,9 +1111,11 @@ function endDay(front) {
   if (front.dayStart) {
     for (const s of [0, 1]) {
       const lost = front.stats.losses[s] - front.dayStart.losses[s] - (front.stats.pocket[s] - (front.dayStart.pocket?.[s] ?? 0));
-      if (lost > 0) front.reserve[s] += lost * c.recover;
+      // Secteur prioritaire : une part rejoint directement le front autour du fanion (frontregiment.js).
+      if (lost > 0) front.reserve[s] += priorityRecover(front, s, lost * c.recover);
     }
   }
+  regimentNight(front); // régiments engagés : reconstitution au PC, sur le pool logistique
   eveningScore(front);
   const d = front.dayStart;
   if (d) {
@@ -1154,7 +1156,7 @@ export function checkFrontVictory(front) {
   const name = (s) => (s === 0 ? 'La Wehrmacht' : 'L\'Armée rouge');
   for (const s of [0, 1]) {
     const o = 1 - s;
-    if (troops(front, s) + front.reserve[s] < 0.12 * front.initial[s]) return finish(front, o, `${name(s)} est anéantie : ${name(o).toLowerCase()} l'emporte.`);
+    if (troops(front, s) + front.reserve[s] + regimentMenOf(front, s) < 0.12 * front.initial[s]) return finish(front, o, `${name(s)} est anéantie : ${name(o).toLowerCase()} l'emporte.`);
     if (territory(front, s) < 0.12) return finish(front, o, `Le front de ${name(s).toLowerCase()} s'effondre.`);
   }
   // Métropole : l'attaquant possède tous les quartiers.

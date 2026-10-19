@@ -25,6 +25,7 @@ import { visibleArmor, armorRoute } from './frontarmor.js';
 import { AIR, airBase, visibleAA } from './frontair.js';
 import { railPoint } from './frontsupply.js';
 import { visibleHQ, hqState, HQ } from './fronthq.js';
+import { visibleRegiments, REGIMENT } from './frontregiment.js';
 import { buildCity, drawCity, cityFrontEdges, inCity, drawDistricts, drawLandmarks, drawFerries, drawCityGlow } from './frontcity.js';
 import { POSTURE, TRENCH, MAN_STRIDE, placeSector, placeCluster, drawMen } from './frontinfantry.js';
 import { trenchFor } from './frontworks.js';
@@ -849,6 +850,8 @@ export class FrontRenderer extends Renderer {
     if (f.phase === 'plan') this.drawNightMoves(view.viewer ?? null);
     this.drawAA(view);
     this.drawSupport(view);
+    this.drawPriority(view);
+    this.drawRegiments(view);
     this.drawHQ(view);
     if (f.phase === 'plan') this.drawAirPlans(view.viewer ?? null);
     this.fx.drawArcs(ctx, now, 1 / cam.s);
@@ -2011,6 +2014,160 @@ export class FrontRenderer extends Renderer {
         ctx.strokeText(label, c.x, c.y + 8 * k);
         ctx.fillStyle = SIDE_LINE[h.side];
         ctx.fillText(label, c.x, c.y + 8 * k);
+      }
+    }
+  }
+
+  // Régiments motorisés : une courte colonne de camions bâchés vue de dessus (deux, trois de près), tournée vers sa
+  // marche, sous le signe OTAN de l'infanterie motorisée aux couleurs du camp. Le matin, son trajet prévu à l'encre
+  // jaune, en tirets (la route surlignée) ; sélectionné, son rayon d'engagement. Dans la journée, il roule d'une case à
+  // l'autre entre deux ticks, dans sa poussière. Chez l'ennemi : seulement ceux qu'on voit, estompés si l'information date.
+  drawRegiments(view) {
+    const f = this.front;
+    if (!f.regiments?.length) return;
+    const { ctx, cam } = this;
+    const viewer = view.viewer ?? null;
+    const px = 1 / cam.s, u = SPRITE_K * Math.max(1, px) * 0.85;
+    const planning = f.phase === 'plan';
+    const t = Math.max(0, Math.min(1, view.t ?? 1));
+    for (const { r, x, y, dir, known } of visibleRegiments(f, viewer)) {
+      const mine = viewer === null || r.side === viewer;
+      const sel = mine && view.regiment === r.id;
+      const live = mine && f.phase === 'resolve' && r.from;
+      const c = this.toWorld(live ? { x: r.from.x + (x - r.from.x) * t, y: r.from.y + (y - r.from.y) * t } : { x, y });
+      const rolling = live && (r.from.x !== x || r.from.y !== y);
+      if (mine && planning && r.dest && r.route) {
+        const pts = [c, ...r.route.slice(r.at + 1).map((i) => this.center(i))];
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255, 210, 63, 0.35)';
+        ctx.lineWidth = 11 * px;
+        for (let k = r.at + 1; k < r.route.length; k++) {
+          if (!this.map.road?.[r.route[k - 1]] || !this.map.road?.[r.route[k]]) continue;
+          const a = this.center(r.route[k - 1]), b = this.center(r.route[k]);
+          ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+        }
+        ctx.setLineDash([7 * px, 5 * px]);
+        ctx.beginPath(); splineTo(ctx, pts);
+        ctx.strokeStyle = ORDER_HALO; ctx.lineWidth = 5.5 * px; ctx.stroke();
+        ctx.beginPath(); splineTo(ctx, pts);
+        ctx.strokeStyle = ORDER_INK; ctx.lineWidth = 3 * px; ctx.stroke();
+        ctx.setLineDash([]);
+        const e = pts[pts.length - 1], b = pts[Math.max(0, pts.length - 3)], ang = Math.atan2(e.y - b.y, e.x - b.x), L = 13 * px;
+        ctx.beginPath();
+        ctx.moveTo(e.x + Math.cos(ang) * 4 * px, e.y + Math.sin(ang) * 4 * px);
+        ctx.lineTo(e.x + Math.cos(ang + 2.6) * L, e.y + Math.sin(ang + 2.6) * L);
+        ctx.lineTo(e.x + Math.cos(ang - 2.6) * L, e.y + Math.sin(ang - 2.6) * L);
+        ctx.closePath();
+        ctx.fillStyle = ORDER_INK; ctx.strokeStyle = ORDER_HALO; ctx.lineWidth = 1.2 * px; ctx.stroke(); ctx.fill();
+        ctx.restore();
+      }
+      if (sel) {
+        ctx.beginPath();
+        ctx.arc(c.x, c.y, REGIMENT.engage * CELL, 0, Math.PI * 2);
+        ctx.setLineDash([5 * px, 4 * px]);
+        ctx.strokeStyle = ORDER_INK; ctx.lineWidth = 2 * px; ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(255, 210, 63, 0.08)'; ctx.fill();
+      }
+      const P = SPRITE_PAL[r.side];
+      // Le matin, à l'arrêt : la colonne regarde vers sa destination (ou vers le front).
+      const ang = mine && planning && r.dest ? Math.atan2(r.dest.y - y, r.dest.x - x) : dir;
+      const n = cam.s < 1.1 ? 2 : 3, gap = 7.5 * u;
+      ctx.save();
+      ctx.globalAlpha = known ? 1 : 0.5;
+      for (let v = n - 1; v >= 0; v--) {
+        const tx = c.x - Math.cos(ang) * (v - (n - 1) / 2) * gap, ty = c.y - Math.sin(ang) * (v - (n - 1) / 2) * gap;
+        if (rolling && !this.fx.still) {
+          ctx.fillStyle = CONVOY_DUST[f.weather] ?? CONVOY_DUST.clear;
+          for (let q = 1; q <= 3; q++) {
+            ctx.globalAlpha = (known ? 0.3 : 0.15) / q;
+            ctx.beginPath(); ctx.arc(tx - Math.cos(ang) * (3 + q * 2.5) * u, ty - Math.sin(ang) * (3 + q * 2.5) * u, (1.3 + q) * u, 0, Math.PI * 2); ctx.fill();
+          }
+          ctx.globalAlpha = known ? 1 : 0.5;
+        }
+        ctx.save();
+        ctx.translate(tx, ty);
+        ctx.rotate(ang);
+        ctx.fillStyle = 'rgba(30, 24, 16, 0.32)';
+        ctx.fillRect(-3 * u + 0.8 * u, -1.5 * u + 0.8 * u, 6 * u, 3 * u);
+        ctx.fillStyle = P.light; // bâche
+        ctx.fillRect(-3 * u, -1.5 * u, 4 * u, 3 * u);
+        ctx.fillStyle = P.body; // cabine
+        ctx.fillRect(1.2 * u, -1.3 * u, 1.8 * u, 2.6 * u);
+        ctx.strokeStyle = P.dark; ctx.lineWidth = 0.45 * u;
+        ctx.strokeRect(-3 * u, -1.5 * u, 4 * u, 3 * u);
+        ctx.strokeRect(1.2 * u, -1.3 * u, 1.8 * u, 2.6 * u);
+        ctx.beginPath(); ctx.moveTo(-1.7 * u, -1.5 * u); ctx.lineTo(-1.7 * u, 1.5 * u); ctx.moveTo(-0.3 * u, -1.5 * u); ctx.lineTo(-0.3 * u, 1.5 * u); ctx.stroke();
+        ctx.restore();
+      }
+      // Signe OTAN : infanterie (croix) motorisée (trait vertical), cadre aux couleurs du camp.
+      const w = 9 * u, h = 6 * u, sx = c.x - w / 2, sy = c.y - 4.5 * u - h - (n > 2 ? 1.5 * u : 0);
+      ctx.fillStyle = `rgba(${SIDE_RGB[r.side].join(', ')}, 0.88)`;
+      ctx.fillRect(sx, sy, w, h);
+      ctx.strokeStyle = sel ? ORDER_INK : 'rgba(250, 240, 210, 0.95)';
+      ctx.lineWidth = (sel ? 1.6 : 1) * u * 0.6;
+      ctx.strokeRect(sx, sy, w, h);
+      ctx.beginPath();
+      ctx.moveTo(sx, sy); ctx.lineTo(sx + w, sy + h); ctx.moveTo(sx + w, sy); ctx.lineTo(sx, sy + h);
+      ctx.moveTo(sx + w / 2, sy); ctx.lineTo(sx + w / 2, sy + h);
+      ctx.strokeStyle = 'rgba(250, 240, 210, 0.95)'; ctx.lineWidth = 0.55 * u; ctx.stroke();
+      ctx.restore();
+      if (sel || cam.s > 1.2 || (mine && planning)) {
+        ctx.font = `700 ${9 * px}px "IBM Plex Sans Condensed", "Arial Narrow", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.lineWidth = 3 * px;
+        ctx.strokeStyle = 'rgba(250, 240, 210, 0.85)';
+        const label = mine ? r.name : 'Régiment motorisé';
+        ctx.strokeText(label, c.x, c.y + 7 * u);
+        ctx.fillStyle = SIDE_LINE[r.side];
+        ctx.fillText(label, c.x, c.y + 7 * u);
+      }
+    }
+  }
+
+  // Secteur prioritaire : un fanion planté sur sa case, à l'encre jaune ; le matin, la zone où les blessés rétablis
+  // rejoignent le front. Seulement le sien (les deux une fois la bataille finie).
+  drawPriority(view) {
+    const f = this.front;
+    if (!f.priority) return;
+    const viewer = view.viewer ?? null;
+    const { ctx, cam } = this;
+    const px = 1 / cam.s, u = SPRITE_K * Math.max(1, px);
+    for (const s of viewer === null ? [0, 1] : [viewer]) {
+      const i = f.priority[s];
+      if (i == null || f.owner[i] !== s) continue;
+      const c = this.center(i);
+      ctx.save();
+      if (f.phase === 'plan') {
+        ctx.beginPath();
+        ctx.arc(c.x, c.y, 3.2 * CELL * 1.73, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255, 210, 63, 0.07)'; ctx.fill();
+        ctx.setLineDash([3 * px, 5 * px]);
+        ctx.strokeStyle = 'rgba(255, 210, 63, 0.75)'; ctx.lineWidth = 1.4 * px; ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      ctx.translate(c.x, c.y);
+      ctx.fillStyle = 'rgba(30, 24, 16, 0.3)';
+      ctx.beginPath(); ctx.ellipse(1.5 * u, 0.6 * u, 3 * u, 1.1 * u, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = ORDER_HALO; ctx.lineWidth = 1.6 * u * 0.6;
+      ctx.beginPath(); ctx.moveTo(0, 0.5 * u); ctx.lineTo(0, -11 * u); ctx.stroke();
+      ctx.strokeStyle = '#3b3a2c'; ctx.lineWidth = 0.7 * u * 0.6;
+      ctx.beginPath(); ctx.moveTo(0, 0.5 * u); ctx.lineTo(0, -11 * u); ctx.stroke();
+      // Fanion : triangle aux couleurs du camp, liseré jaune.
+      ctx.beginPath(); ctx.moveTo(0, -11 * u); ctx.lineTo(8 * u, -8.6 * u); ctx.lineTo(0, -6.2 * u); ctx.closePath();
+      ctx.fillStyle = `rgb(${SIDE_RGB[s].join(', ')})`; ctx.fill();
+      ctx.strokeStyle = ORDER_INK; ctx.lineWidth = 1.1 * u * 0.6; ctx.stroke();
+      ctx.restore();
+      if (f.phase === 'plan' || cam.s > 1.2) {
+        ctx.font = `700 ${9 * px}px "IBM Plex Sans Condensed", "Arial Narrow", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.lineWidth = 3 * px;
+        ctx.strokeStyle = ORDER_HALO;
+        ctx.strokeText('Priorité', c.x, c.y + 6 * u);
+        ctx.fillStyle = ORDER_INK;
+        ctx.fillText('Priorité', c.x, c.y + 6 * u);
       }
     }
   }

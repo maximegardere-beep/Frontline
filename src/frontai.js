@@ -10,6 +10,8 @@
 // 3. attaque : sur les secteurs où elle est la plus forte, blindés (infanterie sous la pluie) vers la ville ennemie
 //    la plus proche ; deux percées vers la même ville font une tenaille ; préparation au barrage et par l'aviation sur
 //    le même point de départ (leur choc se cumule), réserves en tête ; sans aucun feu disponible, pas d'assaut.
+// 4. régiments motorisés : fanion du secteur prioritaire sur l'effort principal (ou le secteur le plus menacé) ; les
+//    régiments roulent derrière les secteurs en danger ou l'effort principal, et s'y engagent quand ils y sont.
 // L'attaquant engage plus volontiers que le défenseur, qui contre-attaque surtout ce qui est faible.
 // Poches : tirage pondéré entre statu quo, Festung et percée d'évasion (troupes piégées, distance aux lignes amies).
 
@@ -23,6 +25,7 @@ import { GUN_KINDS, setGunOrder, onMission, artilleryCover } from './frontguns.j
 import { ATOUT_RULES } from './frontatout.js';
 import { setArmorOrder, visibleArmor } from './frontarmor.js';
 import { gunSiteOk, METRO_RULES } from './frontmetro.js';
+import { REGIMENT, regimentReady, setRegimentOrder, engageRegiment, setPriority } from './frontregiment.js';
 
 const SECTOR = 4; // un secteur toutes les 4 lignes
 
@@ -47,6 +50,8 @@ export const AI_TUNING = {
   metroEngage: 0.5, // métropole : seuil d'engagement de l'attaquant × ce facteur (la ville entière est un bastion)
   avenueReach: 3.5, // une formation blindée ne s'engage en ville que sur une avenue à cette distance du départ
   avenueStep: 12, // … et vise la case de l'avenue à ce nombre de pas plus loin, vers le fleuve
+  regDanger: 0.45, // tenue d'un secteur en dessous de laquelle un régiment motorisé vient s'y engager
+  regBack: 3, // un régiment attend à cette distance derrière la tête du secteur (unités de grille)
 };
 const REACH = 3; // rayon (en cases) pris en compte de part et d'autre du front
 
@@ -395,6 +400,8 @@ export function planFront(front, s) {
   planSpecial(front, s, attacking, hot);
   planSappers(front, s);
 
+  planRegiments(front, s, attacking, threatened, chosen);
+
   // 4. Poches : réexamen chaque matin d'une poche restée au statu quo.
   for (const p of front.pockets[s]) if (p.info.mode === 'hold') choosePocket(front, p, true);
 
@@ -482,6 +489,51 @@ export function preEncirclement(front, s) {
     out.push({ cells, troops, foe, size: cells.length, tip, mid, exit: ex, towns });
   }
   return out.sort((a, b) => b.troops - a.troops).slice(0, 1);
+}
+
+// Régiments motorisés et secteur prioritaire. Le fanion marque l'effort principal de l'attaquant (sa première
+// attaque), sinon le secteur le plus menacé. Les secteurs à servir : ceux qui craquent (tenue sous regDanger), et
+// l'effort principal de l'attaquant (en tête pour lui). Un régiment déjà à portée d'engagement de l'un d'eux s'y
+// engage (un par secteur et par jour) ; les autres roulent se poster derrière, chacun vers un secteur différent si
+// possible. Sans rien à servir, ils restent en réserve. Aucun tirage au sort : le hasard du moteur reste intact.
+function planRegiments(front, s, attacking, threatened, chosen) {
+  const focus = (attacking && chosen[0]) || threatened[0] || null;
+  setPriority(front, s, focus ? point(front, focus.head) : null, false);
+  const regs = (front.regiments ?? []).filter((r) => r.side === s && regimentReady(r));
+  if (!regs.length) return;
+  const danger = threatened.filter((x) => x.hold < AI_TUNING.regDanger);
+  const main = attacking && chosen[0] ? [chosen[0]] : [];
+  const targets = attacking ? [...main, ...danger.filter((x) => x !== chosen[0])] : danger;
+  if (!targets.length) return;
+  const dirX = s === 0 ? 1 : -1;
+  const cx = front.centers.x, cy = front.centers.y;
+  // Case de contact du secteur la plus proche du régiment, et sa distance.
+  const near = (r, sec) => {
+    let best = sec.head, bd = Infinity;
+    for (const i of sec.cells) { const dd = Math.hypot(r.x - cx[i], r.y - cy[i]); if (dd < bd) { bd = dd; best = i; } }
+    return { i: best, d: bd };
+  };
+  const served = new Set();
+  const left = [];
+  for (const r of regs) {
+    const sec = targets.filter((x) => !served.has(x) && near(r, x).d <= REGIMENT.engage).sort((a, b) => near(r, a).d - near(r, b).d)[0];
+    if (sec && !engageRegiment(front, s, r.id, point(front, near(r, sec).i)).error) { served.add(sec); continue; }
+    left.push(r);
+  }
+  let k = 0;
+  for (const r of left) {
+    const open = targets.filter((x) => !served.has(x));
+    const sec = open.length ? open[k++ % open.length] : targets[0];
+    const h = point(front, near(r, sec).i);
+    const want = { x: h.x - dirX * AI_TUNING.regBack, y: h.y };
+    let best = -1, bd = Infinity;
+    for (let i = 0; i < front.map.N; i++) {
+      if (front.owner[i] !== s || !front.supplied[s][i] || front.map.flow[i] <= 0) continue;
+      const dd = Math.hypot(cx[i] - want.x, cy[i] - want.y);
+      if (dd < bd) { bd = dd; best = i; }
+    }
+    if (best >= 0 && best !== r.cell) setRegimentOrder(front, s, r.id, point(front, best));
+  }
 }
 
 // Trace des replis décidés (outils de simulation, débogage).

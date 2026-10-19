@@ -6,7 +6,7 @@ import { readFile, writeFile, mkdir, mkdtemp, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 
-const ORDER = ['rng', 'hex', 'names', 'conditions', 'frontmetro', 'terrain', 'metrogen', 'mapgen', 'urbangen', 'units', 'path', 'frontworks', 'frontarmor', 'frontsupply', 'frontnight', 'combat', 'game', 'ai', 'campaign', 'fx', 'audio', 'weather', 'render', 'frontguns', 'frontair', 'frontairwar', 'frontdeck', 'frontscore', 'frontscenario', 'frontbattalion', 'fronthq', 'frontspecial', 'frontatout', 'front', 'frontalert', 'frontstreet', 'frontai', 'frontinput', 'frontfx', 'frontsprites', 'frontinfantry', 'frontcity', 'frontrender', 'frontui', 'main'];
+const ORDER = ['rng', 'hex', 'names', 'conditions', 'frontmetro', 'terrain', 'metrogen', 'mapgen', 'urbangen', 'units', 'path', 'frontworks', 'frontarmor', 'frontsupply', 'frontnight', 'combat', 'game', 'ai', 'campaign', 'fx', 'audio', 'weather', 'render', 'frontguns', 'frontair', 'frontairwar', 'frontdeck', 'frontscore', 'frontscenario', 'frontbattalion', 'fronthq', 'frontregiment', 'frontspecial', 'frontatout', 'front', 'frontalert', 'frontstreet', 'frontai', 'frontinput', 'frontfx', 'frontsprites', 'frontinfantry', 'frontcity', 'frontrender', 'frontui', 'main'];
 // Hors du fichier unique : l'aperçu du front (outil de développement, sa propre page).
 const DEV_ONLY = ['frontpreview'];
 const root = new URL('..', import.meta.url).pathname;

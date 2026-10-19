@@ -13,6 +13,7 @@ import { createRng } from './rng.js';
 import { GUN_RULES } from './frontguns.js';
 import { blowBridge } from './frontworks.js';
 import { pixelToHex } from './hex.js';
+import { regimentsUnderAir } from './frontregiment.js';
 
 // Case sous un point (unités de grille), ou −1.
 function airCellAt(front, p) {
@@ -179,6 +180,7 @@ export function airTick(front, events) {
           if (a.side !== 1 - s || a.lost || Math.hypot(a.x - m.x, a.y - m.y) > R + 0.5) continue;
           a.tanks *= 1 - AIR.tankRate * m.power * (front.atouts?.assault[s] ?? 1);
         }
+        regimentsUnderAir(front, s, m, R); // colonnes de camions des régiments motorisés
       } else if (t === first) {
         // Chasse : une seule passe ; la cible doit être encore là.
         const list = m.target.type === 'gun' ? front.guns : front.aa;
@@ -261,6 +263,7 @@ export function planAir(front, s) {
   };
   const cand = [];
   for (const a of front.armor ?? []) if (a.side === 1 - s && !a.lost && a.seen?.[s] && front.clock - a.seen[s].clock <= 2) cand.push({ x: a.seen[s].x, y: a.seen[s].y, v: 40 });
+  for (const r of front.regiments ?? []) if (r.side === 1 - s && !r.lost && !r.engaged && r.seen?.[s] && front.clock - r.seen[s].clock <= 2) cand.push({ x: r.seen[s].x, y: r.seen[s].y, v: 30 });
   for (let i = 0; i < front.map.N; i++) {
     if (mem.owner[i] !== 1 - s || !(mem.est[i] > 6)) continue;
     let contact = false;

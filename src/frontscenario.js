@@ -25,7 +25,7 @@ export const SCENARIOS = {
     text: 'La Wehrmacht, rodée et mobile, enfonce une Armée rouge nombreuse mais désorganisée. L\'offensive allemande doit aller loin pour compter.',
     attacker: { DE: 85, SU: 15 },
     seasons: { 0: 40, 1: 35, 2: 25 },
-    setup: { quality: [1.45, 0.9], troops: [5600, 6400], reserve: [600, 900], reinforce: [220, 320], sorties: [3, 1], aaBatteries: [2, 1], hqRadius: [20, 14], hqLoss: [0.6, 1.3] },
+    setup: { quality: [1.45, 0.9], troops: [5600, 6400], reserve: [600, 900], reinforce: [220, 320], sorties: [3, 1], aaBatteries: [2, 1], hqRadius: [20, 14], hqLoss: [0.6, 1.3], regiments: [2, 2] },
     armor: [
       [PZ('7. Panzer-Division', 170, 2.0), PZ('10. Panzer-Division', 150, 1.8)],
       [PZ('6e corps mécanisé', 220, 0), PZ('8e corps mécanisé', 200, 0.1), PZ('15e corps mécanisé', 180, 0)],
@@ -41,7 +41,7 @@ export const SCENARIOS = {
     text: 'La Wehrmacht pousse vers le Don et le Caucase ; l\'Armée rouge apprend à céder du terrain pour durer.',
     attacker: { DE: 70, SU: 30 },
     seasons: { 0: 35, 1: 35, 2: 20, 3: 10 },
-    setup: { quality: [1.38, 1], troops: [5700, 6200], reserve: [600, 800], reinforce: [230, 310], sorties: [3, 1], aaBatteries: [2, 2] },
+    setup: { quality: [1.38, 1], troops: [5700, 6200], reserve: [600, 800], reinforce: [230, 310], sorties: [3, 1], aaBatteries: [2, 2], regiments: [2, 2] },
     armor: [
       [PZ('3. Panzer-Division', 160, 1.6), PZ('24. Panzer-Division', 150, 1.2)],
       [PZ('4e corps blindé', 160, 0.4), PZ('13e corps blindé', 150, 0.5), PZ('24e corps blindé', 130, 0.3)],
@@ -57,7 +57,7 @@ export const SCENARIOS = {
     text: 'Forces équilibrées : la Wehrmacht garde la qualité, l\'Armée rouge a la masse et des défenses profondes.',
     attacker: { DE: 50, SU: 50 },
     seasons: { 0: 30, 1: 25, 2: 20, 3: 15, 4: 10 },
-    setup: { quality: [1.38, 1], troops: [5800, 6000], reserve: [600, 800], reinforce: [240, 300], sorties: [2, 2], aaBatteries: [2, 2] },
+    setup: { quality: [1.38, 1], troops: [5800, 6000], reserve: [600, 800], reinforce: [240, 300], sorties: [2, 2], aaBatteries: [2, 2], regiments: [3, 3] },
     armor: [
       [PZ('3. Panzer-Division', 160, 1.4), PZ('11. Panzer-Division', 140, 1.8)],
       [PZ('1er corps blindé', 150, 0.4), PZ('5e corps blindé de la Garde', 170, 0.9), PZ('18e corps blindé', 120, 0.2)],
@@ -73,7 +73,7 @@ export const SCENARIOS = {
     text: 'L\'Armée rouge, désormais maîtresse de l\'art opératif, frappe en masse un front allemand dégarni. Son offensive doit aller loin pour compter.',
     attacker: { DE: 10, SU: 90 },
     seasons: { 0: 50, 1: 35, 2: 15 },
-    setup: { quality: [1.3, 1.1], troops: [5200, 6800], reserve: [500, 1000], reinforce: [200, 340], sorties: [1, 3], aaBatteries: [3, 2], hqRadius: [20, 24] },
+    setup: { quality: [1.3, 1.1], troops: [5200, 6800], reserve: [500, 1000], reinforce: [200, 340], sorties: [1, 3], aaBatteries: [3, 2], hqRadius: [20, 24], regiments: [3, 3] },
     armor: [
       [PZ('5. Panzer-Division', 120, 2.0)],
       [PZ('3e corps blindé de la Garde', 190, 1.4), PZ('29e corps blindé', 180, 1.2), PZ('1er corps mécanisé', 170, 1.0)],

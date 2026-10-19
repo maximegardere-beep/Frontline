@@ -94,7 +94,7 @@ défenseur, est tiré de la graine et annoncé au briefing, avec l'objectif : le
   personne et le front s'arrête sur les rives. Un barrage fait sauter un pont. Les ruisseaux ralentissent la
   progression et donnent +15 % de défense à qui tient leurs berges.
 - **Le matin**, le jeu attend vos ordres. Les outils sont deux rails d'icônes au bord de la carte : à gauche
-  Manœuvre (Infanterie, Blindés, Fixer, Repli) et Renforts (Réserves, Paras, Pont), à droite Feux (Barrage, Salve,
+  Manœuvre (Infanterie, Blindés, Fixer, Repli) et Renforts (Réserves, Priorité, Paras, Pont), à droite Feux (Barrage, Salve,
   Air). Une pastille au coin de l'icône dit ce qu'il en reste ; le nom, la touche et le détail s'affichent au survol.
   Sur téléphone, les rails restent sur la carte et défilent s'ils ne tiennent pas. Choisir un outil, puis toucher le
   départ et la cible : le jeu prend lui-même la case la plus pertinente autour du doigt (on peut déplacer la carte
@@ -109,6 +109,7 @@ défenseur, est tiré de la graine et annoncé au briefing, avec l'objectif : le
 | Repli (`3`) | secteur, point de repli | les troupes décrochent avec moins de pertes |
 | Barrage (`5`) | la zone | barrage focalisé, trois par bataille : pilonnée au lever du jour par tous vos groupes libres à portée, même dans le brouillard |
 | Réserves (`6`) | un appui par renfort | 800 hommes montent en ligne autour du point ; `U` annule le dernier |
+| Priorité (`8`) | un appui dans vos lignes | fanion du secteur prioritaire (un par camp) : l'état-major y regroupe la nuit, les blessés rétablis y rejoignent le front ; toucher le fanion le retire |
 | Pont (`G`) | la rivière, au bord de vos lignes | le génie jette un pont de bateaux la nuit ; 2 par bataille ; un barrage ou une frappe aérienne le coule |
 
   Quatre vecteurs par jour au plus (infanterie, blindés et replis confondus). Un vecteur draine les troupes
@@ -119,6 +120,20 @@ défenseur, est tiré de la graine et annoncé au briefing, avec l'objectif : le
   calme pour renforcer le plus menacé, le long de ses lignes ; une route tenue porte beaucoup plus loin et davantage
   qu'à travers champs. Au matin, une flèche bleue montre le chemin (« −N h » au départ, « +N h » à l'arrivée) et
   l'onglet Ordres le liste. Un PC désorganisé l'empêche.
+- **Secteur prioritaire** (outil Priorité, `8`) : un fanion par camp, planté dans vos lignes, qui reste d'un jour à
+  l'autre. La nuit, le regroupement de l'état-major va vers lui plutôt que vers le secteur le plus menacé (pris sur
+  un secteur où vous tenez au moins à égalité) ; les blessés rétablis de la journée y rejoignent directement le
+  front (400 hommes au plus, le reste au pool). Toucher le fanion le retire ; il tombe si sa case est perdue.
+- **Régiments motorisés** : deux par camp en 1941-1942, trois en 1943-1944, de 600 hommes chacun (pris sur les
+  troupes du départ), rassemblés près du PC et placés au déploiement comme les autres unités. Une colonne de
+  camions sous le signe de l'infanterie motorisée. Touchez-en un, puis sa destination dans vos lignes ravitaillées :
+  il y roule pendant la journée (une quarantaine de cases par jour sur route, une dizaine à travers champs ; tirets
+  jaunes le matin, la route surlignée). Touchez un point à moins de 3 cases de lui (ou « Engager » dans le panneau) :
+  ses 600 hommes montent en ligne tout de suite autour de ce point, le pion disparaît et le régiment se reconstitue
+  au PC deux jours plus tard en puisant 600 hommes dans le pool logistique (il attend si le pool n'y suffit pas).
+  « Vers la priorité » l'envoie au fanion. Vulnérable : une frappe aérienne ennemie sur lui coûte des hommes ; si sa
+  case tombe, il est détruit (un tiers des hommes rejoint la case amie voisine). L'ennemi ne voit les vôtres que là
+  où il a des yeux. Ses ordres (marche, engagement) sont dans l'onglet Ordres, ✕ pour les annuler le matin.
 - **Toucher la carte** sans outil : vos troupes comptées dans la zone, l'ennemi estimé en fourchette
   (« 1 000 à 1 800 hommes »).
 - **Poches** : des troupes coupées de leur bord de carte fondent d'environ 30 % par jour. Chaque matin, pour
@@ -412,6 +427,7 @@ dernier mouvement observé : c'est la base pour anticiper et placer ses barrages
 | `src/frontscore.js` | Objectifs du front : score de l'offensive, issues graduées, objectifs secondaires tirés au briefing |
 | `src/frontworks.js` | Ouvrages : tranchées, barbelés, obstacles antichar, ponts ; chantiers, dégâts, ruines persistantes |
 | `src/frontarmor.js` | Formations blindées : chars, expérience, carburant, grenadiers ; marche, choc, exploitation, pertes, ravitaillement |
+| `src/frontregiment.js` | Régiments motorisés (marche par la route, engagement, reconstitution au PC, pertes) et secteur prioritaire |
 | `src/frontsupply.js` | Ravitaillement (têtes de ligne, point culminant logistique) et fatigue des troupes |
 | `src/frontscenario.js` | Scénarios 1941 à 1944 (forces, blindés, artillerie, exigence du score) et atouts propres à chaque camp |
 | `src/frontsprites.js` | Pièces vues de dessus dessinées en code : chars, obusiers, mortiers, Katioucha, camions, épaulements |

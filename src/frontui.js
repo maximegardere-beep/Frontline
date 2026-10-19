@@ -20,6 +20,7 @@ import { addSalvo, addDrop, SPECIAL } from './frontspecial.js';
 import { installAI } from './frontai.js';
 import { GUN_KINDS, GUN_POSTURES, gunPower, gunFor, setGunOrder, onMission, missionGuns } from './frontguns.js';
 import { setArmorOrder, expLabel } from './frontarmor.js';
+import { REGIMENT, setRegimentOrder, engageRegiment, setPriority, regimentOrders, regimentDays } from './frontregiment.js';
 import { scoreBreakdown, objectiveState, GRADES, SCORE } from './frontscore.js';
 import { METRO_RULES, districtOwner } from './frontmetro.js';
 import { FrontRenderer, CELL } from './frontrender.js';
@@ -57,6 +58,7 @@ const TOOLS = {
   barrage: { label: 'Barrage', key: '5', taps: 1, hint: 'Touchez la zone à pilonner.' },
   air: { label: 'Aviation', key: '9', taps: 1, hint: 'Zone à frapper, ou batterie ennemie repérée.' },
   reserve: { label: 'Réserves', key: '6', taps: 1, hint: 'Touchez où faire monter 800 hommes.' },
+  priority: { label: 'Priorité', key: '8', taps: 1, hint: 'Touchez le secteur prioritaire, dans vos lignes ; touchez le fanion pour le retirer.' },
   pontoon: { label: 'Pont de bateaux', key: 'G', taps: 1, hint: 'Touchez la rivière au bord de vos lignes.' },
   salvo: { label: 'Salve de lance-roquettes', key: 'R', taps: 1, hint: 'Touchez la zone à écraser au lever du jour.' },
   drop: { label: 'Parachutistes', key: 'L', taps: 1, hint: 'Touchez où larguer, derrière les lignes ennemies.' },
@@ -76,6 +78,7 @@ const fui = {
   aaSel: null, // id de la batterie de DCA sélectionnée (le prochain appui la déplace)
   hqSel: false, // poste de commandement sélectionné (le prochain appui fixe sa nouvelle position)
   supSel: null, // id du bataillon de soutien sélectionné (le prochain appui fixe sa nouvelle position)
+  regSel: null, // id du régiment motorisé sélectionné (le prochain appui fixe sa destination, ou l'engage tout près)
   placing: false, // déploiement des unités du tirage (avant le jour 1, au matin du 7e)
   place: null, // unité à placer sélectionnée : { kind, id }
   armor: null, // id de la formation blindée sélectionnée (outil Blindés : le prochain appui fixe son objectif)
@@ -348,7 +351,7 @@ function finishPlacement() {
   endPlacement(f, fui.side);
   fui.placing = false;
   fui.place = null;
-  fui.gun = null; fui.aaSel = null; fui.hqSel = false; fui.supSel = null; fui.armor = null;
+  fui.gun = null; fui.aaSel = null; fui.hqSel = false; fui.supSel = null; fui.regSel = null; fui.armor = null;
   resnap();
   placed('Déploiement terminé : à vos ordres.');
   refreshFront();
@@ -362,6 +365,7 @@ function selectPlace(item) {
   fui.aaSel = item?.kind === 'aa' ? item.id : null;
   fui.supSel = item?.kind === 'support' ? item.id : null;
   fui.hqSel = item?.kind === 'hq';
+  fui.regSel = item?.kind === 'regiment' ? item.id : null;
   if (item) { sound.ui('select'); setHint(`${item.label} : touchez sa position.`); }
   refreshFront();
 }
@@ -408,6 +412,7 @@ export function frontRules() {
       <ol>
         <li><b>Masses.</b> Plus d'unités : chaque camp est une masse de troupes, plus sombre où elle est dense. Le trait noir est le front. Hors de vue, l'ennemi n'est qu'une estimation estompée.</li>
         <li><b>Le matin.</b> Le jeu est en pause. Les ordres sont sur deux rails d'icônes au bord de la carte : Manœuvre et Renforts à gauche, Feux à droite (le nom et la touche de chacun s'affichent au survol). Donnez autant de vecteurs d'infanterie ou de repli que vous voulez : les troupes autour du départ s'y engagent et poussent vers la cible. Un vecteur draine son voisinage : là où il prend, le front se dégarnit, et deux vecteurs proches se partagent les mêmes hommes. La jauge « Troupes engagées » plafonne à ${Math.round((fui.front?.cfg.engageCap ?? 0.6) * 100)} % : au-delà, tous vos vecteurs sont réduits d'autant.</li>
+        <li><b>Régiments motorisés et priorité.</b> Vos régiments motorisés (colonnes de camions, ${REGIMENT.men} hommes chacun) attendent près du PC. Touchez-en un puis sa destination dans vos lignes ravitaillées : il y roule pendant la journée, vite par la route, lentement à travers champs. Touchez un point à moins de ${Math.round(REGIMENT.engage / 1.73)} cases de lui (ou « Engager ») : ses hommes montent en ligne aussitôt autour de ce point, et le régiment se reconstitue au PC ${REGIMENT.rebuild} jours plus tard en puisant dans le pool logistique. Une frappe aérienne lui coûte des hommes ; si sa case tombe, il est détruit. Priorité (8) : un fanion dans vos lignes ; la nuit, l'état-major regroupe vers lui plutôt que vers le secteur le plus menacé, et les blessés rétablis y rejoignent le front. Touchez le fanion pour le retirer.</li>
         <li><b>Outils.</b> Infanterie : large, lente, tenace. Blindés : vos formations (divisions de Panzer, corps blindés), visibles sur la carte ; touchez-en une puis son objectif. Elle rejoint le front par vos lignes (vite sur route, mal en forêt, jamais à travers une rivière sans pont), perce, dépose ses grenadiers dans les cases prises et exploite ; riposte, hérissons, villes et forêts lui coûtent des chars, elle consomme du carburant, se refait la nuit si elle est ravitaillée, et meurt encerclée. Repli ordonné : les troupes décrochent avec moins de pertes. Fixer : une bande large qui presse l'ennemi sans chercher à prendre, à pertes réduites de moitié ; toute case ennemie pressée (par une fixation ou une attaque) ne peut plus envoyer ses troupes ailleurs et appelle des renforts : fixez un secteur pour percer à côté. Bataillons de soutien (atout du défenseur) : posés en arrière, ils retranchent le secteur du front devant eux, d'autant plus qu'ils restent en place : tranchées le premier jour (défense de l'infanterie, à moitié pour qui les prend), barbelés ensuite (l'assaut d'infanterie qui les traverse s'use), puis hérissons antichar (les chars y perdent élan et vitesse), jusqu'au niveau de leur carte ; trois fois plus lent au contact de l'ennemi. Touchez-en un puis sa nouvelle position : il s'y rend de nuit et recommence par des tranchées ; les ouvrages faits restent. Barbelés et hérissons gênent quiconque les traverse, dans les deux sens. Canons antichar (atout du défenseur) : ils tirent dans un cône face au contact, sur les seuls blindés, qu'ils déciment et freinent ; deux ou trois barrages ou chasses aériennes en viennent à bout. Un barrage les détruit (l'artillerie lourde vient seule à bout des hérissons) et fait sauter les ponts ; les ruines restent sur la carte. Rivières : infranchissables hors des ponts (sauf gelées) ; Pont (G) : le génie jette un pont de bateaux la nuit depuis votre rive, deux par bataille, qu'un barrage ou une frappe aérienne coule. Ruisseaux : ils ralentissent et donnent +15 % au défenseur. Appui d'artillerie : dans la portée de vos groupes (halo le matin), vos poussées frappent plus fort (jusqu'à +12 %) et vos cases se défendent mieux (jusqu'à +15 %), sans ordre à donner ; deux groupes qui se recoupent ajoutent moins que le double. Barrage focalisé : trois par bataille (deux au départ, un de plus au 7e jour), une zone pilonnée au début de la journée, même dans le brouillard, par tous vos groupes libres qui l'ont à portée. Sans feux, un assaut piétine et se paie cher : barrages et frappes aériennes ébranlent les défenseurs (défense, riposte et tenue fondent), d'autant plus qu'ils tombent au même endroit, puis l'effet s'efface en quelques heures. Gardez vos barrages pour les assauts décisifs, au point de départ, avec l'aviation (fin de matinée). Pendant la journée, un officier qui appelle « SOS » en morse signale un de vos secteurs qui craque. Artillerie : touchez un groupe puis sa destination ; en batterie il tire à 100 %, en appui mobile à 40 %, en déplacement pas du tout. Il appuie vos troupes à sa portée et frappe les assaillants ; un groupe dont la position tombe est perdu. Réserves : chaque appui fait monter des renforts en ligne.</li>
         <li><b>Atouts et déploiement.</b> Après le briefing, tirez ${ATOUT_RULES.hand[0]} cartes du paquet de votre rôle et gardez-en ${ATOUT_RULES.keep[0]} ; au matin du ${ATOUT_RULES.day}e jour, ${ATOUT_RULES.hand[1]} (une de plus si vous êtes mené aux points), et gardez-en ${ATOUT_RULES.keep[1]}. Leurs unités sont posées d'office ; pendant le déploiement, touchez-en une (ou son nom dans le bandeau) puis sa position dans vos lignes, avec votre PC avant la bataille ; un point d'appui se place sur une de vos villes.</li>
         <li><b>Bataille des airs.</b> Avant le premier jour, et de nouveau au matin du ${ATOUT_RULES.day}e, les chasseurs des deux camps se disputent le ciel en trois manches de dés : la force de chaque camp (sorties de l'année, cartes de chasseurs et de soutien aérien) donne autant de dés, qui touchent sur 5+ ; qui touche le plus gagne la manche et abat un avion adverse. Deux manches gagnées : la suprématie, toutes vos sorties volent et l'ennemi n'en a plus. À égalité, ciel disputé : la moitié des sorties de chacun. La DCA tire quel que soit le ciel.</li>
@@ -416,7 +421,7 @@ export function frontRules() {
         <li><b>Ravitaillement et fatigue.</b> Vos têtes de ligne (pointillé brun, caisses) suivent le front de deux cases par nuit, plus vite le long des routes. À plus de cinq cases en avant, vos attaques faiblissent et vos blindés brûlent plus de carburant : une percée s'essouffle d'elle-même. Des troupes qui attaquent s'usent ; la nuit en efface la moitié : alternez les secteurs. Une part des pertes du jour rejoint chaque nuit.</li>
         <li><b>Batailles de rue.</b> Au lancement de la journée, une ville que vise une poussée (la vôtre, ou celle de l'ennemi sur l'une des vôtres) peut se jouer en tactique : une fenêtre s'ouvre au-dessus d'elle. « Commander la bataille » ouvre la ville en hexagones d'environ 50 m (une section pour 150 hommes, les chars des formations qui la visent, les feux de l'artillerie qui la couvre) ; « Résolution auto » la laisse au front. Une par jour ; son issue est décisive : les îlots tenus donnent les cases de la ville, les pertes reviennent sur le front, et la ville est figée jusqu'au soir.</li>
         <li><b>La journée.</b> Une minute environ, sans intervention : le combat compare les pressions de part et d'autre du front, selon la densité, le terrain, le retranchement et la qualité des troupes. Le bouton discret « Passer » abrège la journée.</li>
-        <li><b>Défense élastique.</b> Sans ordre, les troupes colmatent d'elles-mêmes les secteurs menacés. La nuit, l'état-major prélève sur un secteur calme pour renforcer le plus menacé (flèche bleue au matin, dans la liste des ordres).</li>
+        <li><b>Défense élastique.</b> Sans ordre, les troupes colmatent d'elles-mêmes les secteurs menacés. La nuit, l'état-major prélève sur un secteur calme pour renforcer le plus menacé, ou votre secteur prioritaire s'il est marqué (flèche bleue au matin, dans la liste des ordres).</li>
         <li><b>Encerclement.</b> Des troupes coupées de leur bord de carte forment une poche, qui fond d'environ 30 % par jour. Chaque matin, choisissez pour les vôtres : statu quo, Festung (se resserrer, tenir et fondre moins vite) ou percée d'évasion vers un point que vous touchez.</li>
         <li><b>Brouillard.</b> Vous voyez à quelques cases de vos troupes (moins par brouillard). Touchez la carte : vos forces sont comptées, celles de l'ennemi estimées en fourchette.</li>
         <li><b>Métropole.</b> Une grande ville le long d'un fleuve, côté défenseur, découpée en quartiers (vieille ville, usines, cités ouvrières et faubourgs, gare, hauteur, parc, quais). Chaque type a sa défense et sa vitesse ; les avenues sont rapides pour les chars mais à découvert : bordées d'îlots ennemis, elles leur coûtent plus cher. Le défenseur se ravitaille aussi par les bacs de nuit qui accostent à ses quais, son artillerie lourde tire de l'autre rive (mortiers et lance-roquettes restent en ville), et quatre maisons-forteresses tiennent longtemps même encerclées. L'attaquant a deux barrages de plus. La victoire se compte aux points de quartiers gagnés par l'attaquant (onglet Forces).</li>
@@ -568,13 +573,13 @@ function setTool(t) {
     if (!list.length) return setHint('Aucune formation blindée disponible.', true);
     const k = fui.tool === 'armor' ? list.findIndex((a) => a.id === fui.armor) + 1 : 0;
     if (fui.tool === 'armor' && k >= list.length) { cancelTool(); return; }
-    fui.gun = null; fui.aaSel = null; fui.hqSel = false; fui.supSel = null;
+    fui.gun = null; fui.aaSel = null; fui.hqSel = false; fui.supSel = null; fui.regSel = null;
     fui.pending = null;
     return selectArmor(list[k].id);
   }
   fui.tool = fui.tool === t ? null : t;
   fui.pending = null;
-  fui.gun = null; fui.aaSel = null; fui.hqSel = false; fui.supSel = null;
+  fui.gun = null; fui.aaSel = null; fui.hqSel = false; fui.supSel = null; fui.regSel = null;
   fui.armor = null;
   fui.breakout = null;
   fui.probe = null;
@@ -585,7 +590,7 @@ function setTool(t) {
 
 function cancelTool() {
   fui.tool = null;
-  fui.gun = null; fui.aaSel = null; fui.hqSel = false; fui.supSel = null;
+  fui.gun = null; fui.aaSel = null; fui.hqSel = false; fui.supSel = null; fui.regSel = null;
   fui.armor = null;
   fui.pending = null;
   fui.breakout = null;
@@ -612,6 +617,13 @@ function onTap(p) {
   const s = fui.side;
   if (fui.placing && f.phase === 'plan') return placingTap(p);
   if (f.phase === 'plan' && !fui.tool && !fui.breakout) {
+    // Régiment motorisé : le toucher le sélectionne ; l'appui suivant fixe sa destination, ou l'engage s'il est tout près.
+    const reg = regimentNear(p);
+    if (fui.regSel != null) {
+      if (reg && reg.id === fui.regSel) { fui.regSel = null; setHint(TOOLS_HELP()); return refreshFront(); }
+      if (reg) return selectRegiment(reg.id);
+      return regimentTap(p);
+    }
     // Poste de commandement : le toucher le sélectionne ; l'appui suivant fixe sa nouvelle position.
     const hq = hqNear(p);
     if (fui.hqSel) {
@@ -657,8 +669,9 @@ function onTap(p) {
     const a = armorNear(p);
     // Le plus proche du doigt : groupe d'artillerie, formation blindée ou DCA.
     const dd = (u) => (u ? Math.hypot(u.x - p.x, u.y - p.y) : Infinity);
-    const near = Math.min(dd(a), dd(g), dd(aa), dd(hq), dd(sup));
+    const near = Math.min(dd(a), dd(g), dd(aa), dd(hq), dd(sup), dd(reg));
     if (near < Infinity) {
+      if (dd(reg) === near) return selectRegiment(reg.id);
       if (dd(hq) === near) return selectHQ();
       if (dd(sup) === near) return selectSupport(sup.id);
       if (dd(aa) === near) return selectAA(aa.id);
@@ -719,6 +732,13 @@ function onTap(p) {
     }
     return refreshFront();
   }
+  if (tool === 'priority') {
+    let at = { x: p.x, y: p.y };
+    if (f.owner[cellAtPoint(f, at)] !== s) { const j = pickNear(p, 'near'); if (j >= 0) at = cellPoint(j); }
+    const r = setPriority(f, s, at);
+    if (!fail(r)) { placed(r.cell == null ? 'Secteur prioritaire retiré : l\'état-major regroupe de nouveau vers le plus menacé.' : 'Secteur prioritaire : l\'état-major y regroupe cette nuit, les blessés rétablis y rejoignent le front.'); fui.tool = null; }
+    return refreshFront();
+  }
   if (tool === 'reserve') {
     const i = pickNear(p, 'reserve');
     if (i < 0) { setHint('Touchez vos lignes ravitaillées.', true); return; }
@@ -761,6 +781,65 @@ function onTap(p) {
   refreshFront();
 }
 
+// Régiment motorisé à soi (en état) sous le doigt.
+function regimentNear(p) {
+  const f = fui.front, R = reach() * 1.4;
+  let best = null, bd = R;
+  for (const r of f.regiments ?? []) {
+    if (r.side !== fui.side || r.lost || r.engaged) continue;
+    const d = Math.hypot(r.x - p.x, r.y - p.y);
+    if (d < bd) { bd = d; best = r; }
+  }
+  return best;
+}
+
+const regimentEta = (f, r) => {
+  const d = regimentDays(f, r.cost ?? 0);
+  return d <= 1 ? 'arrive dans la journée' : `${Math.ceil(d)} jours de route`;
+};
+
+function selectRegiment(id) {
+  const f = fui.front, r = f.regiments?.find((x) => x.id === id);
+  if (!r || r.lost || r.engaged || f.phase !== 'plan') return;
+  fui.regSel = id;
+  fui.gun = null; fui.aaSel = null; fui.armor = null; fui.hqSel = false; fui.supSel = null;
+  fui.probe = null;
+  sound.ui('select');
+  setHint(`${r.name} · ${fmtMen(men(r.dens))}. Touchez sa destination dans vos lignes (il roule dans la journée, vite par la route) ; ou un point du front à moins de ${Math.round(REGIMENT.engage / 1.73)} cases pour l'engager.`);
+  refreshFront();
+}
+
+// Régiment sélectionné, appui sur la carte : tout près de lui, il s'engage là ; plus loin, il y roule.
+function regimentTap(p) {
+  const f = fui.front, s = fui.side;
+  const r = f.regiments.find((x) => x.id === fui.regSel);
+  if (!r) return cancelTool();
+  if (Math.hypot(p.x - r.x, p.y - r.y) <= REGIMENT.engage) return engageNow(r, p);
+  let to = { x: p.x, y: p.y };
+  const i = cellAtPoint(f, to);
+  if (i < 0 || f.owner[i] !== s || !f.supplied[s][i]) { const j = pickNear(p, 'reserve'); if (j >= 0) to = cellPoint(j); }
+  const res = setRegimentOrder(f, s, r.id, to);
+  if (!fail(res)) { placed(res.dest ? `${r.name} : en route, ${res.road ? 'par la route' : 'à travers champs'}, ${regimentEta(f, res)}.` : `${r.name} : reste en place.`); fui.regSel = null; }
+  refreshFront();
+}
+
+// Engagement d'un régiment au point p (par défaut : la case au contact la mieux garnie près de lui).
+function engageNow(r, p = null) {
+  const f = fui.front, s = fui.side;
+  let at = p;
+  if (!at) { const j = pickCell(f, s, { x: r.x, y: r.y }, 'push', REGIMENT.engage); at = j >= 0 ? cellPoint(j) : { x: r.x, y: r.y }; }
+  else if (f.owner[cellAtPoint(f, at)] !== s) { const j = pickNear(at, 'near'); if (j >= 0) at = cellPoint(j); }
+  const res = engageRegiment(f, s, r.id, at);
+  if (!fail(res)) {
+    placed(`${r.name} engagé : +${fmtMen(men(res.engaged.dens))} en ligne ; reconstitué au PC au matin du jour ${res.back}.`);
+    sound.teletype();
+    fui.regSel = null;
+    fui.probe = { ...cellPoint(res.engaged.i), r: 2.5 };
+    resnap();
+  }
+  refreshFront();
+}
+
 // Formation blindée à soi sous le doigt.
 function armorNear(p) {
   const f = fui.front, R = reach() * 1.6;
@@ -778,7 +857,7 @@ function selectArmor(id) {
   if (!a || a.lost || fui.front.phase !== 'plan') return;
   fui.tool = 'armor';
   fui.armor = id;
-  fui.gun = null; fui.aaSel = null; fui.hqSel = false; fui.supSel = null;
+  fui.gun = null; fui.aaSel = null; fui.hqSel = false; fui.supSel = null; fui.regSel = null;
   fui.probe = null;
   sound.ui('select');
   setHint(`${a.name} · ${Math.round(a.tanks)} chars · ${expLabel(a.exp).toLowerCase()} · carburant ${Math.round(a.fuel * 100)} %.`);
@@ -813,7 +892,7 @@ function selectSupport(id) {
   const b = fui.front.support?.find((x) => x.id === id);
   if (!b || b.lost || fui.front.phase !== 'plan') return;
   fui.supSel = id;
-  fui.gun = null; fui.aaSel = null; fui.armor = null; fui.hqSel = false;
+  fui.gun = null; fui.aaSel = null; fui.armor = null; fui.hqSel = false; fui.regSel = null;
   fui.probe = null;
   sound.ui('select');
   setHint(`${b.name} · ${b.kind === 'sapper' ? 'rase barbelés et obstacles ennemis à portée' : `${SUPPORT_LEVELS[b.level]} (jusqu'aux ${SUPPORT_LEVELS[b.max]})`}. Nouvelle position, de nuit : ${Math.round(SUPPORT.move / 1.73)} cases au plus.`);
@@ -831,7 +910,7 @@ function selectHQ() {
   const f = fui.front, h = f.hq?.[fui.side];
   if (!h || h.captured || f.phase !== 'plan') return;
   fui.hqSel = true;
-  fui.gun = null; fui.aaSel = null; fui.armor = null;
+  fui.gun = null; fui.aaSel = null; fui.armor = null; fui.regSel = null;
   fui.probe = null;
   sound.ui('select');
   setHint(`${h.name} · liaison ${Math.round(h.link * 100)} %. Nouvelle position : jusqu'à ${Math.round(HQ.hop / 1.73)} cases de nuit, plus loin de jour (désorganisé).`);
@@ -842,7 +921,7 @@ function selectAA(id) {
   const a = fui.front.aa.find((x) => x.id === id);
   if (!a || a.lost || fui.front.phase !== 'plan') return;
   fui.aaSel = id;
-  fui.gun = null;
+  fui.gun = null; fui.regSel = null;
   fui.probe = null;
   sound.ui('select');
   setHint(`${a.name} · DCA, ${Math.round(a.str * 100)} %. Nouvelle position (${Math.round(AIR.aaMove / 1.73)} cases au plus).`);
@@ -864,6 +943,7 @@ function selectGun(id) {
   const g = fui.front.guns.find((x) => x.id === id);
   if (!g || g.lost || fui.front.phase !== 'plan') return;
   fui.gun = id;
+  fui.regSel = null;
   fui.probe = null;
   sound.ui('select');
   setHint(`${g.name} · ${GUN_KINDS[g.kind].label}, portée ${Math.round(GUN_KINDS[g.kind].range / 1.73)} cases. Touchez sa destination.`);
@@ -1220,6 +1300,7 @@ function drawFront(t = 1) {
     aa: planning ? fui.aaSel : null,
     hq: planning && fui.hqSel,
     support: planning ? fui.supSel : null,
+    regiment: planning ? fui.regSel : null,
     probe: fui.probe,
     alerts: f.phase === 'resolve' ? fui.alerts : null,
   });
@@ -1336,6 +1417,7 @@ function used(tool) {
   }
   if (tool === 'line') return [f.lines[s].filter((l) => l.day === f.day).length, f.cfg.maxLines, f.lines[s].length >= 4];
   if (tool === 'air') return [f.air[s].length, sortiesToday(f, s)];
+  if (tool === 'priority') return [0, Infinity, false, 'flag'];
   if (tool === 'pontoon') return [f.pontoonOrders[s].length, Math.min(1, f.pontoons[s]), false, 'pontoon'];
   if (tool === 'salvo') return [f.salvos?.[s].length ?? 0, f.rockets?.[s].left ?? 0];
   if (tool === 'drop') return [f.drops?.[s].length ?? 0, f.paras?.[s].filter((p) => !p.used || f.drops[s].some((d) => d.id === p.used)).length ?? 0];
@@ -1366,6 +1448,7 @@ function renderTools() {
     const pool = men(f.reserve[fui.side]), rest = kind === 'pontoon' ? f.pontoons[fui.side] - n : max - n;
     const [badge, detail] = kind === 'engaged' ? [`${Math.round((f.engaged?.[fui.side] ?? 0) * 100)}%`, `${Math.round((f.engaged?.[fui.side] ?? 0) * 100)} % des troupes engagées`]
       : kind === 'pips' ? [pips(rest), `${rest} restant${rest > 1 ? 's' : ''}`]
+      : kind === 'flag' ? (f.priority?.[fui.side] != null ? ['✓', 'fanion posé ; touchez-le pour le retirer'] : ['', 'aucun fanion : l\'état-major renforce le plus menacé'])
       : max === Infinity ? [pool >= 1000 ? `${Math.floor(pool / 1000)}k` : `${Math.round(pool / 100) * 100}`, `${fmtMen(pool)} en réserve`]
       : [`${rest}`, `${rest} restant${rest > 1 ? 's' : ''}`];
     const nEl = b.querySelector('.tool-n');
@@ -1418,7 +1501,11 @@ function renderOrders() {
     ...(f.salvos?.[s] ?? []).map((o) => orderLine('Salve de lance-roquettes', 'au lever du jour', planning ? o.id : null)),
     ...(f.drops?.[s] ?? []).map((o) => orderLine('Parachutistes', `${fmtMen(men(o.dens))} · au lever du jour`, planning ? o.id : null)),
     ...f.air[s].map((m) => orderLine(m.kind === 'hunt' ? 'Chasse de batterie' : 'Appui aérien', m.kind === 'hunt' ? ((m.target.type === 'gun' ? f.guns : f.aa).find((x) => x.id === m.target.id)?.name ?? '') : 'fin de matinée', planning ? m.id : null)),
-    ...(f.nightMoves ?? []).filter((t) => t.side === s).map((t) => orderLine('Regroupement de l\'état-major', `${fmtMen(men(t.amount))} · ${t.road ? 'par la route' : 'à travers champs'} · cette nuit`, null)),
+    ...regimentOrders(f, s).map((o) => (o.kind === 'move'
+      ? orderLine(escHtml(o.r.name), `en route · ${o.r.road ? 'par la route' : 'à travers champs'} · ${regimentEta(f, o.r)}`, planning ? o.id : null)
+      : orderLine(`${escHtml(o.r.name)} engagé`, `+${fmtMen(men(o.r.engaged.dens))} en ligne · de retour au PC jour ${o.r.back}`, planning ? o.id : null))),
+    ...(f.priority?.[s] != null ? [`<li class="f-order"><span><b>Secteur prioritaire</b> <em>regroupement de nuit, blessés rétablis</em></span>${planning ? '<button class="btn btn-sm btn-x" id="f-prio-off" aria-label="Retirer : secteur prioritaire">✕</button>' : ''}</li>`] : []),
+    ...(f.nightMoves ?? []).filter((t) => t.side === s).map((t) => orderLine(t.priority ? 'Regroupement vers la priorité' : 'Regroupement de l\'état-major', `${fmtMen(men(t.amount))} · ${t.road ? 'par la route' : 'à travers champs'} · cette nuit`, null)),
   ];
   const guns = f.guns.filter((g) => g.side === s);
   const aaList = (f.aa ?? []).filter((a) => a.side === s);
@@ -1440,6 +1527,7 @@ function renderOrders() {
       </div>
       <p class="muted small">Réserves : ${fmtMen(men(f.reserve[s]))}${deployed ? ` · ${fmtMen(men(deployed))} montés en ligne ce matin` : ''}.</p>` : ''}
     ${hqHtml(f, s, planning)}
+    ${regimentHtml(f, s, planning)}
     ${supportHtml(f, s, planning)}
     ${armor.length ? `<h3 class="f-sub f-sub-art">Blindés</h3><ul class="f-guns">${armor.map((a) => armorItem(f, a, planning)).join('')}</ul>` : ''}
     ${aaList.length ? `<h3 class="f-sub f-sub-art">DCA</h3><ul class="f-guns">${aaList.map((a) => `<li class="f-gun${a.lost ? ' lost' : ''}${fui.aaSel === a.id ? ' sel' : ''}"><p>${a.lost ? `<b>${escHtml(a.name)}</b> · perdue` : `<button class="linkish" data-aa-sel="${a.id}" aria-pressed="${fui.aaSel === a.id}"><b>${escHtml(a.name)}</b></button> · ${Math.round(a.str * 100)} % · <em>${a.seen[1 - s] && f.clock - a.seen[1 - s].clock <= f.cfg.ticks ? 'repérée par l\'ennemi' : 'camouflée'}</em>`}</p></li>`).join('')}</ul>` : ''}
@@ -1456,6 +1544,15 @@ function renderOrders() {
   el.querySelectorAll('[data-sup-sel]').forEach((b) => b.addEventListener('click', () => (fui.supSel === Number(b.dataset.supSel) ? cancelTool() : selectSupport(Number(b.dataset.supSel)))));
   el.querySelectorAll('[data-sup-stay]').forEach((b) => b.addEventListener('click', () => { const r = moveSupport(f, s, Number(b.dataset.supStay), null); if (!fail(r)) placed(`${r.name} : reste en place.`); refreshFront(); }));
   byId('f-hq-sel')?.addEventListener('click', () => (fui.hqSel ? cancelTool() : selectHQ()));
+  el.querySelectorAll('[data-reg-sel]').forEach((b) => b.addEventListener('click', () => (fui.regSel === Number(b.dataset.regSel) ? cancelTool() : selectRegiment(Number(b.dataset.regSel)))));
+  el.querySelectorAll('[data-reg-engage]').forEach((b) => b.addEventListener('click', () => { const r = f.regiments.find((x) => x.id === Number(b.dataset.regEngage)); if (r) engageNow(r); }));
+  el.querySelectorAll('[data-reg-halt]').forEach((b) => b.addEventListener('click', () => { const r = setRegimentOrder(f, s, Number(b.dataset.regHalt), null); if (!fail(r)) placed(`${r.name} : halte, il reste en réserve.`); refreshFront(); }));
+  el.querySelectorAll('[data-reg-flag]').forEach((b) => b.addEventListener('click', () => {
+    const r = setRegimentOrder(f, s, Number(b.dataset.regFlag), cellPoint(f.priority[s]));
+    if (!fail(r)) placed(`${r.name} : en route vers le secteur prioritaire, ${regimentEta(f, r)}.`);
+    refreshFront();
+  }));
+  byId('f-prio-off')?.addEventListener('click', () => { setPriority(f, s, null); placed('Secteur prioritaire retiré.'); refreshFront(); });
   byId('f-hq-stay')?.addEventListener('click', () => { const r = moveHQ(f, s, null); if (!fail(r)) placed(`${r.name} : reste en place.`); refreshFront(); });
   el.querySelectorAll('[data-aa-sel]').forEach((b) => b.addEventListener('click', () => (fui.aaSel === Number(b.dataset.aaSel) ? cancelTool() : selectAA(Number(b.dataset.aaSel)))));
   el.querySelectorAll('[data-gun-sel]').forEach((b) => b.addEventListener('click', () => (fui.gun === Number(b.dataset.gunSel) ? cancelTool() : selectGun(Number(b.dataset.gunSel)))));
@@ -1475,6 +1572,27 @@ function supportHtml(f, s, planning) {
     <p>${planning ? `<button class="linkish" data-sup-sel="${b.id}" aria-pressed="${fui.supSel === b.id}"><b>${escHtml(b.name)}</b></button>` : `<b>${escHtml(b.name)}</b>`} · ${b.kind === 'sapper' ? `génie d'assaut, rayon de ${Math.round(b.r / 1.73)} cases` : `${SUPPORT_LEVELS[b.level]}${b.level < b.max ? ` (jusqu'aux ${SUPPORT_LEVELS[b.max]})` : ''}`} · <em>${b.dest ? 'se déplace cette nuit' : b.kind === 'sapper' ? `${b.cells.length} cases ennemies à portée` : `${b.cells.length} cases`}</em></p>
     ${planning && b.dest ? `<div class="seg"><button class="btn btn-sm" data-sup-stay="${b.id}">Rester en place</button></div>` : ''}
   </li>`).join('')}</ul>`;
+}
+
+// Les régiments motorisés dans le panneau : hommes, état ; le matin, engager, halte, vers le secteur prioritaire.
+function regimentHtml(f, s, planning) {
+  const list = (f.regiments ?? []).filter((r) => r.side === s);
+  if (!list.length) return '';
+  const flag = f.priority?.[s];
+  return `<h3 class="f-sub f-sub-art">Régiments motorisés</h3><ul class="f-guns">${list.map((r) => {
+    if (r.lost) return `<li class="f-gun lost"><p><b>${escHtml(r.name)}</b> · détruit</p></li>`;
+    if (r.engaged) {
+      const wait = f.day >= r.back ? `attend ${fmtMen(REGIMENT.men)} du pool logistique pour se reconstituer` : `reconstitué au PC au matin du jour ${r.back}`;
+      return `<li class="f-gun"><p><b>${escHtml(r.name)}</b> · <em>engagé ; ${wait}</em></p></li>`;
+    }
+    const sel = fui.regSel === r.id;
+    const state = r.dest ? (planning ? `en route, ${regimentEta(f, r)}` : 'en route') : 'en réserve';
+    const toFlag = flag != null && f.owner[flag] === s && f.supplied[s][flag] && r.dest?.cell !== flag && Math.hypot(f.centers.x[flag] - r.x, f.centers.y[flag] - r.y) > REGIMENT.engage;
+    return `<li class="f-gun${sel ? ' sel' : ''}">
+      <p>${planning ? `<button class="linkish" data-reg-sel="${r.id}" aria-pressed="${sel}"><b>${escHtml(r.name)}</b></button>` : `<b>${escHtml(r.name)}</b>`} · ${fmtMen(men(r.dens))} · <em>${state}</em></p>
+      ${planning ? `<div class="seg"><button class="btn btn-sm" data-reg-engage="${r.id}" title="Ses hommes montent en ligne autour de lui, au contact s'il y est">Engager</button>${toFlag ? `<button class="btn btn-sm" data-reg-flag="${r.id}">Vers la priorité</button>` : ''}${r.dest ? `<button class="btn btn-sm" data-reg-halt="${r.id}">Halte</button>` : ''}</div>` : ''}
+    </li>`;
+  }).join('')}</ul>`;
 }
 
 // Le poste de commandement dans le panneau : liaison, état, déplacement prévu.
@@ -1663,7 +1781,7 @@ function bind() {
   }));
   window.addEventListener('keydown', (e) => {
     if (!frontActive() || !byId('overlay').hidden || e.target.tagName === 'INPUT') return;
-    const keys = { r: 'salvo', R: 'salvo', l: 'drop', L: 'drop', 1: 'infantry', 2: 'armor', 3: 'retreat', 5: 'barrage', 6: 'reserve', 7: 'fix', 9: 'air', g: 'pontoon', G: 'pontoon' };
+    const keys = { r: 'salvo', R: 'salvo', l: 'drop', L: 'drop', 1: 'infantry', 2: 'armor', 3: 'retreat', 5: 'barrage', 6: 'reserve', 7: 'fix', 8: 'priority', 9: 'air', g: 'pontoon', G: 'pontoon' };
     if (keys[e.key]) setTool(keys[e.key]);
     else if (e.key === 'Escape') cancelTool();
     else if (e.key === 'Enter') { if (fui.front.phase === 'resolve') fui.skip = true; else launchDay(); }

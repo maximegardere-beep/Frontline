@@ -109,7 +109,7 @@ test('interface : chaque élément cherché par le contrôleur existe dans la pa
     const deck = readFileSync(`${root}src/frontdeck.js`, 'utf8'); // dossiers du tirage et de la bataille des airs
     for (const id of ids) assert.ok(html.includes(`id="${id}"`) || src.includes(`id="${id}"`) || deck.includes(`id="${id}"`), `#${id} (${file})`);
   }
-  for (const tool of ['infantry', 'armor', 'retreat', 'barrage', 'reserve']) assert.ok(html.includes(`data-tool="${tool}"`), tool);
+  for (const tool of ['infantry', 'armor', 'retreat', 'barrage', 'reserve', 'priority']) assert.ok(html.includes(`data-tool="${tool}"`), tool);
   assert.ok(!html.includes('data-tool="line"'), 'plus d\'outil « Ligne » : les ouvrages viennent des bataillons de soutien');
   assert.ok(!html.includes('data-tool="transfer"'), 'plus de transfert du joueur : seul l\'état-major regroupe la nuit');
 });
@@ -118,7 +118,7 @@ test('rails d\'ordres : Manœuvre et Renforts à gauche, Feux à droite, icônes
   const html = readFileSync(`${root}index.html`, 'utf8');
   const rail = (cls) => html.slice(html.indexOf(`order-rail ${cls}`), html.indexOf('order-rail', html.indexOf(`order-rail ${cls}`) + 12));
   const tools = (s) => [...s.matchAll(/data-tool="(\w+)"/g)].map((m) => m[1]);
-  assert.deepEqual(tools(rail('rail-l')), ['infantry', 'armor', 'fix', 'retreat', 'reserve', 'drop', 'pontoon']);
+  assert.deepEqual(tools(rail('rail-l')), ['infantry', 'armor', 'fix', 'retreat', 'reserve', 'priority', 'drop', 'pontoon']);
   assert.deepEqual(tools(rail('rail-r')), ['barrage', 'salvo', 'air']);
   for (const g of ['Manœuvre', 'Renforts', 'Feux']) assert.ok(html.includes(`role="group" aria-label="${g}"`), g);
   assert.ok(!html.includes('order-bar') && !html.includes('tool-l'), 'plus de barre du bas ni d\'étiquettes');

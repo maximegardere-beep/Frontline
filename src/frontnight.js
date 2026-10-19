@@ -6,6 +6,7 @@
 
 import { staffBlocked } from './fronthq.js';
 import { bfsDistance } from './path.js';
+import { priorityCell } from './frontregiment.js';
 
 export const NIGHT = {
   reach: 6, // coût de marche d'une nuit (une case de steppe = 1, de route = 0,25)
@@ -16,12 +17,14 @@ export const NIGHT = {
   radius: 2, // cases autour du départ et de l'arrivée
   auto: [1, 2], // transferts de l'état-major par nuit : camp du joueur, camp de l'IA
   band: 8, // lignes de carte par secteur (état-major)
+  spare: 1, // vers le secteur prioritaire : on ne prélève que là où l'on tient au moins à égalité (menace < spare)
 };
 
 let nextTransferId = 1;
 
-// Chemin de marche de la case a à la case b dans les lignes du camp s : { cells, cost, road } ou null.
-export function transferPath(front, s, a, b) {
+// Chemin de marche de la case a à la case b dans les lignes du camp s : { cells, cost, road } ou null. maxCost : coût
+// au-delà duquel on cesse de chercher (une nuit par défaut ; les régiments motorisés roulent plusieurs jours).
+export function transferPath(front, s, a, b, maxCost = NIGHT.reach * 2) {
   const { N, nb } = front.map;
   if (front.owner[a] !== s || front.owner[b] !== s) return null;
   const dist = new Float64Array(N).fill(Infinity), prev = new Int32Array(N).fill(-1);
@@ -56,7 +59,7 @@ export function transferPath(front, s, a, b) {
     const [d, k] = pop();
     if (d > dist[k]) continue;
     if (k === b) break;
-    if (d > NIGHT.reach * 2) break; // inutile de chercher bien au-delà d'une nuit
+    if (d > maxCost) break; // inutile de chercher bien au-delà
     for (let q = 0; q < 6; q++) {
       const j = nb[k * 6 + q];
       if (j < 0 || front.owner[j] !== s || front.map.flow[j] <= 0) continue;
@@ -103,6 +106,9 @@ export function moveTroops(front, s, a, b, { want = Infinity } = {}) {
 
 // La nuit : l'état-major de chaque camp prélève sur son secteur le plus calme pour renforcer le plus menacé.
 // Secteurs : bandes de NIGHT.band lignes ; menace = densité ennemie connue au contact / nos troupes au contact.
+// Secteur prioritaire (fanion, frontregiment.js) : le premier regroupement va vers lui, quelle que soit la menace,
+// pris sur le secteur le plus calme qu'une nuit de marche relie (où l'on tient au moins à égalité) ; les suivants,
+// vers les plus menacés.
 export function staffNight(front) {
   const { W, H, N, nb } = front.map;
   front.nightMoves = [];
@@ -133,10 +139,23 @@ export function staffNight(front) {
           if (contact[i] && (dst < 0 || Math.abs(row - (b0 + NIGHT.band / 2)) < Math.abs(Math.floor(dst / W) - (b0 + NIGHT.band / 2)))) dst = i;
         }
       }
-      if (own > 0 && src >= 0 && dst >= 0) bands.push({ ratio: foe / own, src, dst, own });
+      if (own > 0 && src >= 0 && dst >= 0) bands.push({ ratio: foe / own, src, dst, own, b0 });
     }
     bands.sort((a, b) => b.ratio - a.ratio);
     let made = 0;
+    const flag = priorityCell(front, s);
+    if (flag >= 0) {
+      const row = Math.floor(flag / W);
+      for (const calm of [...bands].reverse()) {
+        if (calm.ratio >= NIGHT.spare || (row >= calm.b0 && row < calm.b0 + NIGHT.band)) continue;
+        const t = moveTroops(front, s, calm.src, flag);
+        if (t.error) continue;
+        t.priority = true;
+        front.nightMoves.push(t);
+        made++;
+        break;
+      }
+    }
     for (const hot of bands) {
       if (made >= n || hot.ratio < 0.7) break;
       // Le secteur le plus calme qu'une nuit de marche permet d'atteindre.

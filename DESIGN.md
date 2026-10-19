@@ -552,11 +552,51 @@ densités. Le moteur garde des points d'accroche pour cela.
   son secteur le plus calme pour le plus menacé (bandes de 8 lignes ; menace = densité ennemie connue au contact / nos
   troupes au contact, à partir de 0,7). Pas sans PC en état (`staffBlocked`). Notés dans `front.nightMoves`.
 - Le joueur n'a plus d'outil « Transfert » (ancienne touche 8) : redondant avec les vecteurs et les réserves, il
-  chargeait la barre d'ordres. Le regroupement reste l'affaire de l'état-major.
+  chargeait la barre d'ordres. Le regroupement reste l'affaire de l'état-major ; le joueur l'oriente par le secteur
+  prioritaire, et dispose de régiments motorisés (voir plus bas).
 - Rendu : le matin, flèche le long du chemin (épaisse par la route, pointillée à travers champs), « −N h » au départ et
   « +N h · état-major » à l'arrivée ; la ligne « Regroupement de l'état-major » dans l'onglet Ordres.
 - Mesure (42 batailles IA contre IA) : 8 regroupements de l'état-major par bataille et par carte en moyenne, la moitié
   par la route ; équilibre inchangé (attaquant 15, défenseur 17).
+
+### Régiments motorisés et secteur prioritaire
+
+Remplacent le transfert manuel du joueur (retiré) : une réserve mobile qu'on voit rouler, et une façon d'orienter
+l'état-major sans micro-gestion.
+- `frontregiment.js`. Régiments : `cfg.regiments` par camp (2 en 1941-1942, 3 en 1943-1944 ; `FRONT_SETUP` = 1943),
+  600 hommes chacun (`REGIMENT.men / cfg.men` de densité), retirés de la répartition initiale (`cfg.troops` reste le
+  total ; `front.initial` les compte). Rassemblés près du PC, sur une route si possible ; placés au déploiement comme
+  le PC (`placeable`, `placeUnit`, sorte `regiment`). Noms : « Schützen-Rgt. (mot.) N », « Rgt. de fusiliers
+  motorisés N ».
+- Marche : ordre du matin vers une case à soi ravitaillée ; chemin par nos cases (`transferPath` de `frontnight.js`,
+  coût maximal paramétrable), route 0,25 par case, champs 1 / fluidité. Budget de 0,45 par tick (× la vitesse blindée
+  de la météo) : ~40 cases par jour sur route, ~10 à travers champs ; la destination reste d'un jour à l'autre ; chemin
+  recalculé si le front le coupe, halte s'il n'y en a plus.
+- Engagement (le matin, immédiat, comme les réserves) : à moins de 5,3 unités (~3 cases) du régiment ; la densité est
+  versée par `spreadMen` (la répartition de `deployReserve`, factorisée), sur 3 cases par nos lignes. Le pion disparaît,
+  `back = jour + 2` : la nuit du jour `back − 1`, il revient près du PC en prenant 600 hommes au pool (il attend si le
+  pool n'y suffit pas). Annulable le matin (✕ dans l'onglet Ordres). Le plafond des troupes engagées ne s'applique
+  qu'aux vecteurs : comme les réserves, un régiment engagé n'y compte pas.
+- Vulnérabilité : frappe aérienne ennemie (zone + 0,6) : 12 % de ses hommes par tick de frappe à pleine puissance, et
+  il est repéré ; case prise : détruit, un tiers des hommes dans la case amie voisine, le reste en pertes (comptées
+  comme pertes en poche pour le score). Brouillard : vu comme les blindés (case en vue, mémoire d'un jour).
+- Secteur prioritaire : `front.priority[s]`, une case. `staffNight` fait d'abord un regroupement vers le fanion, pris
+  sur le secteur le plus calme qui le relie en une nuit et où l'on tient au moins à égalité (menace < 1), puis les
+  suivants comme avant (le joueur n'en a qu'un : il remplace celui du secteur le plus menacé). Les blessés rétablis
+  de la nuit (20 % des pertes) vont autour du fanion jusqu'à 40 de densité (400 h), le reste au pool. Le fanion
+  tombe si sa case est perdue.
+- IA (`planRegiments`, sans tirage au sort) : fanion sur la première attaque de l'attaquant, sinon sur le secteur le
+  plus menacé ; régiments : un régiment à portée d'un secteur qui craque (tenue < 0,45) ou de l'effort principal de
+  l'attaquant s'y engage (un par secteur et par jour), les autres roulent se poster 3 unités derrière ; l'aviation
+  vise aussi les régiments ennemis repérés.
+- Interface : outil Priorité (`8`, fanion) dans le groupe Renforts ; régiment sélectionné en touchant son pion ou son
+  nom dans le panneau (« Régiments motorisés » : Engager, Halte, Vers la priorité) ; trajet prévu en tirets jaunes,
+  route surlignée, rayon d'engagement ; dans la journée, la colonne roule d'une case à l'autre dans sa poussière.
+- Équilibre (IA contre IA) : seuil d'engagement de l'IA abaissé de 0,6 à 0,45, sans quoi le défenseur, qui colmate
+  plus vite, gagnait 3 à 7 points. Mesures avant / après (attaquant / défenseur / nuls) : `front-sim 120` 25 / 63 / 12
+  → 23 / 68 / 9 ; `front-pool 50` (150 batailles) 21 / 68 / 11 → 25 / 68 / 7, et sur d'autres graines 30 / 60 / 10
+  → 30 / 57 / 13. Banc de calibrage inchangé à l'arrondi près (régiments immobiles sans IA, 3 % de troupes en moins
+  sur la ligne).
 
 ### Aviation et DCA
 

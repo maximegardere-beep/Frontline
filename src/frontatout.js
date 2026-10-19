@@ -349,13 +349,15 @@ export function autoConfirm(front, s) {
   return confirmAtouts(front, s, chooseCards(front, s, A.hands[s], ATOUT_RULES.keep[A.round]).map((c) => c.id));
 }
 
-// Unités que le camp s peut encore placer : celles du dernier tirage (et son PC avant la bataille).
+// Unités que le camp s peut encore placer : celles du dernier tirage (et, avant la bataille, son PC et ses régiments
+// motorisés).
 export function placeable(front, s) {
   if (!front.placing?.[s]) return [];
   const r = front.atouts?.round ?? 0;
   const mine = (u) => u.side === s && !u.lost && (u.round ?? 0) === r;
   const out = [];
   if (r === 0 && front.hq?.[s]) out.push({ kind: 'hq', id: 0, u: front.hq[s], label: front.hq[s].name });
+  if (r === 0) for (const g of front.regiments ?? []) if (g.side === s && !g.lost && !g.engaged) out.push({ kind: 'regiment', id: g.id, u: g, label: g.name });
   for (const a of front.armor) if (mine(a)) out.push({ kind: 'armor', id: a.id, u: a, label: a.name });
   for (const g of front.guns) if (mine(g)) out.push({ kind: 'gun', id: g.id, u: g, label: g.name });
   for (const a of front.aa) if (mine(a)) out.push({ kind: 'aa', id: a.id, u: a, label: a.name });
@@ -373,6 +375,7 @@ export function placeUnit(front, s, kind, id, p) {
   const i = h.col < 0 || h.row < 0 || h.col >= W || h.row >= H ? -1 : h.row * W + h.col;
   if (i < 0 || front.owner[i] !== s || front.map.flow[i] <= 0 || !front.supplied[s][i]) return { error: 'Posez-la dans vos lignes, en terrain praticable.' };
   if (kind === 'armor' && front.map.flowA[i] <= 0.3) return { error: 'Terrain impraticable pour des blindés.' };
+  if (kind === 'regiment' && front.map.flowA[i] <= 0.3) return { error: 'Terrain impraticable pour des camions.' };
   const u = item.u;
   u.x = front.centers.x[i]; u.y = front.centers.y[i];
   if ('cell' in u) u.cell = i;
